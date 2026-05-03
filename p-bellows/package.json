@@ -1,0 +1,13 @@
+{
+  "name": "prominence-bellows",
+  "version": "0.1.0",
+  "description": "Token usage watcher for Prominence — scrapes claude.ai/settings/usage and writes STOP.json",
+  "private": true,
+  "scripts": {
+    "once": "node watch-once.js",
+    "loop": "node watch-loop.js"
+  },
+  "dependencies": {
+    "puppeteer": "^23.0.0"
+  }
+}
