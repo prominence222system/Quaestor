@@ -2,13 +2,10 @@
 const fs = require('fs');
 const path = require('path');
 const { scrapeUsage } = require('./lib/scrape');
+const { readConfig } = require('./lib/config');
 
-const PROFILE_DIR      = path.resolve(process.env.BELLOWS_PROFILE_DIR || './.profile');
-const INTERVAL_MIN     = parseInt(process.env.BELLOWS_INTERVAL_MIN || '15', 10);
-const WEEKLY_STOP      = parseInt(process.env.BELLOWS_WEEKLY_STOP || '85', 10);
-const WEEKLY_RELEASE   = parseInt(process.env.BELLOWS_WEEKLY_RELEASE || '70', 10);
-const SESSION_STOP     = parseInt(process.env.BELLOWS_SESSION_STOP || '90', 10);
-const SESSION_RELEASE  = parseInt(process.env.BELLOWS_SESSION_RELEASE || '75', 10);
+const PROFILE_DIR  = path.resolve(process.env.BELLOWS_PROFILE_DIR || './.profile');
+const INTERVAL_MIN = parseInt(process.env.BELLOWS_INTERVAL_MIN || '15', 10);
 
 function resolveStopDir() {
   const candidates = [
@@ -30,8 +27,9 @@ if (!STOP_DIR) {
   console.error('[bellows] no Synology root found (D: or F:)');
   process.exit(1);
 }
-const LOG_PATH  = path.join(STOP_DIR, 'bellows.log');
-const STOP_PATH = path.join(STOP_DIR, 'STOP.json');
+const LOG_PATH   = path.join(STOP_DIR, 'bellows.log');
+const STOP_PATH  = path.join(STOP_DIR, 'STOP.json');
+const CONFIG_PATH = path.join(STOP_DIR, 'bellows-config.json');
 
 function log(msg) {
   const ts = new Date().toISOString();
@@ -49,12 +47,12 @@ function writeStopJsonAtomic(obj) {
   fs.renameSync(tmp, STOP_PATH);
 }
 
-function deriveDesired(usage) {
+function deriveDesired(usage, t) {
   const wp = usage.weekly_pct, sp = usage.session_pct;
-  const weeklyOver  = wp >= WEEKLY_STOP;
-  const sessionOver = sp >= SESSION_STOP;
-  const weeklyOk    = wp <  WEEKLY_RELEASE;
-  const sessionOk   = sp <  SESSION_RELEASE;
+  const weeklyOver  = wp >= t.weekly_stop;
+  const sessionOver = sp >= t.session_stop;
+  const weeklyOk    = wp <  t.weekly_release;
+  const sessionOk   = sp <  t.session_release;
   if (weeklyOver || sessionOver) {
     let reason;
     if (weeklyOver && sessionOver) reason = 'both';
@@ -76,6 +74,14 @@ function isValidUsage(u) {
 }
 
 async function pollOnce() {
+  const cfg = readConfig(CONFIG_PATH);
+  if (cfg._parseError) {
+    log('[config] parse error, using defaults: ' + cfg._parseError);
+  }
+  if (cfg._expired) {
+    log('[config] expires_at past, using defaults');
+  }
+
   log('[poll start]');
   let usage = null;
   try {
@@ -91,11 +97,22 @@ async function pollOnce() {
   log('session=' + usage.session_pct + '% weekly=' + usage.weekly_pct + '%');
 
   const existing = readStopJson();
+
+  // if config disabled, skip threshold check + remove auto STOP if any
+  if (!cfg.enabled) {
+    log('[config] disabled, skipping threshold check');
+    if (existing && existing.source === 'auto') {
+      try { fs.unlinkSync(STOP_PATH); log('[config] removed auto STOP.json (disabled)'); }
+      catch (e) { log('[config] remove failed: ' + e.message); }
+    }
+    return;
+  }
+
   if (existing && existing.source === 'manual') {
     log('[stop] manual STOP active, skip auto');
     return;
   }
-  const desired = deriveDesired(usage);
+  const desired = deriveDesired(usage, cfg.thresholds);
   if (desired.state === 'stop') {
     if (existing
         && existing.source === 'auto'
@@ -104,18 +121,18 @@ async function pollOnce() {
       return;
     }
     writeStopJsonAtomic({
-      "source":        'auto',
-      "reason":        desired.reason,
-      "weekly_pct":    usage.weekly_pct,
-      "session_pct":   usage.session_pct,
-      "weekly_reset":  usage.weekly_reset,
-      "session_reset": usage.session_reset,
-      "created_at":    new Date().toISOString(),
-      "thresholds": {
-        "weekly_stop":     WEEKLY_STOP,
-        "weekly_release":  WEEKLY_RELEASE,
-        "session_stop":    SESSION_STOP,
-        "session_release": SESSION_RELEASE
+      source:        'auto',
+      reason:        desired.reason,
+      weekly_pct:    usage.weekly_pct,
+      session_pct:   usage.session_pct,
+      weekly_reset:  usage.weekly_reset,
+      session_reset: usage.session_reset,
+      created_at:    new Date().toISOString(),
+      thresholds: {
+        weekly_stop:     cfg.thresholds.weekly_stop,
+        weekly_release:  cfg.thresholds.weekly_release,
+        session_stop:    cfg.thresholds.session_stop,
+        session_release: cfg.thresholds.session_release
       }
     });
     log('[stop] STOP.json written (reason=' + desired.reason + ')');
@@ -131,7 +148,7 @@ async function pollOnce() {
 }
 
 (async () => {
-  log('[start] bellows watcher. interval=' + INTERVAL_MIN + 'm thresholds=W' + WEEKLY_STOP + '/' + WEEKLY_RELEASE + ' S' + SESSION_STOP + '/' + SESSION_RELEASE);
+  log('[start] bellows watcher. interval=' + INTERVAL_MIN + 'm config=' + CONFIG_PATH);
   while (true) {
     try { await pollOnce(); }
     catch (e) { log('[poll uncaught] ' + e.message); }
