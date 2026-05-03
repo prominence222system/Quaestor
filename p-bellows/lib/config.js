@@ -53,6 +53,9 @@ function readConfig(configPath) {
   } catch (e) {
     return base;
   }
+  // Strip UTF-8 BOM if present (PowerShell 5.1 Set-Content -Encoding utf8 writes BOM)
+  if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1);
+
   let parsed;
   try {
     parsed = JSON.parse(raw);
