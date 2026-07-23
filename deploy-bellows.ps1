@@ -8,8 +8,8 @@ $ErrorActionPreference = 'Stop'
 
 # Find Synology source
 $candidates = @(
-  'D:\SynologyDrive\Obsidian\Automatic\1. Project\Prominence-Bellows',
-  'F:\SynologyDrive\Obsidian\Automatic\1. Project\Prominence-Bellows'
+  'D:\SynologyDrive\Obsidian\Automatic\1. Project\tools\Prominence-Bellows',
+  'F:\SynologyDrive\Obsidian\Automatic\1. Project\tools\Prominence-Bellows'
 )
 $SrcRoot = $null
 foreach ($c in $candidates) { if (Test-Path $c) { $SrcRoot = $c; break } }
