@@ -4,6 +4,7 @@ const path = require('path');
 const { scrapeUsage } = require('./lib/scrape');
 const { readConfig } = require('./lib/config');
 const { createObservation, recordSuccess, recordFailure } = require('./lib/observation');
+const { startControlServer } = require('./lib/control-server');
 
 const PROFILE_DIR  = path.resolve(process.env.BELLOWS_PROFILE_DIR || './.profile');
 const INTERVAL_MIN = parseInt(process.env.BELLOWS_INTERVAL_MIN || '15', 10);
@@ -33,6 +34,13 @@ const STOP_PATH  = path.join(STOP_DIR, 'STOP.json');
 const CONFIG_PATH = path.join(STOP_DIR, 'bellows-config.json');
 
 let observation = createObservation();
+// Control-server snapshot source -- the ctx half of deriveState() that
+// pollOnce() reads but never persists anywhere. See output/DESIGN.md
+// section 9-4(a). lastStop is populated from the readStopJson()/write/
+// unlink calls pollOnce() already makes -- no new file I/O is added here.
+let lastCfg = null;
+let lastStop = null;
+let lastConfigSource = 'default';
 
 function log(msg) {
   const ts = new Date().toISOString();
@@ -78,6 +86,8 @@ function isValidUsage(u) {
 
 async function pollOnce() {
   const cfg = readConfig(CONFIG_PATH);
+  lastCfg = cfg;
+  lastConfigSource = (fs.existsSync(CONFIG_PATH) && !cfg._parseError && !cfg._expired) ? 'file' : 'default';
   if (cfg._parseError) {
     log('[config] parse error, using defaults: ' + cfg._parseError);
   }
@@ -105,12 +115,13 @@ async function pollOnce() {
   observation = recordSuccess(observation, usage, Date.now());
 
   const existing = readStopJson();
+  lastStop = existing;
 
   // if config disabled, skip threshold check + remove auto STOP if any
   if (!cfg.enabled) {
     log('[config] disabled, skipping threshold check');
     if (existing && existing.source === 'auto') {
-      try { fs.unlinkSync(STOP_PATH); log('[config] removed auto STOP.json (disabled)'); }
+      try { fs.unlinkSync(STOP_PATH); log('[config] removed auto STOP.json (disabled)'); lastStop = null; }
       catch (e) { log('[config] remove failed: ' + e.message); }
     }
     return;
@@ -128,7 +139,7 @@ async function pollOnce() {
       log('[stop] holding STOP (reason=' + desired.reason + ', no rewrite)');
       return;
     }
-    writeStopJsonAtomic({
+    const stopRecord = {
       source:        'auto',
       reason:        desired.reason,
       weekly_pct:    usage.weekly_pct,
@@ -142,11 +153,13 @@ async function pollOnce() {
         session_stop:    cfg.thresholds.session_stop,
         session_release: cfg.thresholds.session_release
       }
-    });
+    };
+    writeStopJsonAtomic(stopRecord);
+    lastStop = stopRecord;
     log('[stop] STOP.json written (reason=' + desired.reason + ')');
   } else if (desired.state === 'release') {
     if (existing && existing.source === 'auto') {
-      try { fs.unlinkSync(STOP_PATH); log('[release] STOP.json removed (recovered)'); }
+      try { fs.unlinkSync(STOP_PATH); log('[release] STOP.json removed (recovered)'); lastStop = null; }
       catch (e) { log('[release error] ' + e.message); }
     }
     // else: no STOP, nothing to do
@@ -155,8 +168,46 @@ async function pollOnce() {
   }
 }
 
+// Snapshot source for lib/control-server.js. [SPEC] no I/O here -- reads
+// only in-memory module variables that pollOnce() already keeps current.
+// Must stay a live closure (not a value captured once at startup) so
+// GET /api/status always reflects the latest poll, not the state at
+// server-start time.
+function controlSnapshot() {
+  return {
+    observation: observation,
+    ctx: {
+      enabled:      lastCfg ? lastCfg.enabled : true,
+      thresholds:   lastCfg ? lastCfg.thresholds : undefined,
+      stop:         lastStop,
+      configSource: lastConfigSource
+    }
+  };
+}
+
 async function mainLoop() {
   log('[start] bellows watcher. interval=' + INTERVAL_MIN + 'm config=' + CONFIG_PATH);
+
+  // Control HTTP surface is a bonus, not the product -- the watch loop
+  // below must run whether or not this succeeds. [SPEC] never-brick:
+  // startControlServer() itself never rejects, but the try/catch here is
+  // deliberate double protection against a require-time regression or a
+  // synchronous throw from an injected callback (see output/DESIGN.md D4/C2).
+  try {
+    const cfg0 = readConfig(CONFIG_PATH);
+    const r = await startControlServer({
+      port:        cfg0.control.port,
+      authToken:   cfg0.control.authToken,
+      getSnapshot: controlSnapshot,
+      onLog:       log
+    });
+    if (!r.started) {
+      log('[control] listen failed: ' + r.error);
+    }
+  } catch (e) {
+    log('[control] listen failed: ' + e.message);
+  }
+
   while (true) {
     try { await pollOnce(); }
     catch (e) { log('[poll uncaught] ' + e.message); }

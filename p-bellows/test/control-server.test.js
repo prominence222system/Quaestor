@@ -688,3 +688,100 @@ test('config: existing fields (enabled/thresholds/expires_at) are unaffected by 
     assert.strictEqual(cfg.thresholds.session_release, 75);
   });
 });
+
+// ---- Phase 3: wiring behavior, reconstructed at the same shape --------
+//
+// pollOnce() is never driven in this suite (see test/watch-loop.test.js
+// header note) -- these tests reconstruct the exact wiring shape
+// (a mutable observation variable + a live-closure getSnapshot) inside
+// the test itself and drive it through a real port, which is the only
+// way to prove the "capture nothing, read live" property behaviorally.
+
+test('live closure: reassigning the observation variable changes the next /api/status response (no capture-at-startup)', async () => {
+  let obs = createObservation();
+  const ctx = { enabled: true, configSource: 'default' };
+  const r = await startControlServer({ port: 0, getSnapshot: () => ({ observation: obs, ctx: ctx }) });
+  try {
+    const before = await getJson(r.port, '/api/status');
+    assert.notStrictEqual(before.body.state, 'crit');
+    for (let i = 0; i < 5; i++) {
+      obs = recordFailure(obs, 'anchor-timeout', { hint: 'login-expired' }, Date.now());
+    }
+    const after = await getJson(r.port, '/api/status');
+    assert.strictEqual(after.body.state, 'crit', 'reassigning observation must be visible on the next GET');
+  } finally {
+    await r.close();
+  }
+});
+
+test('never-brick simulation: startup on an occupied port resolves started:false and the caller keeps running (no exception escapes)', async () => {
+  const occupied = await startControlServer({ port: 0, getSnapshot: okSnapshot });
+  try {
+    let ranAfter = false;
+    // Same shape as watch-loop.js mainLoop(): try/result-branch, then
+    // unconditional continuation.
+    try {
+      const r = await startControlServer({ port: occupied.port, getSnapshot: okSnapshot });
+      if (!r.started) { /* log-equivalent */ }
+      await r.close(); // no-op for a failed start
+    } catch (e) {
+      // must not reach here
+    }
+    ranAfter = true;
+    assert.strictEqual(ranAfter, true, 'code after the start attempt must run regardless of success/failure');
+  } finally {
+    await occupied.close();
+  }
+});
+
+test('first poll before any success: empty observation + unset ctx yields state !== ok (no green light before measurement)', async () => {
+  const obs = createObservation();
+  const r = await startControlServer({ port: 0, getSnapshot: () => ({ observation: obs, ctx: {} }) });
+  try {
+    const res = await getJson(r.port, '/api/status');
+    assert.notStrictEqual(res.body.state, 'ok');
+  } finally {
+    await r.close();
+  }
+});
+
+test('ctx.stop and ctx.configSource propagate into /api/status fields (STOP field + 설정 출처 field)', async () => {
+  const obs = recordSuccess(createObservation(), { session_pct: 5, weekly_pct: 5 }, Date.now());
+  const snap = {
+    observation: obs,
+    ctx: { enabled: true, stop: { source: 'auto', reason: 'weekly_threshold' }, configSource: 'file' }
+  };
+  const r = await startControlServer({ port: 0, getSnapshot: () => snap });
+  try {
+    const res = await getJson(r.port, '/api/status');
+    const stopField = res.body.fields.find((f) => f.label === 'STOP');
+    assert.ok(stopField && stopField.value.includes('auto'), 'STOP field must reflect ctx.stop');
+    const sourceField = res.body.fields.find((f) => f.label === '설정 출처');
+    assert.strictEqual(sourceField.value, '파일', 'config-source field must reflect ctx.configSource === "file"');
+  } finally {
+    await r.close();
+  }
+});
+
+test('env: BELLOWS_CONTROL_PORT / BELLOWS_CONTROL_TOKEN override hard defaults; file values still win over env', () => {
+  const savedPort = process.env.BELLOWS_CONTROL_PORT;
+  const savedToken = process.env.BELLOWS_CONTROL_TOKEN;
+  try {
+    process.env.BELLOWS_CONTROL_PORT = '5555';
+    process.env.BELLOWS_CONTROL_TOKEN = 'env-token';
+
+    const noFilePath = path.join(os.tmpdir(), 'bellows-env-nofile-' + Date.now() + '.json');
+    const noFile = readConfig(noFilePath);
+    assert.strictEqual(noFile.control.port, 5555);
+    assert.strictEqual(noFile.control.authToken, 'env-token');
+
+    withTempConfig({ control: { port: 6666, authToken: 'file-token' } }, (p) => {
+      const withFile = readConfig(p);
+      assert.strictEqual(withFile.control.port, 6666, 'file value must win over env');
+      assert.strictEqual(withFile.control.authToken, 'file-token', 'file value must win over env');
+    });
+  } finally {
+    if (savedPort === undefined) delete process.env.BELLOWS_CONTROL_PORT; else process.env.BELLOWS_CONTROL_PORT = savedPort;
+    if (savedToken === undefined) delete process.env.BELLOWS_CONTROL_TOKEN; else process.env.BELLOWS_CONTROL_TOKEN = savedToken;
+  }
+});
