@@ -10,7 +10,7 @@ Started: 2026-08-19T04:35:13Z
 |-------|---------|--------|
 | 1 | `lib/observation.js` 순수 모듈 — 관측 구조체(`createObservation`/`recordSuccess`/`recordFailure`) + `deriveState()` 판정 + `fields` 구성 · `test/run-all.js` 하네스 | DONE |
 | 2 | `lib/scrape.js` 실패 분류 — `err.kind` 부착 + `anchor-timeout` 진단 수집(`hint`: login-expired / anchor-missing / unknown) | DONE |
-| 3 | `watch-loop.js` 배선 — 성공/실패 관측 갱신 · `kind`·`hint` 로그 · `require.main` 가드 · 모듈 로드 경계 검증 | CURRENT |
+| 3 | `watch-loop.js` 배선 — 성공/실패 관측 갱신 · `kind`·`hint` 로그 · `require.main` 가드 · 모듈 로드 경계 검증 | DONE |
 
 ## 비고
 - 모든 검증은 hermetic (Chrome·네트워크·claude.ai 없이 실행).

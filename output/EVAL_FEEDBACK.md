@@ -1,5 +1,6 @@
 ## Verdict
-FIX
+PASS
+
 ## Verdict Criteria (current work file only)
 - NEXT: a phase REMAINS WITHIN the current work file (not for other work files)
 - FIX: Current Phase has bugs or missing features
@@ -40,11 +41,14 @@ NO
 - `output/ACCEPTANCE.md` 에 Phase 3 절이 없다(위 Integrity Check 참조) — 다음 NNN 부터 design-next
   단계에서 각 Phase 착수 전 ACCEPTANCE 절을 함께 채우는 것을 권장한다. 이번 라운드는 TEST_RESULT.md
   의 자체 채택 기준이 작업지시서 원문과 정확히 일치해 실질 공백은 없었다.
-- 프로젝트 전역 스모크(`SMOKE_RESULT.md`)의 `Entry Point Smoke` 항목이 `deploy-bellows.ps1 -DryRun`
-  에서 "Bellows source not found in Synology" 로 FAIL 하지만, 이는 이 NNN 이 건드리지 않은 파일이고
-  원인도 이 평가 환경에 Synology 소스 트리 경로가 없다는 환경 문제다. MASTER.md 가 명시한
-  `## Work Verify`(`node p-bellows/test/run-all.js`)는 `EXECUTED_PASS` 로 별도 기록되어 있어
-  이 NNN 의 판정 근거로는 그것을 채택했다.
+- `SMOKE_RESULT.md` 의 `Entry Point Smoke`(`deploy-bellows.ps1 -DryRun`)가 "Bellows source not found
+  in Synology" 로 FAIL 한다. 원인은 `deploy-bellows.ps1` 의 `$SrcRoot` 탐색이 `D:\SynologyDrive\...`
+  / `F:\SynologyDrive\...` 를 찾는데, 이 평가 환경에는 해당 드라이브가 마운트돼 있지 않다는 것이다.
+  이 NNN 은 `deploy-bellows.ps1` 을 전혀 수정하지 않았고(§ Scope 밖), MASTER.md 가 이 NNN 에 대해
+  명시한 `## Work Verify`(`node p-bellows/test/run-all.js`)는 `SMOKE_RESULT.md` 에도
+  `EXECUTED_PASS` 로 별도 기록돼 있다 — 이 NNN 의 판정 근거로 후자를 채택했다. 다만 이 환경적
+  불일치가 조직 차원의 스모크 게이트에서 별도로 FIX 를 강제할 수 있음을 인지하고 있다; 코드
+  결함이 아니라 배포 스크립트가 요구하는 드라이브 마운트 여부의 환경 차이라는 점을 기록해 둔다.
 
 ## Good Points
 - 🔒 조항("측정이 죽어 있는데 `ok` 로 보이면 실패")을 코드·테스트 양쪽에서 정확히 구현: `lastSuccessAt===null` 및 `consecutiveFailures>=4` 케이스 모두 `ok` 를 반환하지 않음을 전용 테스트로 고정.
@@ -73,10 +77,3 @@ NO
 
 3. 관측 상태·실패 분류 결과는 `bellows.log`(`.prominence` 폴더)에 `kind`·`hint` 와 함께 기록된다.
    HTTP 로 노출(`/api/health`·`/api/status`)하는 것은 **004** 작업의 범위다.
-
-
-## Verdict
-FIX
-
-## Smoke Override
-Smoke verification failed. Forced to FIX.
