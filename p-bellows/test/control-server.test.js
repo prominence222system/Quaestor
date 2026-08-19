@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const os = require('node:os');
+const net = require('node:net');
 
 const { startControlServer, HOST, DEFAULT_PORT, SERVICE_ID } = require('../lib/control-server');
 const { createObservation, recordFailure, recordSuccess, deriveState } = require('../lib/observation');
@@ -835,4 +836,351 @@ test('env: BELLOWS_CONTROL_PORT / BELLOWS_CONTROL_TOKEN override hard defaults; 
     if (savedPort === undefined) delete process.env.BELLOWS_CONTROL_PORT; else process.env.BELLOWS_CONTROL_PORT = savedPort;
     if (savedToken === undefined) delete process.env.BELLOWS_CONTROL_TOKEN; else process.env.BELLOWS_CONTROL_TOKEN = savedToken;
   }
+});
+
+// ---- Phase 5: response shape matrix + adversarial paths + resilience ----
+//
+// Verification-only phase: no changes to lib/* or watch-loop.js. Everything
+// below is new assertions against the surface Phase 1-4 already built.
+// All probes use port: 0 -- the contract default port (3210) stays reserved
+// for the Phase 4 assembly-path test so the two do not compete for it.
+
+const http = require('node:http');
+
+const PHASE5_TOKEN = 'phase5-secret-token-xyz789';
+
+// node:http.request wrapper -- used where fetch cannot express the probe
+// (duplicate headers, a body on GET, oversized paths).
+function httpRequest(port, pathname, opts) {
+  const o = opts || {};
+  return new Promise((resolve, reject) => {
+    const req = http.request({
+      host: '127.0.0.1',
+      port,
+      path: pathname,
+      method: o.method || 'GET',
+      headers: o.headers || {}
+    }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        let body = null;
+        try { body = JSON.parse(data); } catch (e) { /* leave null */ }
+        resolve({ status: res.statusCode, headers: res.headers, body, text: data });
+      });
+    });
+    req.on('error', reject);
+    if (o.body) req.write(o.body);
+    req.end();
+  });
+}
+
+// I1-I5 common invariants for the response-shape matrix (§11-3). followUpOpts
+// lets a case pass credentials to the post-response /api/health liveness
+// check (I5) when the server under test has auth enabled.
+async function assertCommonInvariants(port, res, expectStatus, followUpOpts) {
+  assert.strictEqual(res.status, expectStatus);
+  assert.ok(res.body !== null, 'I1: body must parse as JSON -- got: ' + res.text);
+  assert.ok((res.headers.get('content-type') || '').includes('application/json'), 'I2: content-type');
+  assert.strictEqual(res.headers.get('cache-control'), 'no-store', 'I2: cache-control');
+  assert.strictEqual(typeof res.body.ok, 'boolean', 'I3: ok must be boolean');
+  if (expectStatus < 200 || expectStatus >= 300) {
+    assert.strictEqual(res.body.ok, false, 'I3: non-2xx must be ok:false');
+  }
+  const lower = res.text.toLowerCase();
+  assert.ok(!lower.includes(PHASE5_TOKEN.toLowerCase()), 'I4: token leaked');
+  assert.ok(!lower.includes('.profile'), 'I4: .profile leaked');
+  assert.ok(!lower.includes('cookie'), 'I4: cookie leaked');
+  assert.ok(!/at\s+\S+\s+\(.*:\d+:\d+\)/.test(res.text), 'I4: stack trace leaked');
+  assert.ok(!/[A-Za-z]:[\\\/][^"]*\.js/i.test(res.text), 'I4: absolute file path leaked');
+  const followUp = await getJson(port, '/api/health', followUpOpts || {});
+  assert.strictEqual(followUp.status, 200, 'I5: server must still answer /api/health 200 after this response');
+}
+
+test('response shape matrix: every reachable status code (200/200/401/404/405/500/501) is directly asserted for I1-I5', async () => {
+  const authHeaders = { headers: { Authorization: 'Bearer ' + PHASE5_TOKEN } };
+  const cases = [
+    {
+      name: '200 health',
+      status: 200,
+      authToken: null,
+      getSnapshot: okSnapshot,
+      request: (port) => getJson(port, '/api/health')
+    },
+    {
+      name: '200 status',
+      status: 200,
+      authToken: null,
+      getSnapshot: okSnapshot,
+      request: (port) => getJson(port, '/api/status')
+    },
+    {
+      name: '401',
+      status: 401,
+      authToken: PHASE5_TOKEN,
+      getSnapshot: okSnapshot,
+      request: (port) => getJson(port, '/api/status'),
+      followUpOpts: authHeaders
+    },
+    {
+      name: '404',
+      status: 404,
+      authToken: null,
+      getSnapshot: okSnapshot,
+      request: (port) => getJson(port, '/api/nope')
+    },
+    {
+      name: '405',
+      status: 405,
+      authToken: null,
+      getSnapshot: okSnapshot,
+      request: (port) => getJson(port, '/api/health', { method: 'POST' })
+    },
+    {
+      name: '500',
+      status: 500,
+      authToken: null,
+      getSnapshot: () => { throw new Error('boom ' + PHASE5_TOKEN); },
+      request: (port) => getJson(port, '/api/status')
+    },
+    {
+      name: '501',
+      status: 501,
+      authToken: null,
+      getSnapshot: okSnapshot,
+      request: (port) => getJson(port, '/api/stop', { method: 'POST' })
+    }
+  ];
+
+  for (const c of cases) {
+    const r = await startControlServer({ port: 0, authToken: c.authToken, getSnapshot: c.getSnapshot });
+    try {
+      const res = await c.request(r.port);
+      await assertCommonInvariants(r.port, res, c.status, c.followUpOpts);
+    } finally {
+      await r.close();
+    }
+  }
+});
+
+// ---- Phase 5: adversarial path matrix (well-formed but abnormal requests) --
+
+test('adversarial paths: route variants and unknown methods are rejected as valid JSON without harming the server', async () => {
+  const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });
+  try {
+    const cases = [
+      { path: '/api/status/', method: 'GET', status: 404 },       // trailing slash -- not normalized
+      { path: '//api/status', method: 'GET', status: 404 },       // double slash -- not normalized
+      { path: '/API/STATUS', method: 'GET', status: 404 },        // case-sensitive routing
+      { path: '/api/%73tatus', method: 'GET', status: 404 },      // percent-encoding not decoded for matching
+      { path: '/api/health', method: 'PATCH', status: 405 },
+      { path: '/api/health', method: 'DELETE', status: 405 },
+      { path: '/api/health', method: 'OPTIONS', status: 405 },
+      { path: '/api/status', method: 'PATCH', status: 405 },
+      { path: '/api/status', method: 'DELETE', status: 405 },
+      { path: '/api/status', method: 'OPTIONS', status: 405 },
+      { path: '/api/stop', method: 'GET', status: 405 }
+    ];
+    for (const c of cases) {
+      const res = await getJson(r.port, c.path, { method: c.method });
+      assert.strictEqual(res.status, c.status, c.method + ' ' + c.path);
+      assert.ok(res.body !== null, c.method + ' ' + c.path + ': must be parseable JSON');
+      assert.strictEqual(typeof res.body.ok, 'boolean');
+      assert.strictEqual(res.body.ok, false);
+      assert.ok((res.headers.get('content-type') || '').includes('application/json'));
+      assert.strictEqual(res.headers.get('cache-control'), 'no-store');
+    }
+    const alive = await getJson(r.port, '/api/health');
+    assert.strictEqual(alive.status, 200, 'server still answers after the whole matrix');
+  } finally {
+    await r.close();
+  }
+});
+
+test('adversarial: a dot-segment path normalizes to /api/status and matches the contract shape (no filesystem access)', async () => {
+  const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });
+  try {
+    const res = await getJson(r.port, '/api/../api/status');
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.ok, true);
+    assert.ok('state' in res.body && 'summary' in res.body && 'fields' in res.body);
+  } finally {
+    await r.close();
+  }
+});
+
+test('adversarial: HEAD /api/health -> 405, headers-only assertion (HTTP forbids a HEAD response body)', async () => {
+  const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });
+  try {
+    const res = await fetch('http://127.0.0.1:' + r.port + '/api/health', { method: 'HEAD' });
+    assert.strictEqual(res.status, 405);
+    assert.ok((res.headers.get('content-type') || '').includes('application/json'));
+  } finally {
+    await r.close();
+  }
+});
+
+test('adversarial: an ~8KB request path draws a 4xx (exact code left to the Node parser layer) and the server keeps running', async () => {
+  const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });
+  try {
+    const longPath = '/' + 'a'.repeat(8000);
+    let res;
+    try {
+      res = await httpRequest(r.port, longPath, { method: 'GET' });
+    } catch (e) {
+      res = null; // a connection-level rejection is an acceptable outcome too
+    }
+    if (res) {
+      assert.ok(res.status >= 400 && res.status < 500, 'expected 4xx, got ' + res.status);
+    }
+    const alive = await getJson(r.port, '/api/health');
+    assert.strictEqual(alive.status, 200, 'server survives an oversized path');
+  } finally {
+    await r.close();
+  }
+});
+
+test('adversarial: duplicate Authorization headers do not throw -- Node keeps the first value, a mismatch still yields 401', async () => {
+  const r = await startControlServer({ port: 0, authToken: PHASE5_TOKEN, getSnapshot: okSnapshot });
+  try {
+    // Node discards duplicate Authorization header lines and keeps only the
+    // first one (verified empirically), so the first entry here must be the
+    // wrong token for this to exercise a mismatch rather than a match.
+    const res = await httpRequest(r.port, '/api/status', {
+      method: 'GET',
+      headers: { Authorization: ['Bearer wrong-first', 'Bearer ' + PHASE5_TOKEN] }
+    });
+    assert.strictEqual(res.status, 401);
+    assert.ok(res.body !== null);
+    assert.strictEqual(res.body.ok, false);
+  } finally {
+    await r.close();
+  }
+});
+
+test('adversarial: a multi-KB Bearer token does not throw -- 401, not 500', async () => {
+  const r = await startControlServer({ port: 0, authToken: PHASE5_TOKEN, getSnapshot: okSnapshot });
+  try {
+    const huge = 'x'.repeat(4000);
+    const res = await getJson(r.port, '/api/status', { headers: { Authorization: 'Bearer ' + huge } });
+    assert.strictEqual(res.status, 401);
+  } finally {
+    await r.close();
+  }
+});
+
+test('adversarial: GET /api/status with a request body is still 200 and has no side effects (the body is never read)', async () => {
+  const snap = okSnapshot();
+  const before = JSON.stringify(snap.observation);
+  const r = await startControlServer({ port: 0, getSnapshot: () => snap });
+  try {
+    const res = await httpRequest(r.port, '/api/status', { method: 'GET', body: JSON.stringify({ x: 1 }) });
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(JSON.stringify(snap.observation), before);
+  } finally {
+    await r.close();
+  }
+});
+
+test('adversarial: POST /api/stop with Content-Type: text/xml is still 501 (the body is never parsed)', async () => {
+  const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });
+  try {
+    const res = await httpRequest(r.port, '/api/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/xml' },
+      body: '<xml/>'
+    });
+    assert.strictEqual(res.status, 501);
+  } finally {
+    await r.close();
+  }
+});
+
+// ---- Phase 5: resilience -- the dashboard must not kill the breaker -------
+
+function sendRawAndDestroy(port, requestLine) {
+  return new Promise((resolve) => {
+    const socket = net.connect(port, '127.0.0.1', () => {
+      socket.write(requestLine);
+      setImmediate(() => { socket.destroy(); resolve(); });
+    });
+    socket.on('error', () => resolve()); // ECONNRESET etc. are expected here
+  });
+}
+
+function sendRawAndWaitClose(port, raw) {
+  return new Promise((resolve) => {
+    const socket = net.connect(port, '127.0.0.1', () => {
+      socket.write(raw);
+    });
+    let data = '';
+    socket.on('data', (chunk) => { data += chunk; });
+    socket.on('error', () => {});
+    socket.on('close', () => resolve(data));
+    setTimeout(() => { socket.destroy(); resolve(data); }, 500);
+  });
+}
+
+test('resilience R1-R5: concurrency, abrupt disconnects, and malformed bytes never crash the server, leak side effects, or throw unhandled errors', async () => {
+  const uncaught = [];
+  const unhandled = [];
+  const onUncaught = (err) => uncaught.push(err);
+  const onUnhandled = (err) => unhandled.push(err);
+  process.on('uncaughtException', onUncaught);
+  process.on('unhandledRejection', onUnhandled);
+
+  const stopPath = path.join(os.tmpdir(), 'bellows-r5-STOP-' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.json');
+  fs.writeFileSync(stopPath, JSON.stringify({ source: 'manual' }));
+  const beforeMtime = fs.statSync(stopPath).mtimeMs;
+
+  let snapshotCalls = 0;
+  const snap = okSnapshot();
+  const r = await startControlServer({
+    port: 0,
+    getSnapshot: () => { snapshotCalls++; return snap; }
+  });
+  try {
+    // R1: 25 concurrent /api/status requests all succeed and leave the
+    // observation object untouched.
+    const before = JSON.stringify(snap.observation);
+    const concurrentResults = await Promise.all(
+      Array.from({ length: 25 }, () => getJson(r.port, '/api/status'))
+    );
+    for (const res of concurrentResults) {
+      assert.strictEqual(res.status, 200);
+      assert.ok(res.body !== null);
+      assert.strictEqual(res.body.ok, true);
+    }
+    assert.strictEqual(JSON.stringify(snap.observation), before, 'R1: observation must be unchanged after concurrent reads');
+
+    // R2: client destroys the socket mid-request -- server must survive.
+    await sendRawAndDestroy(r.port, 'GET /api/status HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n');
+    const afterR2 = await getJson(r.port, '/api/health');
+    assert.strictEqual(afterR2.status, 200, 'R2: server survives an abrupt client disconnect');
+
+    // R3: bytes that are not valid HTTP -- response shape is unspecified by
+    // design (Node's own parser layer, not this product's routing); only
+    // process survival is required.
+    await sendRawAndWaitClose(r.port, 'NOT-HTTP\r\n\r\n');
+    const afterR3 = await getJson(r.port, '/api/health');
+    assert.strictEqual(afterR3.status, 200, 'R3: server survives malformed bytes on the socket');
+
+    // R5 (derived): rejected requests (404/405) never reach getSnapshot().
+    const callsBeforeRejected = snapshotCalls;
+    await getJson(r.port, '/api/nope');
+    await getJson(r.port, '/api/health', { method: 'POST' });
+    assert.strictEqual(snapshotCalls, callsBeforeRejected, 'R5: 404/405 must not call getSnapshot()');
+
+    // R5: STOP.json (stand-in temp file) is untouched across the whole probe.
+    assert.strictEqual(fs.statSync(stopPath).mtimeMs, beforeMtime, 'R5: STOP.json must be untouched');
+  } finally {
+    await r.close();
+    fs.unlinkSync(stopPath);
+    process.removeListener('uncaughtException', onUncaught);
+    process.removeListener('unhandledRejection', onUnhandled);
+  }
+
+  // R4: none of the above probes triggered a process-level uncaught error.
+  assert.strictEqual(uncaught.length, 0, 'R4: no uncaughtException during the probes: ' + uncaught.map((e) => e && e.message));
+  assert.strictEqual(unhandled.length, 0, 'R4: no unhandledRejection during the probes: ' + unhandled.map((e) => e && e.message));
 });
