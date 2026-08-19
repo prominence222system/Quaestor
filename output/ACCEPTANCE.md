@@ -65,3 +65,66 @@
 - [SPEC] Phase 1 은 `watch-loop.js` · `lib/scrape.js` · `lib/config.js` · `lib/extract.js` · `watch-once.js` 를 수정하지 않는다.
 - [SPEC] STOP.json 의 경로·이름·스키마, `deriveDesired()` 의 임계 판정과 히스테리시스, 수동 STOP 우선 규칙은 변경되지 않는다 — `deriveState()` 는 이들과 별개의 함수이며 합쳐지지 않는다.
 - [SPEC] `lib/observation.js` 는 `puppeteer` 를 포함한 어떤 외부 모듈도 `require` 하지 않는다.
+
+---
+
+# ACCEPTANCE — Phase 2
+
+대상: `p-bellows/lib/scrape.js` · `p-bellows/test/scrape-classify.test.js`
+전제: 모든 기준은 **hermetic** 하게 검증된다 — Chrome·네트워크·대상 사이트 없이 만족해야 한다.
+
+시그니처(참조):
+`scrapeUsage(profileDir, opts)` (기존, 변경 없음) ·
+`hintFrom({ url, textHead })` → `'login-expired' | 'anchor-missing' | 'unknown'` (순수) ·
+`collectDiagnostics(page)` → `{ url, textHead, hint }` (async, 던지지 않음) ·
+상수 `FAILURE_KINDS` · `HINTS`.
+
+## Phase 2 Acceptance Criteria
+
+### 실패 분류 — `err.kind`
+- [SPEC] `scrapeUsage()` 가 던지는 모든 오류에 `kind` 속성이 붙어 있다. 분류할 수 없는 경로에서도 `kind` 가 없는 오류가 새어나가지 않는다.
+- [SPEC] `kind` 는 항상 `chrome-unreachable` · `anchor-timeout` · `invalid-extraction` · `nav-failed` · `unknown` 중 하나다. 그 외 값이 나오면 FAIL.
+- [SPEC] 브라우저 연결 실패는 `chrome-unreachable`, 페이지 이동 실패는 `nav-failed`, 앵커 대기 실패는 `anchor-timeout`, 추출 단계 실패는 `invalid-extraction` 으로 분류된다.
+- [SPEC] 태깅은 원본 오류 객체에 속성을 얹는 방식이며, 오류를 새 객체로 갈아끼우지 않는다 — 태깅 전후로 `message` 와 `stack` 이 보존된다.
+- [DERIVED] 앵커 대기 지점에서 나온 오류는 타임아웃 여부와 무관하게 전부 `anchor-timeout` 이다.
+- [DERIVED] `browser.newPage()` 실패는 `chrome-unreachable` 로 분류된다(브라우저 수준 조작이므로).
+
+### `hint` 판정 — 🔒 이 Phase 의 존재 이유
+- [SPEC] `hint` 는 항상 `login-expired` · `anchor-missing` · `unknown` 중 하나다.
+- [SPEC] `url()` 이 대상 사이트의 로그인 경로를 돌려주는 가짜 page 객체로 진단하면 `hint === 'login-expired'` 다.
+- [SPEC] 로그인 화면이 아닌 대상 사이트 페이지이고 본문 텍스트가 존재하는데 앵커만 없는 경우 `hint === 'anchor-missing'` 이다.
+- [SPEC] 판정 근거가 없는 입력에는 `unknown` 이 나온다 — `login-expired` 로 기울지 않는다. 최소한 다음 입력이 모두 `unknown` 이어야 한다: `url` 이 없음/빈 문자열/문자열이 아님 · 대상 오리진 밖으로 리다이렉트됨 · 본문 텍스트가 비어 있거나 수집 실패.
+- [SPEC] `hintFrom()` 은 순수 함수다 — 동일 입력에 항상 동일 출력이며, 네트워크·파일시스템·시계를 읽지 않고 입력 객체를 변형하지 않는다.
+- [DERIVED] 판정은 first-match-wins 이며 우선순위는 `url 부재 → unknown` → `로그인 경로 → login-expired` → `대상 오리진 + 본문 있음 → anchor-missing` → `그 외 → unknown` 순이다.
+- [DERIVED] URL 매칭은 접두사 비교로 하며, 잘못된 형식의 URL 문자열이 들어와도 예외를 던지지 않는다.
+
+### 진단 수집 — 🔒 원인 조사가 원인을 지우면 안 된다
+- [SPEC] `collectDiagnostics(page)` 는 어떤 입력에도 예외를 던지지 않는다 — `page.url()` 이 던지거나, `page.evaluate()` 가 거부되거나, `page` 자체가 `null` 이어도 `{ url, textHead, hint }` 를 반환한다.
+- [SPEC] 진단 수집이 실패해도 `scrapeUsage()` 는 원래의 실패 오류를 던진다 — 진단 과정의 오류가 원래 오류를 대체하지 않는다.
+- [SPEC] `err.detail.textHead` 는 본문 텍스트의 앞 200자를 넘지 않는다(작업지시서가 지정한 길이).
+- [SPEC] 진단은 `page` 가 닫히기 전에 수집된다 — `finally` 의 정리보다 먼저 실행되어 `url`·`textHead` 가 실제 값으로 채워진다.
+- [DERIVED] `collectDiagnostics` 가 만지는 page 인터페이스는 `url()` 과 `evaluate(fn)` 둘뿐이며, 이 둘만 가진 가짜 객체로 모든 hint 경로를 재현할 수 있다.
+- [DERIVED] 수집에 실패한 항목은 `null` 로 남고, 그 상태에서 `hint` 는 `unknown` 이다.
+
+### 어휘 일치 (Phase 1 접합)
+- [SPEC] `scrape.js` 가 내는 `hint` 어휘는 `observation.js` 의 hint 화이트리스트와 정확히 일치한다 — `deriveState()` 의 `마지막 실패` 필드에서 `hint` 가 조용히 사라지면 FAIL.
+- [SPEC] `scrape.js` 가 내는 `kind` 어휘는 Phase 1 이 정의한 5종 어휘와 일치한다.
+- [DERIVED] 두 어휘의 일치는 테스트로 고정된다(한쪽만 바뀌면 실패한다).
+
+### 유출 경계 — 🔒
+- [SPEC] 수집한 본문 텍스트(`textHead`)와 전체 `url` 은 `err.detail` 안에만 존재하며, `deriveState()` 의 `fields`·`summary` 에 나타나지 않는다.
+- [SPEC] `hint` 와 `kind` 는 고정 어휘에서만 나오므로 자유 텍스트·계정 이메일이 섞일 수 없다.
+
+### 회귀 금지 (never-brick)
+- [SPEC] `scrapeUsage()` 의 시그니처와 성공 시 반환값 형태는 변경되지 않는다 — 기존 호출부(`watch-once.js`·`watch-loop.js`)가 수정 없이 그대로 동작한다.
+- [SPEC] 브라우저 연결 실패 시의 기존 오류 메시지 문구는 변경되지 않는다 — `kind` 속성만 추가된다.
+- [SPEC] 성공 경로에서 브라우저를 닫지 않고 `disconnect` 만 하는 기존 동작(사용자의 Chrome 인스턴스 보호)이 유지된다.
+- [SPEC] Phase 2 는 `lib/extract.js` 를 수정하지 않는다 — 🔒 이 NNN 은 앵커를 **구분**할 뿐 고치지 않는다.
+- [SPEC] Phase 2 는 `lib/observation.js` · `lib/config.js` · `watch-once.js` · `watch-loop.js` 를 수정하지 않는다.
+- [SPEC] STOP.json 의 경로·이름·스키마, `deriveDesired()` 의 임계 판정과 히스테리시스, 수동 STOP 우선 규칙은 변경되지 않는다.
+
+### 검증 하네스
+- [SPEC] `node p-bellows/test/run-all.js` 가 Phase 1·2 테스트를 모두 실행하고 종료 코드 0 으로 끝난다. Chrome·네트워크 없이 완주한다.
+- [SPEC] 새 의존성을 추가하지 않는다 — `node:test`/`node:assert` 만 쓰고 `npm` 을 호출하지 않는다.
+- [DERIVED] `require('../lib/scrape.js')` 가 브라우저 드라이버를 로드하지 않고 성공한다(puppeteer 지연 로드) — 순수 판정 경로는 `node_modules/puppeteer` 없이도 검증된다.
+- [DERIVED] `p-bellows` 의 `.js` 파일에서 `claude` grep 매칭은 도메인 URL 상수 한 곳으로 제한되며, Phase 2 가 그 개수를 늘리지 않는다.

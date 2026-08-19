@@ -318,15 +318,220 @@ node p-bellows/test/run-all.js      # 저장소 루트에서 실행 (MASTER 의 
 
 ---
 
-## 7. Phase 2·3 예고 (상세 설계는 해당 Phase 에서)
+# Phase 2 상세 설계 — `lib/scrape.js` 실패 분류와 진단 (CURRENT)
 
-- **Phase 2** — `scrapeUsage()` 의 각 실패 지점에 `err.kind` 부착.
-  `anchor-timeout` 일 때만 `page.url()` 과 `document.body.innerText` 앞 200자를 읽어
-  `err.detail = { url, textHead, hint }` 를 만든다.
-  `hint` 는 `login-expired` | `anchor-missing` | `unknown` 중 하나.
-  🔒 **판정 근거가 없으면 `unknown`.** 잘못된 확신이 사람을 헛걸음시킨 것이 이 NNN 의 출발점이다.
-  진단 수집 자체가 실패해도 원래 오류를 삼키지 않는다.
-  page 객체를 주입 가능하게 만들어 Chrome 없이 검증한다.
+## P2.0 이 Phase 가 없애는 것
+
+지금 로그에 남는 유일한 단서는 이것뿐이다.
+
+```
+[poll error] scrape failed: Waiting failed: 20000ms exceeded
+```
+
+이 한 줄은 **최소 두 가지 원인**에서 똑같이 나온다 — 로그인 세션 만료 / UI 문구·로케일 변경.
+🔒 **둘을 못 가르면 사람이 재로그인하러 갔다가 헛걸음한다.** 이 Phase 는 그 갈림길만 만든다.
+**고치지 않는다 — 구분까지만 한다.** 재로그인은 사람의 일, 앵커 수리는 별도 NNN 이다.
+
+## P2.1 현재 `scrapeUsage()` 의 실패 지점 (실측)
+
+| # | 지점 | 지금 던지는 것 | 이 Phase 가 붙일 `kind` |
+|---|---|---|---|
+| F1 | `puppeteer.connect()` | 감싼 새 `Error` (메시지에 debugUrl 포함) | `chrome-unreachable` |
+| F2 | `browser.newPage()` | 원본 오류 그대로 | `chrome-unreachable` |
+| F3 | `page.goto(...)` | 원본 오류 그대로 (구분 없음) | `nav-failed` |
+| F4 | `page.waitForFunction(...)` | `Waiting failed: 20000ms exceeded` | **`anchor-timeout`** ← 3주째 이것 |
+| F5 | `page.evaluate(extractUsage)` | 원본 오류 그대로 | `invalid-extraction` |
+
+⚠️ 표의 `invalid-extraction`(F5, 추출 함수 자체가 던짐)과
+`watch-loop.js` 의 `isValidUsage()` 실패(추출은 됐는데 값이 이상함)는 **같은 `kind` 어휘를 공유**한다.
+후자의 배선은 Phase 3 이다 — 이 Phase 는 `scrape.js` 안쪽만 담당한다.
+
+## P2.2 오류 태깅 규약
+
+```js
+err.kind   = 'anchor-timeout'                    // 고정 어휘 5종 중 하나
+err.detail = { url, textHead, hint }             // anchor-timeout 일 때만. 그 외에는 null 또는 미부착
+throw err                                        // 🔒 원본 오류 객체를 그대로 다시 던진다
+```
+
+🔒 **[SPEC] 원본 오류를 새 `Error` 로 갈아끼우지 않는다.** 기존 필드(`message`·`stack`)를 보존한 채
+속성만 얹는다. `e.message` 에 의존하는 기존 호출부(`watch-once.js`, `watch-loop.js` 의 로그)가
+**한 글자도 바뀌지 않아야 한다** — never-brick.
+
+- F1 만 예외적으로 기존 코드가 이미 새 `Error` 를 만든다. 🔒 **그 메시지 문구는 변경하지 않고**
+  `kind` 속성만 얹는다 (사람이 3주간 봐 온 문구를 흔들지 않는다).
+- `kind` 를 정할 수 없는 경로가 있으면 `'unknown'` 이다. 🔒 추측해서 다른 값을 쓰지 않는다.
+- `scrapeUsage()` 의 **시그니처·성공 반환값은 변경 없음.**
+
+## P2.3 신규 export — 순수/주입 가능 단위
+
+Chrome 없이 검증하려면 진단 로직이 puppeteer 뒤에 숨으면 안 된다. 세 조각으로 가른다.
+
+```js
+hintFrom({ url, textHead })      // 순수. I/O 0. → 'login-expired' | 'anchor-missing' | 'unknown'
+collectDiagnostics(page)         // async. 주입된 page 만 만짐. 🔒 절대 던지지 않는다.
+                                 //   → { url, textHead, hint }
+scrapeUsage(profileDir, opts)    // 기존. 위 둘을 F4 catch 안에서 호출
+FAILURE_KINDS, HINTS             // 고정 어휘 상수 (Phase 1·3 이 참조)
+```
+
+### `hintFrom(diag)` 판정 — first-match-wins
+
+| # | 조건 | hint | 사람이 할 일 |
+|---|---|---|---|
+| H1 | `url` 이 문자열이 아니거나 빈 문자열 | `unknown` | 판단 보류 |
+| H2 | `url` 이 로그인 경로 접두사로 시작 | `login-expired` | **재로그인** |
+| H3 | `url` 이 대상 오리진으로 시작 + `textHead` 가 비어 있지 않은 문자열 | `anchor-missing` | **앵커 수리** (별도 NNN) |
+| H4 | 그 외 전부 (타 도메인 리다이렉트 · 본문 비어 있음 · 수집 실패) | `unknown` | 판단 보류 |
+
+🔒 **[SPEC] H4 가 기본값이다.** 근거가 없으면 `unknown` 이며, `login-expired` 쪽으로 기울지 않는다.
+**잘못된 확신이 사람을 헛걸음시킨 것이 이 NNN 의 출발점이다.**
+
+**H3 가 오리진을 요구하는 이유** — SSO·점검 페이지 등 **제3 도메인으로 튄 경우**는
+로그인 화면도 아니고 대상 페이지도 아니다. 여기서 `anchor-missing` 이라고 말하면
+멀쩡한 앵커를 뜯으러 보내게 된다. 판정 불가는 판정 불가로 남긴다(H4).
+
+**H1·H4 가 본문 유무를 따지는 이유** — 본문이 비었다는 것은 렌더가 안 됐다는 뜻이지
+앵커가 없어졌다는 뜻이 아니다.
+
+### 상수 — [DERIVED]
+
+```js
+TEXT_HEAD_LEN = 200          // 🔒 [SPEC] 작업지시서가 지정한 앞 200자
+ORIGIN        = '<대상 사이트 오리진>'
+LOGIN_PREFIX  = ORIGIN + '/login'
+USAGE_URL     = ORIGIN + '/settings/usage'      // 기존 리터럴을 상수로 승격
+HINTS         = ['login-expired', 'anchor-missing', 'unknown']       // Phase 1 KNOWN_HINTS 와 동일
+FAILURE_KINDS = ['chrome-unreachable', 'anchor-timeout', 'invalid-extraction', 'nav-failed', 'unknown']
+```
+
+🔒 도메인 문자열은 **기존에 이미 있던 URL 한 곳을 상수로 올릴 뿐** 새로 늘리지 않는다
+(제약: `.js` 의 `claude` grep 0건, 도메인 URL 만 예외).
+URL 매칭은 `indexOf(prefix) === 0` 접두사 비교로 한다 — `URL` 파서를 쓰면 잘못된 문자열에서 던진다.
+
+### `collectDiagnostics(page)` — 🔒 절대 던지지 않는다
+
+```
+url      = try { page.url() }                        catch → null
+textHead = try { await page.evaluate(<본문 텍스트>) } catch → null
+           문자열이면 Node 쪽에서 TEXT_HEAD_LEN 으로 자른다 (자르는 곳은 한 군데)
+hint     = hintFrom({ url, textHead })
+→ { url, textHead, hint }
+```
+
+🔒 **[SPEC] 진단 수집의 실패가 원래 오류를 삼키면 안 된다.** `page.url()` 이 던지든
+`evaluate` 가 타임아웃 나든, 결과는 `hint: 'unknown'` 인 진단이지 **새로운 예외가 아니다.**
+"왜 실패했는지 알아보다가 왜 실패했는지도 잃는" 것이 이 Phase 의 최악의 결과다.
+
+**page 객체 계약(테스트 주입용)** — `collectDiagnostics` 가 만지는 것은 `url()` 과 `evaluate(fn)` 둘뿐이다.
+따라서 아래 형태의 가짜 객체로 Chrome 없이 전 경로를 돈다.
+
+```js
+{ url: () => '<로그인 경로 URL>', evaluate: async () => '로그인 화면 본문...' }
+```
+
+**본문 절단을 Node 쪽에서 하는 이유** — 페이지 콜백 안에서 자르면 가짜 page 는 그 콜백을
+실행하지 않으므로 200자 상한이 검증되지 않는다. 자르는 지점이 하나여야 상한이 보장된다.
+
+## P2.4 `scrapeUsage()` 제어 흐름
+
+```
+connect ──실패─▶ (기존 메시지 그대로) err.kind='chrome-unreachable' ─▶ throw
+   │
+   ▼
+newPage ──실패─▶ err.kind='chrome-unreachable' ─▶ throw
+   │
+   ▼
+goto ─────실패─▶ err.kind='nav-failed'         ─▶ throw
+   │
+   ▼
+waitForFunction ──실패─▶ err.kind='anchor-timeout'
+   │                     err.detail = await collectDiagnostics(page)   ← 🔒 page 가 살아 있을 때
+   │                     ─▶ throw
+   ▼
+evaluate ─실패─▶ err.kind='invalid-extraction'  ─▶ throw
+   │
+   ▼
+ usage 반환 (기존과 동일)
+        │
+        └─▶ finally: page.close() · browser.disconnect()   (기존 그대로 · browser 는 닫지 않는다)
+```
+
+🔒 **진단 수집은 `finally` 보다 먼저, F4 의 catch 안에서 일어난다.**
+`finally` 가 `page.close()` 를 하고 나면 `page.url()` 도 `evaluate` 도 읽을 것이 없다.
+이 순서가 이 Phase 의 유일한 타이밍 제약이다.
+
+`waitForFunction` 이 내는 오류는 **타임아웃 여부를 따지지 않고 전부 `anchor-timeout`** 으로 본다 [DERIVED] —
+그 지점에서 실패했다는 사실 자체가 "앵커에 도달하지 못했다"이고, 사람이 할 일도 같다.
+
+## P2.5 puppeteer 지연 로드 — [DERIVED] D12
+
+현재 `lib/scrape.js` 는 파일 최상단에서 `require('puppeteer')` 한다.
+그러면 `scrape-classify.test.js` 가 순수 함수 하나를 부르려고 브라우저 드라이버 전체를 끌어온다.
+
+**`require('puppeteer')` 를 `puppeteer.connect()` 직전으로 옮긴다.**
+
+- 테스트가 hermetic 하고 가벼워진다 (`node_modules/puppeteer` 부재에도 순수 경로는 돈다)
+- 런타임 동작은 동일하다 — 첫 `scrapeUsage()` 호출에서 로드되고 이후 캐시된다
+- 🔒 Phase 3 의 `require('../watch-loop.js')` 경계 검증에도 유리하다
+
+## P2.6 Phase 1 과의 접합
+
+```
+scrape.js:  err.kind ─────────────┐        err.detail.hint ─────────┐
+                                  ▼                                 ▼
+watch-loop (Phase 3): recordFailure(obs, err.kind, err.detail, now)
+                                  │
+                                  ▼
+observation.js (Phase 1): lastFailure = { kind, detail, at }
+                                  │
+                       deriveState ─┤─ pickHint(): KNOWN_HINTS 화이트리스트 통과분만 채택
+                                    └─ fields[5] '마지막 실패' = "anchor-timeout · login-expired"
+                                       🔒 detail.url · detail.textHead 는 여기까지 오지 않는다
+```
+
+🔒 **[SPEC] 어휘가 두 파일에서 갈리면 조용히 고장난다.**
+`scrape.js` 의 `HINTS` 는 `observation.js` 의 `KNOWN_HINTS`(`login-expired`·`anchor-missing`·`unknown`)와
+**정확히 같아야 한다.** 다르면 `pickHint()` 가 `null` 을 돌려주고, 3주를 들여 알아낸 원인이
+화면에서 사라진다 — 증상은 "그냥 안 보임"이라 눈치채기 어렵다. 이 일치를 테스트로 고정한다.
+
+## P2.7 유출 경계
+
+| 값 | 로그(`bellows.log`) | `err.detail` | `fields`/`summary` |
+|---|---|---|---|
+| `kind` | ✅ | ✅ | ✅ |
+| `hint` | ✅ | ✅ | ✅ |
+| `url` (전체) | ⚠️ Phase 3 이 판단 | ✅ | ❌ |
+| `textHead` (본문 200자) | ❌ | ✅ | ❌ |
+
+⚠️ **수집한 본문 200자에는 계정 이메일이 섞일 수 있다.** 그래서 `detail` 은 진단용으로만 존재하고,
+🔒 **`fields` 에 실리는 것은 `hint` 뿐이다**(Phase 1 P1.3 의 화이트리스트가 이미 이것을 보장한다).
+Phase 2 는 `detail` 을 **만들되 노출 경로에는 넣지 않는다.**
+
+## P2.8 테스트 `test/scrape-classify.test.js`
+
+전부 hermetic — Chrome·네트워크·대상 사이트 없이 돈다.
+
+| 그룹 | 덮는 것 |
+|---|---|
+| `hintFrom` 순수 판정 | 로그인 URL → `login-expired` · 오리진+본문 → `anchor-missing` · 판정 불가 4종(빈 url·타 도메인·빈 본문·`null`) → `unknown` |
+| `collectDiagnostics` 주입 | 가짜 page 로 세 hint 전부 재현 · `url()` 이 던져도 예외가 새어나오지 않음 · 본문 200자 상한 |
+| 어휘 일치 | `HINTS` 가 `observation.js` 의 hint 어휘와 동일 · `FAILURE_KINDS` 5종 |
+| 회귀 | `scrapeUsage` 가 여전히 export 되고 함수다 · 모듈 로드에 Chrome 이 필요 없다 |
+
+## P2.9 Phase 2 가 건드리지 않는 것
+
+- `lib/extract.js` — 🔒 **앵커를 고치지 않는다.** 이 NNN 은 구분까지만이다
+- `lib/observation.js`(Phase 1 완료) · `lib/config.js` · `watch-once.js`
+- `watch-loop.js` — Phase 3 (`kind` 를 실제로 소비하는 배선)
+- 🔒 STOP.json 스키마·경로 · `deriveDesired()` · `isValidUsage()` · `writeStopJsonAtomic()` · `readConfig()`
+- `scrapeUsage()` 의 시그니처·성공 반환값·기존 오류 메시지 문구
+- HTTP 노출 → **004**
+
+---
+
+## 7. Phase 3 예고 (상세 설계는 해당 Phase 에서)
+
 - **Phase 3** — `pollOnce()` 배선, 실패 로그에 `kind`·`hint` 동반 출력,
   파일 맨 아래 즉시실행 루프를 `require.main === module` 가드로 감싼다.
   🔒 `require('../watch-loop.js')` 가 감시 루프를 시작하지 않고 반환하는지 검증(경계 통과).
