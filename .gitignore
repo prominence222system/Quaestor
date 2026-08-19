@@ -1,2 +1,12 @@
 # Commit lock (runtime, not for version control)
 .forge-commit.lock
+
+# p-forge runtime artifacts (auto-generated, do not commit)
+.p-forge/logs/
+.p-forge/status.json
+.p-forge/project.json
+.p-forge/history.json
+.p-forge/engine-state.json
+output/report.html
+output/iterations.json
+
