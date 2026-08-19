@@ -28,8 +28,8 @@ Started: 2026-08-19T05:10:46Z
 | Phase | Feature | Status |
 |-------|---------|--------|
 | 1 | `lib/control-server.js` 코어 — `127.0.0.1` 고정 리스너 · 라우팅 · `GET /api/health`(id=`quaestor`) · `GET /api/status`(`deriveState()` 투영, 부작용 0) · never-throw 기동 계약 | DONE |
-| 2 | 인증 — `Authorization: Bearer` + `crypto.timingSafeEqual` 상수시간 비교 · `config.js` 의 `control`(port·authToken) 블록 · 비밀 미유출 · `POST /api/stop` 의도적 미구현 명문화 | CURRENT |
-| 3 | `watch-loop.js` 배선(never-brick — 기동 실패해도 루프 계속) + `test/control-server.test.js` 실포트 통합 검증 | PENDING |
+| 2 | 인증 — `Authorization: Bearer` + `crypto.timingSafeEqual` 상수시간 비교 · `config.js` 의 `control`(port·authToken) 블록 · 비밀 미유출 · `POST /api/stop` 의도적 미구현 명문화 | DONE |
+| 3 | `watch-loop.js` 배선(never-brick — 기동 실패해도 루프 계속) + `test/control-server.test.js` 실포트 통합 검증 | CURRENT |
 
 ## 비고
 - 모든 검증은 hermetic (Chrome·claude.ai·Foreman 없이 실행). 🔒 실제 포트를 열고 실제 요청을 보낸다.

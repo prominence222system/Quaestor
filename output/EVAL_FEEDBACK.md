@@ -140,3 +140,56 @@ NO
 node p-bellows/test/run-all.js
 ```
 전체 작업(004) 완료 후 실제 기동 확인은 Phase 3 종료 시 USER_GATE 절차(`work/004` §USER_GATE)를 따른다.
+
+---
+
+## Verdict (Phase 2)
+NEXT
+
+## Verdict Criteria (current work file only)
+- NEXT: a phase REMAINS WITHIN the current work file (not for other work files)
+- FIX: Current Phase has bugs or missing features
+- REDESIGN: Fundamental design issues require architecture change
+- INTEGRATE: ALL phases of the current work file are DONE, need an integration test
+- PASS: the current work file is complete (all its phases DONE, tests pass); forge advances to the next work file
+
+## Redesign Needed
+NO
+
+## Current Phase Evaluation
+- Phase: 2
+- Feature: 인증(`Authorization: Bearer` + `crypto.timingSafeEqual` 상수시간 비교) · `config.js` 의 `control`(port·authToken) 블록 · 비밀 미유출 · `POST /api/stop` 의도적 미구현 명문화
+- Complete: yes
+- Issues found: 없음(경미 사항 1건은 §Issues 참조, 차단 사유 아님)
+
+## Acceptance-Criteria Integrity Check (output/ACCEPTANCE.md 존재 — 실행함)
+- `output/ACCEPTANCE.md` 의 "004 Phase 2" 절 전 항목([SPEC] 다수 + [DERIVED] 다수: 인증 12항,
+  config.js control 블록 8항, 비밀 미유출 6항, POST /api/stop 4항, 경계·무변경 9항)을
+  `output/TEST_RESULT.md` 의 "Phase 2 Acceptance 기준별 결과" 표와 1:1 대조 — 누락 없음.
+- 인증·비밀 미유출·`/api/stop` 항목은 실포트(`port:0`+`fetch`) 통합 테스트로 커버됨을 직접 확인.
+  `config.js` 항목은 `readConfig()` 직접 호출 단위 테스트로 커버(HTTP 없이 — 순수 함수 경계, 설계 §8-8과 일치).
+- 유일한 예외: env 변수(`BELLOWS_CONTROL_PORT`/`BELLOWS_CONTROL_TOKEN`, 파일 우선순위) 항목이
+  전용 자동 테스트가 아니라 수동 검증(`node -e`)으로만 확인됨. 이 항목은 [DERIVED]이고
+  TEST_RESULT.md 가 근거(코드 구조상 파일이 override 함)를 명시했으므로 FIX 사유는 아니나,
+  자동화 공백으로 §Issues 에 기록한다.
+- 이전 iteration(Phase 1 ACCEPTANCE) 대비 [SPEC] 삭제·완화 없음 — Phase 1 섹션은 무변경으로 그대로 존재.
+- `node p-bellows/test/run-all.js` 직접 재실행으로 확인: **110/110 통과, 종료 코드 0**
+  (Phase 1까지 83 + Phase 2 신규 27). TEST_RESULT.md 의 수치와 일치. `claude` 문자열 grep 0건,
+  `0.0.0.0`/`::` 리터럴 없음도 직접 재확인.
+
+## Work Detail
+- Files created/modified: `p-bellows/lib/control-server.js`(Phase 1에 이미 인증 코드까지 포함된 완성 상태로 발견), `p-bellows/lib/config.js`(`control` 블록 정규화 추가), `p-bellows/test/control-server.test.js`(27개 증분), `PROJECT_INTENT.md`(Synology 스펙 폴더 — `POST /api/stop` 미구현 결정 기록, 직접 열람해 §"결정 — POST /api/stop 은 영구히 구현하지 않는다" 절 확인)
+- `isAuthorized()` — `authToken` 미설정 시 항상 통과(방어선은 127.0.0.1 바인딩), 설정 시 `bearerFrom()` + `tokensMatch()`(SHA-256 다이제스트 + `timingSafeEqual`)만 사용. `===`/`==`/`startsWith`/`indexOf` 비교나 길이 분기가 소스에 없음을 직접 재확인.
+- 인증 게이트가 `requestListener` 최상단, 라우팅 이전에 실행됨 — `/api/nope`+토큰 설정 시 401(404 아님)을 직접 검증.
+- `config.js` — `merged.control` 이 `_parseError`/`_expired` 경로에서도 항상 기본값을 포함(§never-brick), 최상위 `authToken` 폴백을 `control.authToken` 이 우선하도록 구현.
+- `handleStop()` 상단 주석 + `PROJECT_INTENT.md` 양쪽에 미구현 근거 기록 확인.
+
+## Issues
+- env 변수(`BELLOWS_CONTROL_PORT`/`BELLOWS_CONTROL_TOKEN`) 우선순위 항목이 전용 자동 테스트가 아니라 수동 검증으로만 확인됨([DERIVED], 차단 사유 아님) — Phase 3 또는 이후 라운드에서 테스트로 승격 고려.
+
+## Good Points
+- 상수시간 비교를 시간 측정(플레이키)이 아니라 "예외 없이 401" + "소스에 `===`/`==`/길이 분기 없음" 정적 검증으로 결정론적으로 고정 — 설계 §8-8 의도와 정확히 일치.
+- "헤더 없음"과 "값 불일치" 응답이 상태코드·본문 모두 동일함을 전용 테스트로 고정 — 정보 누설 벡터를 코드가 아니라 테스트로도 막음.
+- 비밀 미유출 검증을 필드별 화이트리스트가 아니라 응답 전체 문자열 부분매치로 구현 — 새 필드 추가 시 조용히 통과하는 함정을 설계 단계에서 이미 회피(D 결정과 일치).
+- `PROJECT_INTENT.md` 와 코드 주석 이중 기록으로 "계약에 있는데 왜 없지" 재발을 방지.
+- Phase 1 무회귀(83/83 유지) + Phase 2 신규 27개 전부 그린, `git diff --stat` 로 `observation.js`/`scrape.js`/`watch-loop.js` 무수정을 직접 실측 확인.
