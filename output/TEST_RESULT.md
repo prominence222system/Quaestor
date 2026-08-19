@@ -110,3 +110,9 @@ tests 58 / pass 58 / fail 0 / cancelled 0 / skipped 0 / duration_ms ~28ms
 - STOP.json 스키마·경로, `deriveDesired()` 임계 판정과 히스테리시스, 수동 STOP 우선 규칙 — 무변경.
 - `p-bellows` 의 `.js` 파일 전체에서 `claude` grep 매칭은 `lib/scrape.js` 의 도메인 상수 1건뿐이고
   (Phase 2 산출물), `watch-loop.js` 를 포함한 신규/수정 파일은 매칭 0건 — Claude CLI 미사용 제약 유지.
+
+
+===========================================
+NNN: 004-control-http-contract
+Started: 2026-08-19T05:10:46Z
+===========================================
