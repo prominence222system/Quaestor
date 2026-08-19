@@ -77,3 +77,7 @@ NO
 
 3. 관측 상태·실패 분류 결과는 `bellows.log`(`.prominence` 폴더)에 `kind`·`hint` 와 함께 기록된다.
    HTTP 로 노출(`/api/health`·`/api/status`)하는 것은 **004** 작업의 범위다.
+
+
+## Fix Loop Diagnosis
+[fix-diag] attempts=1 identical=1/1 escalated=yes escalation-helped=yes
