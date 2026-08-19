@@ -115,3 +115,68 @@
 - [SPEC] `lib/control-server.js` 는 Foreman 을 `require` 하지 않고 Foreman 경로를 하드코딩하지 않는다.
 - [SPEC] Phase 1 의 모든 기준이 계속 만족된다 — `/api/health` 의 `id === 'quaestor'`, `/api/status` 의 `deriveState()` 무재판정·부작용 0, 인증 통과 후 응답 형태 불변.
 - [SPEC] `node p-bellows/test/run-all.js` 가 기존 테스트를 포함해 전부 통과하고 종료 코드 0 이며, 프로세스가 매달리지 않는다(모든 테스트 서버가 `close()` 된다).
+
+---
+
+# ACCEPTANCE — 004 Phase 3
+
+대상: `p-bellows/watch-loop.js`(수정 — 배선) · `p-bellows/test/watch-loop.test.js`(증분) ·
+`p-bellows/test/control-server.test.js`(증분)
+전제: 모든 기준은 **hermetic** 하게 검증된다 — Chrome·claude.ai·Foreman·외부 네트워크 없이 만족해야 한다.
+🔒 `pollOnce()` 를 테스트에서 구동하지 않는다 — 이 기계의 실제 STOP.json·bellows.log 를 건드리기 때문이다
+(설계 §9-7). 배선의 **동작**은 동일한 형태를 테스트 안에서 재구성해 실포트로 검증한다.
+
+## Phase 3 Acceptance Criteria
+
+### never-brick — 🔒 계기판이 차단기를 죽이지 않는다
+- [SPEC] 컨트롤 서버 기동이 실패해도(포트 점유·바인딩 거부) 감시 루프 경로는 계속 진행된다 — 기동 호출 이후의 코드가 실제로 실행됨을 관측 가능한 방식(카운터·후속 호출)으로 확인한다.
+- [SPEC] 기동 실패가 호출자에게 **예외로 새지 않는다** — 이미 점유된 포트로 시작을 시도해도 reject/throw 없이 `started === false` 를 돌려받는다.
+- [SPEC] 기동 실패를 **조용히 삼키지 않는다** — `[control] listen failed: <사유>` 형태의 로그가 정확히 남는 경로가 존재한다.
+- [SPEC] 기동 성공 시 `[control] listening on 127.0.0.1:<port>` 가 로그에 남는다(주입된 `onLog` 를 통해).
+- [DERIVED] `startControlServer()` 호출부는 결과 분기와 `try/catch` 로 이중 방어되며, 어느 분기에서도 폴링 루프 진입을 건너뛰지 않는다.
+- [DERIVED] 기동 로그는 토큰 값이 아니라 여부만 남긴다(`auth: enabled` / `auth: disabled (loopback only)`) — Phase 2 형식이 배선 후에도 유지된다.
+
+### 모듈 로드 경계 (🔒 003 이 얻은 성질의 보존)
+- [SPEC] `require('../watch-loop.js')` 가 **리스너를 열지 않는다** — 로드 시점의 `startControlServer` 호출 횟수가 `0` 이다(호출 카운터로 행동 검증).
+- [SPEC] `require('../watch-loop.js')` 가 감시 루프를 시작하지 않고 반환한다 — `require.main === module` 가드가 유지된다(003 기준 무회귀).
+- [SPEC] 테스트 전체가 끝난 뒤 프로세스가 매달리지 않는다 — 배선 때문에 남는 열린 핸들이 없다.
+- [DERIVED] `startControlServer(` 호출은 `mainLoop()` 함수 본문 안에만 존재하고 모듈 최상위 실행 경로에 없다.
+
+### 라이브 관측 — 🔒 기동 시점 값을 캡처하지 않는다
+- [SPEC] `/api/status` 는 **매 요청마다 현재 관측 상태**를 읽는다 — 서버 기동 후 관측 변수를 재대입하면 다음 응답의 `state`·`summary`·`fields` 가 새 값을 반영한다(기동 직후 값이 고정되지 않는다).
+- [SPEC] 관측이 정상에서 연속 실패 다수로 바뀌면 `/api/status` 의 `state` 가 `'crit'` 으로 바뀐다 — 🔒 측정이 죽었는데 `ok` 로 보이면 실패다.
+- [SPEC] 첫 폴 이전(관측이 비어 있고 설정 캐시가 없는 상태)의 `/api/status` 는 `state !== 'ok'` 다 — 측정 전 초록불을 내지 않는다.
+- [DERIVED] `getSnapshot` 은 값이 아니라 **함수**로 주입되며, 그 본문이 모듈 변수 `observation` 을 참조한다.
+
+### `getSnapshot()` 부작용 없음 (🔒 C3)
+- [SPEC] `/api/status` 처리 경로가 파일시스템에 접근하지 않는다 — 스냅샷 조립부에 `fs.*` 호출, `scrapeUsage` 호출, STOP.json 경로 참조가 없다.
+- [SPEC] `/api/status` 를 여러 번 호출해도 STOP.json 이 생성·수정·삭제되지 않고, 폴링 횟수(`totalPolls`)·연속 실패 수가 변하지 않는다.
+- [SPEC] 배선이 새로운 파일 I/O 를 만들지 않는다 — `lastStop` 은 `pollOnce()` 가 **이미 호출하는** `readStopJson()` 의 결과를 재사용할 뿐이며, `readStopJson()` 호출 지점이 늘지 않는다.
+
+### `deriveState()` 입력(ctx) 전달
+- [SPEC] 임계값 판정을 `watch-loop.js` 에서 다시 하지 않는다 — 배선 코드에 `85`/`90`/`70`/`75` 리터럴이나 `state` 판정 분기가 새로 추가되지 않는다(`deriveDesired()` 의 기존 본문은 별개이며 무변경).
+- [DERIVED] 스냅샷의 `ctx` 는 `enabled`·`thresholds`·`stop`·`configSource` 를 담으며, 마지막 폴에서 관측한 값을 그대로 전달한다.
+- [DERIVED] `stop` 값이 있으면 `/api/status` 의 `fields` 중 STOP 항목이 그것을 반영하고, `configSource: 'file'` 이면 설정 출처 필드가 파일임을 나타낸다.
+- [DERIVED] 첫 폴 이전에는 `enabled` 기본값 `true`, `thresholds` 미지정(→ `observation.js` 의 기본값 적용), `stop: null`, `configSource: 'default'` 로 전달된다.
+- [DERIVED] `control.port`·`control.authToken` 은 기동 시 1회 확정되며 폴마다 재적용되지 않는다(변경은 재시작). `enabled`·`thresholds` 는 폴마다 갱신되어 `/api/status` 에 반영된다.
+
+### `config.js` env 우선순위 (Phase 2 잔여 항목의 자동화)
+- [DERIVED] `BELLOWS_CONTROL_PORT`·`BELLOWS_CONTROL_TOKEN` 이 하드 기본값을 덮어쓰는 것이 **자동 테스트**로 확인된다(수동 `node -e` 검증에 의존하지 않는다).
+- [DERIVED] 파일의 `control.port`·`control.authToken` 이 존재하면 환경변수보다 우선한다.
+- [DERIVED] 테스트는 `process.env` 를 변경한 뒤 원상 복구하여 다른 테스트에 영향을 주지 않는다.
+
+### 🔒 불변 · 무회귀 보장
+- [SPEC] `deriveDesired()` 의 임계 판정과 히스테리시스, STOP.json 의 위치·이름·스키마, 수동 STOP(`source === 'manual'`) 우선 규칙이 **무변경**이다.
+- [SPEC] `resolveStopDir()` · `readStopJson()` · `writeStopJsonAtomic()` · `isValidUsage()` 의 본문이 무변경이며, `resolveStopDir()` 을 주입 가능하게 바꾸지 않는다.
+- [SPEC] `lib/observation.js` · `lib/scrape.js` · `lib/control-server.js` · `lib/config.js` 는 이 Phase 에서 수정되지 않는다(배선 Phase 이므로 계약면은 이미 완성돼 있다).
+- [SPEC] 바인딩은 여전히 `127.0.0.1` 고정이다 — 배선이 호스트를 설정으로 뚫지 않는다(`watch-loop.js` 가 host 를 넘기지 않는다).
+- [SPEC] `POST /api/stop` 은 여전히 미구현이며 배선으로도 활성화되지 않는다 — 호출해도 STOP.json 이 변하지 않는다.
+- [SPEC] `watch-loop.js` 에 `claude` 문자열이 grep 매칭 0건으로 유지된다.
+- [SPEC] 의존성이 늘지 않는다 — `package.json` 의 `dependencies` 는 `puppeteer` 하나이며, 배선은 내장 모듈과 기존 로컬 모듈만 쓴다.
+- [SPEC] `watch-loop.js` 는 Foreman 을 `require` 하지 않고 Foreman 경로·포트를 하드코딩하지 않는다 — 의존 방향이 뒤집히지 않는다.
+- [SPEC] Phase 1·2 의 모든 기준이 계속 만족된다 — `/api/health` 의 `id === 'quaestor'`, 인증 게이트, 비밀 미유출, `deriveState()` 무재판정.
+- [SPEC] `node p-bellows/test/run-all.js` 가 기존 110개를 포함해 전부 통과하고 종료 코드 0 이다 — 기존 기준의 삭제·완화가 없다.
+
+### USER_GATE (사람 확인 — 자동 테스트로 대체 불가)
+- [SPEC] 감시자를 실제로 띄운 뒤 `http://127.0.0.1:3210/api/status` 를 열면 현재의 고장난 측정 상태가 `"state": "crit"` 으로 보인다. 🔒 여기서 `ok` 가 나오면 계약을 구현하면서 3주 침묵을 새 층에 재현한 것이다.
+- [SPEC] `http://127.0.0.1:3210/api/health` 는 `{"ok":true,"id":"quaestor",...}` 로 응답한다 — `/api/status` 가 `crit` 이어도 `/api/health` 는 `ok` 다(두 값은 다른 질문에 답한다).

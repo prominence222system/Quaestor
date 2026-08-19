@@ -277,7 +277,7 @@ const SERVICE_ID   = 'quaestor';    // 🔒 [SPEC] 폴더는 Bellows 지만 제�
 
 ---
 
-## 8. Phase 2 상세 설계 (CURRENT)
+## 8. Phase 2 상세 설계
 
 ### 8-1. 목표
 
@@ -446,7 +446,231 @@ Phase 1 과 동일하게 **실제 포트를 열고 실제 요청**을 보낸다(
 
 ---
 
-## 9. USER_GATE (완료 시 사용자 확인 절차)
+## 9. Phase 3 상세 설계 (CURRENT)
+
+### 9-1. 목표
+
+Phase 1·2 가 만든 HTTP 면을 **본체(감시 루프)에 배선**한다. 이 Phase 가 끝나야
+`run-bellows.ps1` 로 띄운 감시자가 실제로 `127.0.0.1:3210` 에 응답한다(USER_GATE 의 대상).
+
+🔒 **이 Phase 의 유일한 위험은 하나다: 계기판이 차단기를 죽이는 것.**
+지금까지 `watch-loop.js` 는 HTTP 를 몰랐고, 그래서 HTTP 가 어떻게 고장 나도 폴링은 돌았다.
+배선하는 순간 그 성질이 깨질 수 있다. 아래 설계의 절반은 그것을 막는 데 쓰인다.
+
+### 9-2. 수정 파일
+
+| 파일 | 변경 |
+|---|---|
+| `watch-loop.js` | 컨트롤 서버 배선(**additive**) + `getSnapshot` 원천 캐시(`lastCfg`/`lastStop`/`lastConfigSource`) |
+| `test/watch-loop.test.js` | 배선 검증 증분 — 모듈 로드 경계(리스너 미기동) · never-brick 구조 |
+| `test/control-server.test.js` | 배선 **형태**의 통합 검증 증분(라이브 클로저 · 기동 실패 후 진행) + env 우선순위 자동화 |
+
+🔒 무변경: `lib/control-server.js`(Phase 1·2 에서 완성) · `lib/observation.js` · `lib/scrape.js` ·
+`lib/config.js` · `run-bellows.ps1` · `deploy-bellows.ps1` · `deploy.json`.
+
+⚠️ Phase 2 평가가 남긴 [DERIVED] 공백 하나를 이 Phase 에서 갚는다:
+`BELLOWS_CONTROL_PORT` / `BELLOWS_CONTROL_TOKEN` 우선순위가 수동 `node -e` 검증에만 의존했다.
+자동 테스트로 승격한다(§9-8).
+
+### 9-3. 🔒 배선의 3대 제약 (설계의 골격)
+
+| # | 제약 | 이유 | 코드에 나타나는 모양 |
+|---|---|---|---|
+| C1 | **모듈 로드 시 포트를 열지 않는다** | `require('../watch-loop.js')` 하는 테스트가 3210 을 점유하고 열린 핸들로 매달린다. 003 이 `require.main` 가드로 얻은 성질을 HTTP 가 깨뜨리면 안 된다 | `startControlServer()` 호출은 **`mainLoop()` 안**에만 있다. 모듈 최상위에 없다 |
+| C2 | **HTTP 기동 실패가 루프에 닿지 않는다** | never-brick. 차단기가 계기판 때문에 죽으면 안 된다 | `await` 결과를 분기해 로그만 남기고, 그 뒤 `while(true)` 로 **무조건** 진입 |
+| C3 | **`getSnapshot()` 은 I/O 를 하지 않는다** | GET 이 부작용을 만들면 안 된다. 특히 STOP.json 을 건드리면 🔒 불변 위반 | 폴링이 이미 읽은 값을 모듈 변수에 **캐시**하고, 스냅샷은 메모리만 읽는다 |
+
+### 9-4. `watch-loop.js` 배선 — 구체 설계
+
+#### (a) 새 모듈 변수 (관측 원천의 나머지 절반)
+
+`observation` 은 003 이 이미 모듈 변수로 들고 있다. `deriveState(obs, ctx, now)` 의 **`ctx`** 쪽
+(`enabled` · `thresholds` · `stop` · `configSource`)이 아직 어디에도 남지 않는다 —
+`pollOnce()` 가 지역 변수로 읽고 버린다. 그래서 세 개를 추가한다.
+
+```js
+let observation = createObservation();   // 기존
+let lastCfg = null;                      // 마지막 폴에서 읽은 config (enabled/thresholds)
+let lastStop = null;                     // 마지막 폴에서 관측한 STOP.json 내용 (또는 null)
+let lastConfigSource = 'default';        // 'file' | 'default'
+```
+
+- 🔒 **`lastStop` 은 새 파일 읽기를 만들지 않는다.** `pollOnce()` 가 **이미 호출하는**
+  `readStopJson()` 의 결과와, 이미 아는 write/unlink 결과를 그대로 대입할 뿐이다.
+  fs 호출 횟수가 늘면 이 설계를 잘못 구현한 것이다
+- `lastConfigSource` 는 `pollOnce()` 가 `readConfig()` 를 부른 **그 자리에서** 정한다:
+  파일이 존재하고 `_parseError`·`_expired` 가 없으면 `'file'`, 아니면 `'default'`.
+  `readConfig()` 를 바꾸지 않는다(🔒 Phase 2 에서 확정된 순수 경계)
+- 초기값의 의미: 첫 폴 이전에는 `lastCfg === null` → `getSnapshot()` 이 `ctx.enabled` 를
+  기본값(`true`)으로 넘긴다 → `observation.lastSuccessAt === null` 이므로
+  `deriveState()` 가 `warn`(첫 측정 대기 중)을 낸다. 🔒 **`ok` 가 아니다.** 의도된 결과다
+
+#### (b) `getSnapshot()` — 라이브 클로저
+
+```js
+function controlSnapshot() {
+  return {
+    observation: observation,          // 🔒 캡처가 아니라 현재 값 참조
+    ctx: {
+      enabled:      lastCfg ? lastCfg.enabled : true,
+      thresholds:   lastCfg ? lastCfg.thresholds : undefined,  // undefined -> observation 이 기본값 적용
+      stop:         lastStop,
+      configSource: lastConfigSource
+    }
+  };
+}
+```
+
+🔒 **기동 시점의 값을 캡처해 넘기면 안 된다.** `observation` 은 `pollOnce()` 가
+`recordSuccess`/`recordFailure` 로 **재대입**하는 변수다. 값을 한 번 넘겨두면 서버는
+영원히 기동 직후의 빈 관측을 보여준다 — 정확히 "3주 침묵을 초록불로" 재현하는 형태다.
+매 호출마다 모듈 변수를 다시 읽는 **함수**여야 한다.
+
+`thresholds` 를 `undefined` 로 넘기는 것은 안전하다 — `normalizeThresholds()` 가
+`DEFAULT_THRESHOLDS`(85/70/90/75)를 채운다. 🔒 임계값을 이 파일에서 다시 쓰지 않는다.
+
+#### (c) 기동 배선 — `mainLoop()` 진입부
+
+```
+mainLoop()
+  ├─ log('[start] ...')                       (기존)
+  ├─ cfg0 = readConfig(CONFIG_PATH)           ← 포트·토큰 결정용 1회 읽기
+  ├─ try {
+  │    r = await startControlServer({
+  │          port:      cfg0.control.port,
+  │          authToken: cfg0.control.authToken,
+  │          getSnapshot: controlSnapshot,
+  │          onLog: log
+  │        })
+  │    r.started ? (onLog 가 이미 남김)
+  │              : log('[control] listen failed: ' + r.error)
+  │  } catch (e) { log('[control] listen failed: ' + e.message) }   ← C2 이중 방어
+  └─ ★ 어느 쪽이든 while(true) 진입 ★
+```
+
+- `onLog: log` 를 주입하므로 성공 시 `[control] listening on 127.0.0.1:<port>` 와
+  `[control] auth: enabled|disabled (loopback only)` 가 `bellows.log` 에 남는다(Phase 2 형식 그대로)
+- 🔒 **`try/catch` 는 중복 방어다.** `startControlServer()` 는 계약상 throw 하지 않지만,
+  `require` 실패·계약 회귀·주입 콜백의 동기 예외까지 루프에 닿지 않게 한다.
+  중복이라도 남긴다 — 여기서 새는 예외의 대가는 "감시자가 조용히 죽는 것"이다
+- 🔒 반환된 `close()` 를 붙잡아 두지 않는다. 감시자는 상시 프로세스이고,
+  종료 경로가 없으므로 종료 훅을 새로 만들지 않는다(범위 밖)
+
+#### (d) 설정 갱신 정책 — [DERIVED]
+
+`control.port` 와 `control.authToken` 은 **기동 시 1회** 확정한다. 폴마다 재읽기하지 않는다.
+
+- 근거: 포트를 런타임에 바꾸려면 리스너를 닫고 다시 열어야 하고, 그 과정 자체가
+  never-brick 을 위협하는 새 실패 지점이다. 계기판 설정 하나 때문에 만들 위험이 아니다
+- `enabled`·`thresholds` 는 지금처럼 폴마다 갱신된다(`lastCfg` 를 통해 `/api/status` 에 반영)
+- 변경 방법은 **재시작**이다. `PROJECT_INTENT.md`/EVAL 의 How to Run 에 남긴다
+
+#### (e) 🔒 손대지 않는 것 (재확인)
+
+`resolveStopDir()` · `readStopJson()` · `writeStopJsonAtomic()` · `deriveDesired()` ·
+`isValidUsage()` · STOP.json 스키마 · 임계·히스테리시스 · 수동 STOP 우선 규칙 ·
+`require.main === module` 가드 — **전부 무변경**. 이 Phase 는 그 사이에 대입문 몇 개와
+기동부 한 블록을 끼워 넣을 뿐이다.
+
+### 9-5. 데이터 흐름 (배선 완료 후)
+
+```
+                      ┌──────────── watch-loop.js (프로세스 1개) ────────────┐
+ 기동 ─▶ readConfig ─▶ startControlServer(port, authToken, controlSnapshot, log)
+                      │        │                                              │
+                      │        └─ started=false ─▶ log('[control] listen failed: …')
+                      │                                    │                  │
+                      │        ★ 어느 쪽이든 ★ ────────────┘                  │
+                      ▼                                                       │
+       while(true) pollOnce()                                                 │
+            ├─ readConfig()      ─▶ lastCfg, lastConfigSource                 │
+            ├─ scrapeUsage()     ─▶ recordSuccess/recordFailure ─▶ observation│
+            ├─ readStopJson()    ─▶ lastStop                                  │
+            └─ write/unlink STOP ─▶ lastStop 갱신   🔒 로직 무변경             │
+                      └───────────────────────────────────────────────────────┘
+                                        │ 모듈 변수 (메모리)
+                                        ▼
+      GET /api/status ─▶ controlSnapshot() ─▶ deriveState() ─▶ 200 JSON
+                          🔒 fs 접근 0 · 스크랩 0 · STOP.json 접근 0
+```
+
+### 9-6. 실패 모드 표 (배선이 만들어낼 수 있는 사고)
+
+| 시나리오 | 요구 동작 | 어떻게 보장하나 |
+|---|---|---|
+| 3210 을 다른 프로세스가 점유 | 로그 1줄 + 폴링 계속 | `started:false` 분기 → 루프 진입 |
+| 감시자를 두 번 띄움 | 두 번째도 폴링은 돈다(HTTP 만 없음) | 위와 동일 |
+| `getSnapshot` 내부 예외 | 500 응답, 프로세스 생존 | Phase 1 의 `try/catch` + `'status unavailable'` |
+| 첫 폴 이전에 `/api/status` 호출 | `warn`(첫 측정 대기 중). 🔒 `ok` 아님 | `observation.lastSuccessAt === null` |
+| 측정이 3주째 실패 중 | `crit` | 003 의 `deriveState()` 그대로 — 이 층은 덮지 않는다 |
+| `bellows-config.json` 이 깨짐 | 기본 포트·인증 없음으로 기동, 폴링 계속 | `readConfig()` never-throw(Phase 2) |
+| 테스트가 watch-loop 을 require | 포트를 열지 않고 즉시 반환 | C1 — 호출이 `mainLoop()` 안에만 존재 |
+
+### 9-7. 통합 검증 전략 — 무엇을 어디서 증명하나
+
+⚠️ **제약 실측:** `watch-loop.js` 는 모듈 로드 시 `resolveStopDir()` 로 **실제** Synology
+`.prominence` 를 잡고, 없으면 `process.exit(1)` 한다. 이는 🔒 불변(MASTER.md)이고 주입 가능하게
+바꾸지 않는다. 따라서 **`pollOnce()` 를 테스트에서 구동하지 않는다** — 구동하면 이 기계의
+진짜 STOP.json 과 bellows.log 를 건드린다. 003 의 `watch-loop.test.js` 가 이미 채택한 원칙이고,
+Phase 3 도 그대로 따른다.
+
+그래서 검증을 두 곳으로 나눈다.
+
+| 대상 | 어디서 | 방식 |
+|---|---|---|
+| **배선의 존재와 형태** | `watch-loop.test.js` | 소스 구조 검증 + 모듈 로드 경계 행동 검증 |
+| **배선의 동작(라이브성·never-brick)** | `control-server.test.js` | 배선과 **동일한 형태**를 테스트 안에서 재구성해 실포트로 검증 |
+
+🔒 **소스 grep 만으로 끝내지 않는다.** "wiring shape" 를 실제로 돌려 본다 — 즉
+`let obs = createObservation(); const snap = () => ({observation: obs, ctx});` 로 서버를 띄우고,
+`obs = recordFailure(obs, ...)` 로 **재대입**한 뒤 `/api/status` 가 새 값을 보는지 확인한다.
+이것이 (b) 의 "캡처 금지" 조항을 행동으로 고정하는 유일한 방법이다.
+
+#### C1(모듈 로드 시 리스너 미기동) 검증 방법
+
+`watch-loop.test.js` 상단에서 `require('../lib/control-server')` 를 먼저 가져와
+`startControlServer` 를 호출 횟수 카운터로 교체한 뒤 `require('../watch-loop.js')` 한다.
+`watch-loop.js` 는 로드 시점에 구조분해하므로 교체본을 집는다.
+🔒 **로드 직후 카운터가 `0` 이어야 한다.** 테스트 종료 시 원본을 복구한다.
+
+(보조) 소스 구조 검증: `startControlServer(` 호출이 `mainLoop` 함수 본문 안에 있고,
+모듈 최상위 실행 경로에 없다.
+
+### 9-8. Phase 3 테스트 항목 (신규분 개요)
+
+**`watch-loop.test.js` 증분**
+1. 모듈 로드 시 `startControlServer` 호출 0회 (C1, 행동)
+2. `startControlServer(` 호출이 `mainLoop()` 본문 안에 존재 (C1, 구조)
+3. `getSnapshot`(=`controlSnapshot`)이 **함수로** 주입되고, 그 본문이 `observation` 모듈 변수를 참조 (라이브성, 구조)
+4. 기동 실패 문자열 `'[control] listen failed'` 가 소스에 존재 (§4 "조용히 삼키지 않는다")
+5. `startControlServer` 호출부가 `try`/결과 분기로 감싸여 있고, 그 뒤에 폴링 루프가 온다 (C2, 구조)
+6. `controlSnapshot()` 본문에 `fs.` 호출·`scrapeUsage`·`STOP_PATH` 참조가 없다 (C3, 구조)
+7. 기존 6개(무회귀): `require.main` 가드 · 관측 배선 · kind/hint 로그 · 불변 헬퍼 잔존 · `claude` 0건
+
+**`control-server.test.js` 증분**
+8. **라이브 클로저**: 서버 기동 후 `observation` 을 재대입하면 다음 `/api/status` 가 새 `state` 를 낸다
+   (예: `ok`/`warn` → 연속 실패 5회 주입 → `crit`)
+9. **never-brick 시뮬레이션**: 점유된 포트로 기동 → `started === false` → 그 뒤 코드가 계속 실행됨
+   (루프 대역 카운터 증가로 확인). 예외가 새지 않는다
+10. **첫 폴 이전 상태**: 빈 `createObservation()` + `ctx` 미설정으로 `/api/status` → `state !== 'ok'`
+    (🔒 측정 전 초록불 금지)
+11. **`ctx` 전달 검증**: `lastStop` 에 해당하는 값을 넣으면 `fields` 의 `STOP` 항목이 그것을 반영,
+    `configSource: 'file'` 이면 `설정 출처` 필드가 `파일`
+12. **env 우선순위 자동화**(Phase 2 잔여): `BELLOWS_CONTROL_PORT`/`BELLOWS_CONTROL_TOKEN` 이
+    기본값을 덮고, 파일 값이 있으면 파일이 이긴다 — `process.env` 를 세팅/복구하며 `readConfig()` 직접 호출
+13. 모든 신규 서버는 `try/finally` 로 `close()` — 프로세스 매달림 없음
+
+### 9-9. Phase 3 가 하지 않는 것
+
+- `POST /api/stop` 구현 — 🔒 영구히 하지 않는다(D9)
+- `run-bellows.ps1` / `deploy-bellows.ps1` / `deploy.json` 수정 — 범위 밖(데이터·배포 계약은 사람 몫)
+- `resolveStopDir()` 를 주입 가능하게 만들기 — 🔒 불변. hermetic 하게 만들려고 안전장치의 경로 해석을 흔들지 않는다
+- 런타임 설정 리로드(포트·토큰 hot reload) — §9-4(d)
+- Foreman 쪽 무엇도 · 폴더/저장소 개명
+
+---
+
+## 10. USER_GATE (완료 시 사용자 확인 절차)
 
 감시자를 띄운 뒤 `http://127.0.0.1:3210/api/status` 를 열어
 **지금 이 고장난 상태가 `"state": "crit"` 으로 나오는지** 눈으로 확인한다.
