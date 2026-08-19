@@ -763,6 +763,57 @@ test('ctx.stop and ctx.configSource propagate into /api/status fields (STOP fiel
   }
 });
 
+// ---- Phase 4: end-to-end assembly path -> contract default address -------
+//
+// Every prior real-port test used port: 0 (OS-assigned). The contract
+// (_guides/SUPERVISED_TOOL_CONTRACT.md) pins the default control address to
+// http://127.0.0.1:3210. This is the first test where that literal address
+// is actually bound -- and the port value comes from readConfig(), not from
+// a 3210 literal written into the test, so what's proven is "the config path
+// produces the contract address", not just "3210 works". Placed last so it
+// does not compete for the port with the port:0 tests above.
+
+test('assembly path: readConfig() -> startControlServer() binds the contract default address (127.0.0.1:3210)', async () => {
+  const noFilePath = path.join(os.tmpdir(), 'bellows-assembly-nofile-' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.json');
+  const cfg = readConfig(noFilePath);
+  assert.strictEqual(cfg.control.port, 3210, 'contract default port must come from readConfig(), not a test literal');
+
+  const r = await startControlServer({ port: cfg.control.port, authToken: cfg.control.authToken, getSnapshot: okSnapshot });
+  try {
+    if (r.started) {
+      assert.strictEqual(r.port, 3210);
+      assert.strictEqual(r.address, '127.0.0.1');
+      const health = await getJson(3210, '/api/health');
+      assert.strictEqual(health.status, 200);
+      assert.strictEqual(health.body.id, 'quaestor');
+      const status = await getJson(3210, '/api/status');
+      assert.strictEqual(status.status, 200);
+      assert.ok('summary' in status.body && 'state' in status.body && 'fields' in status.body && 'updatedAt' in status.body);
+    } else {
+      // The contract port is already occupied (e.g. a real watcher is
+      // running on this machine) -- never-brick applies to the test too:
+      // no exception, a non-empty error, and execution continues.
+      assert.strictEqual(typeof r.error, 'string');
+      assert.ok(r.error.length > 0);
+    }
+  } finally {
+    await r.close();
+  }
+
+  // Handle-leak check: only meaningful when this test itself held the
+  // port (r.started === true) -- if it was occupied by another real
+  // process, that process still owns it and re-binding must not be
+  // asserted to succeed.
+  if (r.started) {
+    const again = await startControlServer({ port: cfg.control.port, getSnapshot: okSnapshot });
+    try {
+      assert.strictEqual(again.started, true, 'contract port must be free again after close()');
+    } finally {
+      await again.close();
+    }
+  }
+});
+
 test('env: BELLOWS_CONTROL_PORT / BELLOWS_CONTROL_TOKEN override hard defaults; file values still win over env', () => {
   const savedPort = process.env.BELLOWS_CONTROL_PORT;
   const savedToken = process.env.BELLOWS_CONTROL_TOKEN;
