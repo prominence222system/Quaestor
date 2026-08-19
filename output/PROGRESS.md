@@ -31,7 +31,7 @@ Started: 2026-08-19T05:10:46Z
 | 2 | 인증 — `Authorization: Bearer` + `crypto.timingSafeEqual` 상수시간 비교 · `config.js` 의 `control`(port·authToken) 블록 · 비밀 미유출 · `POST /api/stop` 의도적 미구현 명문화 | DONE |
 | 3 | `watch-loop.js` 배선(never-brick — 기동 실패해도 루프 계속) + `test/control-server.test.js` 실포트 통합 검증 | DONE |
 | 4 | 004 종단 통합 검증 · 계약 원문 대조 — 조립 경로(`readConfig()`→`startControlServer()`) 기본 포트 실바인딩 왕복 · 계약 체크리스트 1:1 대조표 · 계약 문서와의 이탈점(`id`/`tokenFrom`) 인수인계 기록 · USER_GATE 증거 절차 | DONE |
-| 5 | 역경로·강건성 매트릭스 — 모든 응답 경로(200/401/404/405/500/501)의 JSON·헤더·`ok` 직접 단언 · 비정상 요청 매트릭스 · 동시 요청·연결 중단 앞에서의 프로세스 생존(never-brick 의 마지막 미검증 면) | CURRENT |
+| 5 | 역경로·강건성 매트릭스 — 모든 응답 경로(200/401/404/405/500/501)의 JSON·헤더·`ok` 직접 단언 · 비정상 요청 매트릭스 · 동시 요청·연결 중단 앞에서의 프로세스 생존(never-brick 의 마지막 미검증 면) | DONE |
 
 ## 비고
 - 모든 검증은 hermetic (Chrome·claude.ai·Foreman 없이 실행). 🔒 실제 포트를 열고 실제 요청을 보낸다.
