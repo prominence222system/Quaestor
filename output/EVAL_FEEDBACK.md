@@ -1,6 +1,5 @@
 ## Verdict
-PASS
-
+FIX
 ## Verdict Criteria (current work file only)
 - NEXT: a phase REMAINS WITHIN the current work file (not for other work files)
 - FIX: Current Phase has bugs or missing features
@@ -74,3 +73,10 @@ NO
 
 3. 관측 상태·실패 분류 결과는 `bellows.log`(`.prominence` 폴더)에 `kind`·`hint` 와 함께 기록된다.
    HTTP 로 노출(`/api/health`·`/api/status`)하는 것은 **004** 작업의 범위다.
+
+
+## Verdict
+FIX
+
+## Smoke Override
+Smoke verification failed. Forced to FIX.
