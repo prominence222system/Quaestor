@@ -1,149 +1,108 @@
-# TEST_RESULT — 004 Phase 4 (종단 통합 검증 · 계약 원문 대조)
+# TEST_RESULT — 004 Phase 5 (역경로·강건성 매트릭스)
 
-검증일: 2026-08-19 · 대상: `p-bellows/test/control-server.test.js`(증분) · `CONTINUATION.md`(Synology)
-기준: `output/ACCEPTANCE.md` (004 Phase 4) — 수정하지 않음(read-only 준수).
+대상: `p-bellows/lib/control-server.js`(무수정) · `p-bellows/test/control-server.test.js`(증분, +348 lines)
+검증 방식: hermetic, 실제 포트(`port: 0`) 실바인딩 + 실제 HTTP/원시 소켓 요청.
 
 ## 요약
 
-- `node p-bellows/test/run-all.js` → **123개 테스트 전부 통과, 종료 코드 0**
-  (Phase 1·2·3 누적 122개 + Phase 4 신규 1개 = 123개, 기존 테스트 완화·삭제 없음)
-- `deploy-bellows.ps1 -DryRun` → **종료 코드 0**
-- Phase 4 acceptance 항목 전부 **PASS**(USER_GATE 2건은 정의상 사람 몫 — 아래 참조).
-- `lib/control-server.js`·`lib/config.js`·`lib/observation.js`·`lib/scrape.js`·`watch-loop.js` 는
-  이번 QA 라운드에서 **어떤 수정도 하지 않았다** — Phase 4 는 검증·문서 Phase 이며(설계 §10-2),
-  조립 경로 테스트(`control-server.test.js`)와 인수인계 문서(`CONTINUATION.md`·`PROJECT_INTENT.md`)가
-  이미 계약을 만족한 상태로 발견되었다. 발견된 버그 없음.
+- `node p-bellows/test/run-all.js` → **133 tests, 133 pass, 0 fail, exit code 0**, 프로세스 매달림 없음.
+- 이전 Phase 4 종료 시점(123개) 대비 **+10개 순증분**, 기존 123개 전부 무회귀로 통과.
+- `implement` 단계에서 이미 올바르게 작성되어 **구현 코드 수정 없이 1회 실행에 전부 통과** — 발견된 버그 없음.
+- `git show --stat HEAD` 로 실증: 이번 커밋(`d931507`, Phase 5 implement)은 `test/control-server.test.js` 348줄 추가뿐, `lib/*`·`watch-loop.js` 변경 0.
+  `lib/control-server.js` 마지막 수정 커밋은 `d1b2ddd`(Phase 3) — Phase 4·5 를 관통해 무수정 유지.
 
-## Phase 4 Acceptance 기준별 결과
+## Phase 5 Acceptance Criteria 대조
 
-### 조립 경로 종단 검증 (readConfig → startControlServer → 계약 주소)
-| 기준 | 결과 | 테스트 / 근거 |
+### 응답 형식 매트릭스
+| 기준 | 결과 | 근거 테스트 |
 |---|---|---|
-| 계약 기본 주소 `http://127.0.0.1:3210` — 설정 파일 부재 시 `readConfig()` 의 `control.port===3210`, 그 값으로 기동 성공 시 `port===3210`·`address==='127.0.0.1'` | PASS | `assembly path: readConfig() -> startControlServer() binds the contract default address (127.0.0.1:3210)` |
-| 테스트에 넘기는 포트 값이 `readConfig()` 반환값에서 옴(3210 리터럴로 직접 띄우지 않음) | PASS | 소스 확인: `startControlServer({ port: cfg.control.port, ... })` — `3210` 리터럴은 `assert.strictEqual(cfg.control.port, 3210, '...')` 기대값 쪽에만 등장 |
-| 기동 성공 시 `/api/health`(200·`id==='quaestor'`)·`/api/status`(200·`summary`/`state`/`fields`/`updatedAt` 존재)를 **계약 주소에서** 확인 | PASS | 동일 테스트 내 `getJson(3210, '/api/health')`·`getJson(3210, '/api/status')` |
-| 계약 기본 포트 점유 시에도 예외 없이 `started:false`+비어있지 않은 `error` 로 resolve, 이후 테스트 코드 계속 실행 | PASS | 동일 테스트의 `else` 분기(`assert.strictEqual(typeof r.error, 'string')`, `assert.ok(r.error.length > 0)`) |
-| 두 갈래(성공 시 계약 형식 왕복 / 실패 시 무예외 보고) 중 어느 쪽도 아닌 결과는 실패 판정 | PASS | if/else 이지선다 구조 — 그 외 경로(throw, `started` 부재, 포트·주소 불일치)는 assert 실패 또는 uncaught 로 테스트 자체가 실패하게 되어 있음 |
-| `try/finally` 로 `close()` 보장 — 계약 포트를 붙잡은 채 종료하지 않음 | PASS | 소스: `try { ... } finally { await r.close(); }` |
-| [DERIVED] `close()` 이후 같은 포트 재바인딩 가능(핸들 누수 배제) | PASS | `if (r.started) { const again = await startControlServer(...); assert.strictEqual(again.started, true, ...); await again.close(); }` |
-| [DERIVED] 계약 기본 포트 테스트가 파일 내 마지막에 위치(임의 포트 테스트와 자원 미충돌) | PASS | 소스상 마지막 실포트 테스트. 뒤이은 `env: BELLOWS_CONTROL_PORT ...` 테스트는 포트를 열지 않는 순수 `readConfig()` 호출뿐 |
+| [SPEC] 200(health)·200(status)·401·404·405·500·501 전부 실요청으로 유발, 그 자리에서 JSON.parse 직접 단언 | PASS | `response shape matrix: every reachable status code (200/200/401/404/405/500/501) is directly asserted for I1-I5` (7-case 선언 배열 루프) |
+| [SPEC] 모든 경로 `ok` 존재·boolean, 2xx 아니면 `ok:false` | PASS | 위 테스트 `assertCommonInvariants` I3 |
+| [SPEC] 모든 경로 본문에 토큰·`.profile`·`cookie`·스택트레이스·절대경로 없음(대소문자 무시) | PASS | 위 테스트 I4 |
+| [SPEC] 각 경로 직후 `GET /api/health` 200 | PASS | 위 테스트 I5(followUp) |
+| [DERIVED] 응답 헤더 `Content-Type`/`Cache-Control` | PASS | 위 테스트 I2 |
+| [DERIVED] 매트릭스는 선언 배열 + 공통 단언 루프 | PASS | `cases` 배열 + `for (const c of cases)` 구조로 확인 |
+| [DERIVED] I1 적용 범위는 well-formed 요청 한정(주석 명문화) | PASS | 테스트 파일 헤더 주석에 명문화, R3 에서 별도 취급 |
 
-### 계약 원문 대조 · 인수인계 기록
+### 역경로 매트릭스 (well-formed 이지만 비정상)
+| 기준 | 결과 | 근거 테스트 |
+|---|---|---|
+| [SPEC] 후행 슬래시·이중 슬래시·대문자·퍼센트인코딩 → 유효 JSON 거부 + 생존 | PASS | `adversarial paths: route variants and unknown methods are rejected as valid JSON without harming the server` |
+| [SPEC] `/api/../api/status` 정규화 경로가 200 받아도 fs 미접근 | PASS | `adversarial: a dot-segment path normalizes to /api/status ...` + 기존 소스 정적 검사(`control-server.js source never references STOP.json / scrapeUsage / writeStopJsonAtomic`) |
+| [SPEC] 계약 경로에 대한 미지 메서드(PATCH/DELETE/OPTIONS, `/api/stop` 에 GET) → 유효 JSON 거부, 500·프로세스 종료 없음 | PASS | 위 `adversarial paths` 테스트의 case 목록에 포함 |
+| [SPEC] 중복 `Authorization` 헤더, 수 KB Bearer 토큰 → 401, 예외 없음 | PASS | `adversarial: duplicate Authorization headers ...`, `adversarial: a multi-KB Bearer token does not throw ...` |
+| [SPEC] 요청 본문 실린 `GET /api/status` → 200, 부작용 없음(본문 미독) | PASS | `adversarial: GET /api/status with a request body is still 200 and has no side effects` |
+| [DERIVED] 경로 변형 기대값 404, 미지 메서드 405 | PASS | 위 두 테스트의 case 별 `status` 필드 |
+| [DERIVED] `HEAD /api/health` → 405, 헤더만 확인 | PASS | `adversarial: HEAD /api/health -> 405, headers-only assertion` |
+| [DERIVED] ~8KB 긴 경로 → 정확한 코드 불문, 4xx + 생존만 요구 | PASS | `adversarial: an ~8KB request path draws a 4xx ...` |
+
+### 복원력 (never-brick 마지막 미검증 면)
+| 기준 | 결과 | 근거 테스트 |
+|---|---|---|
+| [SPEC] 소켓 강제 종료 후에도 생존, 직후 `/api/health` 200 | PASS | `resilience R1-R5 ...` 내 R2 구간 |
+| [SPEC] HTTP 파싱 불가 바이트열에도 생존, 응답 형식 불문 | PASS | 동 테스트 R3 구간 (`sendRawAndWaitClose`) |
+| [SPEC] 전 프로브 구간 `uncaughtException`/`unhandledRejection` 0회 | PASS | 동 테스트 R4 구간(리스너 등록·해제, 배열 길이 0 단언) |
+| [SPEC] 25건 동시 `/api/status` 전부 200·유효 JSON, 관측 객체 불변 | PASS | 동 테스트 R1 구간(`Promise.all`, before/after 문자열 비교) |
+| [SPEC] 전 구간 STOP.json 미변경, 스크래핑 미유발 | PASS | 동 테스트 R5 구간(임시 STOP 파일 mtime 불변 단언) |
+| [DERIVED] 401·404·405 경로에서 `getSnapshot()` 호출 0 | PASS(구조적) | 404/405 는 `snapshotCalls` 카운터로 직접 확인. 401 은 별도 카운터는 없으나, 인증 게이트가 라우팅보다 먼저 실행되고 `getSnapshot` 은 `handleStatus` 내부에서만 호출되는 구조(기존 `auth: gate runs before routing` 테스트로 순서 확정)로 behavior-equivalent 하게 성립 — [DERIVED] 항목이므로 이 수준의 근거로 충분하다고 판단 |
+| [DERIVED] 동시 요청 수는 성능 벤치마크 아닌 소수(25) | PASS | 동 테스트, `Array.from({ length: 25 }, ...)` |
+
+### 🔒 무회귀·경계
 | 기준 | 결과 | 근거 |
 |---|---|---|
-| 계약 §"도구 쪽 체크리스트" 전 항목 1:1 대조표(충족/의도적 미구현/대상 밖), 미판정 항목 없음 | PASS | `CONTINUATION.md` "계약 '도구 쪽 체크리스트' 대조표" — 8행 전부 판정됨(✅5·🔒1·⛔2) |
-| `POST /api/stop` = 의도적 미구현으로 분류 + 근거("계약이 확인 없는 호출을 허용하므로 안전장치를 이 경로에 붙이지 않는다") 기록 | PASS | `CONTINUATION.md` 대조표 3행 + `PROJECT_INTENT.md` 전체 문서(별도 결정 문서) |
-| 이탈점 두 곳 기록: `supervised[].id` = `"bellows"`(계약) vs `"quaestor"`(구현), `control.tokenFrom` = `control.authToken` 우선(최상위 `authToken` 폴백) | PASS | `CONTINUATION.md` "🔒 계약 문서와의 이탈점 — Foreman 쪽이 알아야 할 것" 표 |
-| `_guides\SUPERVISED_TOOL_CONTRACT.md` 미수정(Foreman 소유 문서) | PASS | 이번 세션에서 Read 만 수행, Edit/Write 없음 |
-| Foreman 저장소·`foreman-config.json` `supervised[]` 미수정(대상 밖 분류만) | PASS | 접근하지 않음. `CONTINUATION.md` 대조표에서 "⛔ 대상 밖" 으로 명시 |
-| [DERIVED] 기록 위치 = Synology `CONTINUATION.md`, `baseUrl`·1회 확정·`deploy.json` 사람 몫 기재 | PASS | `CONTINUATION.md` 하단 "추가로 남길 것" 단락 |
+| [SPEC] `lib/control-server.js` 등 5개 동작 파일 이 Phase 에서 미수정 | PASS | `git show --stat HEAD` — 테스트 파일만 변경, [SPEC] 위반으로 인한 소스 수정 0건 |
+| [SPEC] 계약면 확장 없음(새 엔드포인트·메서드·라우팅 규칙 없음) | PASS | 소스 무수정으로 자동 성립 |
+| [SPEC] 바인딩 `127.0.0.1` 고정, `POST /api/stop` 여전히 미구현 | PASS | 기존 Phase 1·2 테스트 재통과 + Phase 5 501 케이스 |
+| [SPEC] `deriveDesired()` 임계·히스테리시스, STOP.json 스키마, 수동 STOP 우선 규칙 무변경 | PASS | `watch-loop.js`·`observation.js` 무수정 |
+| [SPEC] `run-bellows.ps1`·`deploy-bellows.ps1`·`deploy.json`·계약 원문·Foreman 저장소 미수정 | PASS | `git status` 확인 — 이 NNN 관련 변경 없음 |
+| [SPEC] Phase 1·2·3·4 기준 전부 계속 만족, 삭제·완화 없음 | PASS | 기존 123개 테스트 전부 통과 유지(신규 10개는 순증분) |
+| [SPEC] `run-all.js` 133개 전부 통과, exit 0, 프로세스 안 매달림 | PASS | 위 요약 참조 |
+| [SPEC] 의존성 미증가(`puppeteer` 유일) | PASS | `no new runtime dependency` 기존 테스트 재확인 |
+| [SPEC] `p-bellows` `.js` 파일에 `claude` 매칭 0(도메인 URL 예외) | PASS | `control-server.js`·`watch-loop.js` grep 0건 직접 확인(도메인 URL 은 `lib/scrape.js` 기존 예외, 테스트 파일 내 언급은 부재 검증용) |
+| [DERIVED] 프로브 전부 `port: 0`, `try/finally` close | PASS | 소스 확인 — Phase 5 신규 테스트 전부 `port: 0` + `finally { await r.close(); }` |
+| [DERIVED] `deploy-bellows.ps1 -DryRun` exit 0 | PASS | 직접 실행 확인, exit code 0 |
 
-### 계약 §"부재 규칙" 중 이 제품이 지는 몫
-| 기준 | 결과 | 근거 |
-|---|---|---|
-| 모든 응답 경로(200/401/404/405/500/501)가 항상 파싱 가능한 JSON | PASS | Phase 2 `secrets never leak: 200/401/404/405/501/500 bodies never contain the token, .profile, cookie, or the raw Authorization header` 재통과(무회귀) — 6개 상태 코드 모두 `JSON.parse()` 성공을 전제로 검증됨 |
-| 컨트롤 서버가 아예 뜨지 못한 상태에서도 감시 루프는 계속 돈다(Phase 3 never-brick 무회귀) | PASS | `C2 (structural)`·`never-brick: startup failure is not swallowed silently ...`·`never-brick simulation: ...` 재통과 |
+### USER_GATE (자동화 불가 — 사람 확인 필요)
+- `http://127.0.0.1:3210/api/status` 를 실제로 열어 `state: "crit"` 확인, `/api/health` 는 `ok` 확인 — **자동 테스트 대상 밖**. Phase 4 에서와 동일하게 실제 감시자 기동 후 사람이 확인해야 하는 항목이며, 이번 Phase 도 이를 자동 검증 스위트에 포함하지 않는다(설계 의도와 일치 — 아래 "How to Run" 참고).
 
-### 🔒 무회귀 · 경계 (검증 Phase 의 자기 구속)
-| 기준 | 결과 | 근거 |
-|---|---|---|
-| `lib/control-server.js`·`lib/config.js`·`lib/observation.js`·`lib/scrape.js`·`watch-loop.js` 이 Phase 미수정 | PASS | `git status --porcelain` 확인 — 5개 파일 dirty 아님(이번 세션에서 Edit/Write 미수행) |
-| `run-bellows.ps1`·`deploy-bellows.ps1`·`deploy.json` 미수정(범위 밖) | PASS | 동일 |
-| `deriveDesired()` 임계·히스테리시스, STOP.json 위치·이름·스키마, 수동 STOP 우선 규칙 무변경 | PASS | 소스 미수정 + `watch-loop.test.js` 기존 테스트 재통과 |
-| `watch-loop.js` 를 자식 프로세스로 띄우는 통합 테스트를 만들지 않음 | PASS | 코드 검토 — `child_process`/`spawn` 미사용, `pollOnce()` 미구동(설계 §10-3(c) 원칙 유지) |
-| Phase 1·2·3 모든 기준이 계속 만족되며 순증분(삭제·완화 없음) | PASS | 전체 스위트 123/123 pass — 기존 122개 테스트명 그대로 존재 |
-| `node p-bellows/test/run-all.js` 가 기존 122개를 포함해 전부 통과, 종료 코드 0, 매달림 없음 | PASS | 아래 "전체 테스트 실행 결과" 참조 |
-| 의존성 불변(`puppeteer` 단일), 새 테스트는 내장 `node:test`/`node:assert`/`fetch` 만 사용 | PASS | `Object.keys(package.json.dependencies) === ['puppeteer']`, 신규 테스트 소스에 외부 require 없음 |
-| `p-bellows` 의 `.js` 파일에 `claude` 매칭 0건(도메인 URL 상수 예외) | PASS | grep 결과 — 전부 `claude.ai` 도메인 상수/테스트 픽스처, CLI 참조 없음 |
-| [DERIVED] `deploy-bellows.ps1 -DryRun` 종료 코드 0(PS 5.1 파싱 0 errors) | PASS | 아래 "deploy-bellows.ps1 실행 결과" 참조 |
+## 전체 테스트 목록 (133개, Phase 5 신규 10개 발췌)
 
-### USER_GATE (사람 확인 — 자동 테스트로 대체 불가, Phase 3 기준의 재확인)
-| 기준 | 결과 |
-|---|---|
-| 실제 감시자 기동 후 `http://127.0.0.1:3210/api/status` 가 `"state":"crit"` | ⏸ **미확인(사람 몫)** — 정의상 자동 QA 범위 밖(Chrome·claude.ai 구동 환경 필요). 동일 회로 성질은 hermetic 테스트(`assembly path: ...`·`live closure ...`·`first poll before any success ...`)가 이미 행동으로 증명함 |
-| 같은 주소의 `/api/health` 가 `{"ok":true,"id":"quaestor",...}`(`/api/status` 가 crit 이어도) | ⏸ **미확인(사람 몫)** — `/api/health` 가 `getSnapshot()` 을 호출하지 않는 성질은 Phase 1 테스트(`GET /api/health -- ... does not touch getSnapshot`)로 hermetic 검증됨. 실기동 확인은 사람 몫 |
+1. `response shape matrix: every reachable status code (200/200/401/404/405/500/501) is directly asserted for I1-I5`
+2. `adversarial paths: route variants and unknown methods are rejected as valid JSON without harming the server`
+3. `adversarial: a dot-segment path normalizes to /api/status and matches the contract shape (no filesystem access)`
+4. `adversarial: HEAD /api/health -> 405, headers-only assertion (HTTP forbids a HEAD response body)`
+5. `adversarial: an ~8KB request path draws a 4xx (exact code left to the Node parser layer) and the server keeps running`
+6. `adversarial: duplicate Authorization headers do not throw -- Node keeps the first value, a mismatch still yields 401`
+7. `adversarial: a multi-KB Bearer token does not throw -- 401, not 500`
+8. `adversarial: GET /api/status with a request body is still 200 and has no side effects (the body is never read)`
+9. `adversarial: POST /api/stop with Content-Type: text/xml is still 501 (the body is never parsed)`
+10. `resilience R1-R5: concurrency, abrupt disconnects, and malformed bytes never crash the server, leak side effects, or throw unhandled errors`
 
-두 USER_GATE 항목은 설계·수용 기준이 명시적으로 "자동 테스트로 대체 불가" 로 규정한다.
-QA 자동화가 대신 증명한 것은 "코드 경로가 그 성질을 갖고 있다"이고, 사람이 확인할 것은
-"이 기계의 지금 이 순간 실제 값" 이다 — 둘은 다른 질문이라 자동화로 후자를 대신할 수 없다.
+나머지 123개는 Phase 1~4 기존 테스트(무회귀 재통과, 상세 목록은 `test/run-all.js` 실행 로그 참조).
 
-## 전체 테스트 실행 결과
+## 구현 코드에서 수정한 버그
 
-```
-$ node p-bellows/test/run-all.js
-[run-all] loading 4 test file(s): control-server.test.js, observation.test.js, scrape-classify.test.js, watch-loop.test.js
-...
-tests 123
-suites 0
-pass 123
-fail 0
-cancelled 0
-skipped 0
-todo 0
-duration_ms 210.3732
+없음. Phase 5 는 검증 전용 Phase 로, `implement` 단계에서 작성된 테스트가 **1회 실행 만에 133/133 통과**했다.
+`lib/*`·`watch-loop.js` 어느 파일도 이 단계에서 수정하지 않았다(`git show --stat HEAD` 로 실증 — 변경분은 테스트 파일 348줄 추가뿐).
 
-$ echo $?
-0
-```
+## 이전 Phase 통합 검증 결과
 
-## deploy-bellows.ps1 실행 결과
-
-```
-$ powershell -NoProfile -ExecutionPolicy Bypass -File ./deploy-bellows.ps1 -DryRun
-Deploy Bellows
-  Source: F:\SynologyDrive\Obsidian\Automatic\1. Project\products\Bellows
-  Dest:   F:\Workspace\Automatic\projects\Bellows
-  (dry run)
-...
-Deploy Bellows complete.
-
-$ echo $?
-0
-```
-
-## Phase 4 신규 테스트 (1개)
-
-`control-server.test.js`:
-1. `assembly path: readConfig() -> startControlServer() binds the contract default address (127.0.0.1:3210)`
-
-(참고: `env: BELLOWS_CONTROL_PORT / BELLOWS_CONTROL_TOKEN override hard defaults; file values still win over env`
-는 Phase 3 산출물이며 이번 Phase 에서 재작성하지 않았다 — 파일 내 위치상 assembly path 테스트
-뒤에 있으나 신규 테스트가 아니다. 122 → 123 증가분은 assembly path 테스트 1개뿐이다.)
-
-## 발견·수정한 버그
-
-없음. `control-server.test.js`(Phase 4 증분)·`CONTINUATION.md`·`PROJECT_INTENT.md` 모두 이미
-Phase 4 계약을 만족한 상태로 발견되었고, `output/ACCEPTANCE.md` 의 모든 [SPEC]/[DERIVED] 항목을
-실포트 통합 테스트 + 문서 대조 + 코드 리뷰(`git status`)로 확인한 결과 수정이 필요한 결함이 없었다.
-
-## 이전 Phase(1·2·3) 통합 검증
-
-Phase 1(25개)·Phase 2(27개)·Phase 3(12개) — 003 유래 테스트(`observation.test.js` 28개·
-`scrape-classify.test.js` 19개·`watch-loop.test.js` 003분 6개) 포함 총 122개가 이번 Phase 4
-신규 1개와 같은 `run-all.js` 실행에서 함께 통과(123/123). `lib/control-server.js`·`lib/config.js`·
-`lib/observation.js`·`lib/scrape.js`·`watch-loop.js` 는 이번 라운드에서 어떤 수정도 하지 않아
-Phase 1·2·3 산출물이 그대로 보존됐다. 회귀 없음.
+- Phase 1(코어 라우팅/health/status) — 재통과.
+- Phase 2(인증/`config.js` control 블록/비밀 미유출) — 재통과.
+- Phase 3(watch-loop.js never-brick 배선/라이브 관측) — 재통과.
+- Phase 4(조립 경로 `readConfig()` → `startControlServer()` 계약 기본 주소 3210 실바인딩) — 재통과. Phase 5 신규 프로브는 전부 `port: 0` 을 사용해 계약 기본 포트(3210)를 점유하지 않으므로 Phase 4 테스트와 자원 경합이 없다(파일 내 배치 순서상 Phase 4 조립-경로 테스트가 앞서고, Phase 5 어드버서리얼/복원력 테스트는 그 뒤에 추가돼 있으며 각각 독립 포트를 사용한다).
+- `require('../watch-loop.js')` 모듈 로드 경계(003 성질) — 재통과.
 
 ## How to Run
 
-이 Phase 는 검증·문서 Phase 라 동작에 변화가 없다. `run-bellows.ps1` 로 감시자를 띄우면
-`/api/health`·`/api/status` 가 계약이 지정한 `http://127.0.0.1:3210` 에서 동작한다(화면상
-변화는 여전히 없다 — Foreman 클라이언트가 아직 미구현이라 이 NNN 의 정상적인 종료 상태다).
-
-```bash
-# 전체 테스트(hermetic, Chrome/claude.ai 불필요)
+```
 node p-bellows/test/run-all.js
-
-# 배포 드라이런
-powershell -NoProfile -ExecutionPolicy Bypass -File ./deploy-bellows.ps1 -DryRun
-
-# 실제로 감시자를 띄워 눈으로 확인하려면 (USER_GATE, Chrome 필요):
-powershell -NoProfile -ExecutionPolicy Bypass -File ./run-bellows.ps1
-# 별도 터미널에서:
-#   curl http://127.0.0.1:3210/api/health
-#   curl http://127.0.0.1:3210/api/status
-# 🔒 지금 고장난 측정 상태에서는 /api/status 의 state 가 "crit" 이어야 정상이다.
 ```
 
-⚠️ `npm` 사용 금지 — `node` 를 직접 호출할 것.
-⚠️ `node watch-loop.js` 단독 실행 금지 — Chrome 이 `--remote-debugging-port=9222` 로 떠 있어야 한다.
+- 사전 준비 불필요(hermetic, Chrome·네트워크 불필요). `npm` 대신 `node` 를 직접 호출할 것.
+- 실제 감시자를 띄워 계약면을 눈으로 확인하려면:
+  ```
+  powershell -NoProfile -ExecutionPolicy Bypass -File ./run-bellows.ps1
+  ```
+  기동 후 브라우저로 `http://127.0.0.1:3210/api/health` 와 `http://127.0.0.1:3210/api/status` 를 열어
+  USER_GATE 항목(현재 고장난 측정 상태가 `state: "crit"` 로 보이는지)을 사람이 직접 확인한다.
