@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { scrapeUsage } = require('./lib/scrape');
 const { readConfig } = require('./lib/config');
+const { createObservation, recordSuccess, recordFailure } = require('./lib/observation');
 
 const PROFILE_DIR  = path.resolve(process.env.BELLOWS_PROFILE_DIR || './.profile');
 const INTERVAL_MIN = parseInt(process.env.BELLOWS_INTERVAL_MIN || '15', 10);
@@ -30,6 +31,8 @@ if (!STOP_DIR) {
 const LOG_PATH   = path.join(STOP_DIR, 'bellows.log');
 const STOP_PATH  = path.join(STOP_DIR, 'STOP.json');
 const CONFIG_PATH = path.join(STOP_DIR, 'bellows-config.json');
+
+let observation = createObservation();
 
 function log(msg) {
   const ts = new Date().toISOString();
@@ -87,14 +90,19 @@ async function pollOnce() {
   try {
     usage = await scrapeUsage(PROFILE_DIR);
   } catch (e) {
-    log('[poll error] scrape failed: ' + e.message);
+    const kind = e.kind || 'unknown';
+    const hint = e.detail && e.detail.hint;
+    log('[poll error] scrape failed: ' + e.message + ' kind=' + kind + (hint ? ' hint=' + hint : ''));
+    observation = recordFailure(observation, kind, e.detail || null, Date.now());
     return;
   }
   if (!isValidUsage(usage)) {
     log('[poll error] invalid extraction: ' + JSON.stringify(usage));
+    observation = recordFailure(observation, 'invalid-extraction', null, Date.now());
     return;
   }
   log('session=' + usage.session_pct + '% weekly=' + usage.weekly_pct + '%');
+  observation = recordSuccess(observation, usage, Date.now());
 
   const existing = readStopJson();
 
@@ -147,11 +155,16 @@ async function pollOnce() {
   }
 }
 
-(async () => {
+async function mainLoop() {
   log('[start] bellows watcher. interval=' + INTERVAL_MIN + 'm config=' + CONFIG_PATH);
   while (true) {
     try { await pollOnce(); }
     catch (e) { log('[poll uncaught] ' + e.message); }
     await new Promise(function (r) { setTimeout(r, INTERVAL_MIN * 60 * 1000); });
   }
-})();
+}
+
+// Guard: requiring this module (e.g. from a test) must not start the loop.
+if (require.main === module) {
+  mainLoop();
+}

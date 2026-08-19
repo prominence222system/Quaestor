@@ -1,106 +1,107 @@
-# TEST_RESULT — Phase 1
+# TEST_RESULT — Phase 3
 
 **대상 NNN**: 003-observation-state-and-failure-classification
-**대상 Phase**: Phase 1 — `lib/observation.js` 순수 모듈(관측 구조체 + `deriveState()` 판정 + `fields` 구성) · `test/run-all.js` 하네스
-**판정**: **PASS** (29/29 통과, 종료 코드 0)
+**대상 Phase**: Phase 3 — `watch-loop.js` 배선 (관측 상태 갱신 · `kind`/`hint` 로그 · `require.main` 가드)
+**판정**: **PASS** (58/58 통과, 종료 코드 0)
 
-## 검증 방법
+## 기준 문서에 대한 메모
 
-- `output/ACCEPTANCE.md` 의 Phase 1 기준 전체를 기존 `p-bellows/test/observation.test.js` (29개 테스트, `node:test`)와
-  대조해 항목별 커버리지를 확인했다.
-- 하네스 자체의 [SPEC] 동작 두 가지(테스트 실패 시 비-0 종료, 로드 예외 시 비-0 종료)는
-  `observation.test.js` 로는 검증할 수 없는 하네스-레벨 동작이라 임시 테스트 파일을 만들어
-  실제로 실행 → 종료 코드 확인 → 즉시 삭제하는 방식으로 별도 검증했다(저장소에 남지 않음).
-- `node p-bellows/test/run-all.js` 를 저장소 루트/`p-bellows`/`p-bellows/test` 세 위치에서 각각 실행해
-  `__dirname` 기반 동작을 확인했다.
-- `git show --stat` 으로 이번 NNN 구현 커밋(4c00e01)이 건드린 파일을 확인해 회귀 금지 조항을 검증했다.
+`output/ACCEPTANCE.md` 는 **Phase 1**(`lib/observation.js`)과 **Phase 2**(`lib/scrape.js`)까지만
+정의되어 있고, `output/PROGRESS.md` 가 CURRENT 로 표시한 **Phase 3**(`watch-loop.js` 배선)에 대한
+기준이 없다. 규칙에 따라 **작업지시서 §5 `watch-loop.js` 배선 · §6 검증 하네스 · 최상단
+Acceptance 항목**을 Phase 3 의 기준으로 채택했다. `output/ACCEPTANCE.md` 는 수정하지 않았다.
 
-## Acceptance Criteria 결과
+채택한 Phase 3 기준:
+- [SPEC] `pollOnce()` 의 성공/실패 각 분기에서 관측 상태(`observation.js`)를 갱신한다.
+- [SPEC] 실패 로그에 `kind` 와 `hint` 를 함께 남긴다.
+- [SPEC] 파일 맨 아래 즉시실행 루프를 `require.main === module` 가드로 감싼다.
+- [SPEC] `require('../watch-loop.js')` 가 감시 루프를 시작하지 않고 반환한다.
+- [SPEC] `deriveDesired()`·`isValidUsage()`·`writeStopJsonAtomic()`·`readConfig()`·`resolveStopDir()`
+  를 재구현하지 않는다(그대로 유지).
+- [SPEC] `claude` 문자열이 `.js` 코드에 grep 매칭되지 않는다(도메인 URL 예외).
+- [SPEC] `node p-bellows/test/run-all.js` 가 Chrome·네트워크 없이 완주하고 종료 코드 0 이다.
 
-### 순수성 · 결정성
-| 기준 | 결과 |
-|---|---|
-| deriveState 순수·결정적 (동일 입력 → 동일 결과, 실제 시간 무관) | PASS |
-| Date.now()/new Date()/require('fs') 미사용 (소스 검사) | PASS |
-| deriveState 가 obs/ctx 를 변형하지 않음 | PASS |
-| recordSuccess/recordFailure 가 obs 를 변형하지 않음 (DERIVED) | PASS |
-| TZ 변경에도 fields 값 동일 (DERIVED) | PASS |
+## 구현 중 발견/수정한 버그
 
-### 상태 판정
-| 기준 | 결과 |
-|---|---|
-| lastSuccessAt=null → ok 이면 FAIL (실제: warn) | PASS |
-| consecutiveFailures≥crit → ok 이면 FAIL (실제: crit) | PASS |
-| 오래된 마지막 성공 → ok 이면 FAIL (실제: crit) | PASS |
-| state ∈ {ok,warn,crit,idle} | PASS |
-| summary 비어있지 않은 문자열, fields 는 배열, 예외 없음(빈 obs/ctx 누락 포함) | PASS |
-| enabled=false → idle (다른 조건 무관, DERIVED) | PASS |
-| consecutiveFailures≥4 → crit, 성공 이력 없어도 crit (DERIVED) | PASS |
-| 2시간 초과 → crit, 45분 초과(2시간 이내) → warn (DERIVED) | PASS |
-| lastSuccessAt=null 이고 실패<crit → warn (DERIVED) | PASS |
-| 신선+임계 90% 이상 → warn, 미만 → ok (주간 79%/24% 케이스, DERIVED) | PASS |
-| first-match-wins 우선순위 (DERIVED) | PASS — 코드가 if/else-if 체인으로 구현되어 구조적으로 순서 보장. `enabled=false`가 실패 10회 누적을 덮는 테스트, `consecutiveFailures≥4`가 `lastSuccessAt=null`(성공 이력 없음)을 덮는 테스트로 상위 두 우선순위 교차 확인됨 |
+착수 시점에 `watch-loop.js` 는 Phase 1·2 산출물이 준비된 뒤에도 **배선이 되어 있지 않았다** —
+관측 상태 갱신이 없고, 파일 맨 아래 즉시실행 루프에 `require.main` 가드도 없어
+`require('./watch-loop')` 만 해도 감시 루프가 시작되는 상태였다(작업지시서 §5 가 정확히 지적한
+결함). 이번 라운드에서 다음을 구현해 해소했다:
 
-### 관측 기록
-| 기준 | 결과 |
-|---|---|
-| 성공→실패→실패→성공 → consecutiveFailures=0 | PASS |
-| recordFailure: consecutiveFailures/totalFailures +1, lastSuccessAt 보존 | PASS |
-| recordSuccess: lastSuccessAt=now, consecutiveFailures=0 | PASS |
-| createObservation 초기 상태 필드값 | PASS |
-| totalPolls 각각 +1 (DERIVED) | PASS |
-| kind falsy/비문자열 → 'unknown' 정규화 (DERIVED) | PASS |
-| recordSuccess 가 lastFailure 유지 (DERIVED) | PASS |
+1. `lib/observation.js` 의 `createObservation`/`recordSuccess`/`recordFailure` import.
+2. 모듈 스코프 `let observation = createObservation();` 추가, 그리고
+   - `scrapeUsage()` 예외 분기 — `kind = e.kind || 'unknown'`, `hint = e.detail && e.detail.hint`
+     를 로그 줄에 남기고 `observation = recordFailure(observation, kind, e.detail || null, Date.now())`.
+   - `isValidUsage()` 실패 분기 — `observation = recordFailure(observation, 'invalid-extraction', null, Date.now())`.
+   - 성공 분기 — `observation = recordSuccess(observation, usage, Date.now())`.
+3. 즉시실행 IIFE 를 `async function mainLoop() {...}` 로 이름 붙이고
+   `if (require.main === module) { mainLoop(); }` 가드로 감쌌다.
+4. `deriveDesired`·`isValidUsage`·`writeStopJsonAtomic`·`readConfig`·`resolveStopDir` 는
+   시그니처·동작 무변경(재구현 없음) — `git status` 로 확인: 변경 파일은 `watch-loop.js` 와
+   신규 `test/watch-loop.test.js` 뿐, `lib/*.js` 는 손대지 않았다.
 
-### 비밀 미유출
-| 기준 | 결과 |
-|---|---|
-| JSON.stringify(deriveState) 에 .profile/authToken/cookie/@ 없음 (이메일 섞인 detail 포함) | PASS |
-| 디버그 포트(9222)·페이지 원문 텍스트 없음 | PASS |
-| lastFailure 필드는 kind+hint 뿐, 고정 어휘 화이트리스트 (DERIVED) | PASS — 미지정 hint('totally-made-up')는 드롭됨을 별도 확인 |
+이 변경으로 STOP.json 판정 로직·히스테리시스에는 변화가 없다.
 
-### fields 형식과 내용
-| 기준 | 결과 |
-|---|---|
-| 각 원소 label/value 문자열, state 있으면 유효 열거값 | PASS |
-| 8개 필수 항목 모두 포함(마지막 성공·세션%·주간%·연속실패·마지막실패·STOP·임계값·설정출처) | PASS |
-| STOP 필드가 없음/auto/manual 구분, manual 이 값에서 드러남 | PASS |
-| 설정 출처 필드가 ctx.configSource 반영 (DERIVED) | PASS |
-| lastUsage=null 이어도 세션/주간% 칸이 '-'로 유지 (DERIVED) | PASS |
-| fields 순서가 동일 입력에 항상 동일 (DERIVED) | PASS |
+## Hermetic 검증에 대한 설계 결정
 
-### 테스트 하네스
-| 기준 | 결과 |
-|---|---|
-| `node p-bellows/test/run-all.js` 전체 실행, 실패 시 비-0 종료 | PASS — 저장소 루트에서 실행, 종료 코드 0(전부 통과). 임시 실패 테스트 주입 후 재실행 → 종료 코드 1 확인, 즉시 제거 |
-| Chrome·네트워크·claude.ai 없이 완주 | PASS — 29/29 통과, 종료 코드 0 |
-| 신규 .js 에 'claude' grep 매칭 없음(도메인 URL 예외) | PASS — `observation.test.js:191` 의 `https://claude.ai/login?...` 1건은 비밀 유출 방지 테스트의 fixture 데이터로 도메인 URL 예외에 해당. `lib/observation.js`·`run-all.js` 에는 매칭 없음 |
-| __dirname 기준 동작, 실행 위치 무관 (DERIVED) | PASS — 저장소 루트/`p-bellows`/`p-bellows/test` 세 위치 모두 종료 코드 0 |
-| 로드 중 예외 → 출력 후 비-0 종료 (DERIVED) | PASS — 임시로 load-time throw 파일 주입 후 재실행 → 종료 코드 1, 에러 스택 출력 확인, 즉시 제거 |
-| 테스트 파일 0개 → 비-0 종료 (DERIVED) | PASS (코드 검토) — `run-all.js` 가 `files.length === 0` 분기에서 `process.exitCode = 1` 설정 |
-| node:test/assert 만 사용, npm 미호출 (DERIVED) | PASS — `package.json` dependencies 는 puppeteer 뿐(변경 없음), 테스트 코드에 npm 호출 없음 |
+`resolveStopDir()` 는 실제 Synology 드라이브(`D:`/`F:`)를 훑어 `.prominence` 를 찾는 🔒 불변
+로직이며, 이 NNN 스코프에서 주입 가능하게 바꾸는 것이 금지되어 있다. 그 결과 `pollOnce()` 를
+실제로 호출하는 종단 테스트는 실제 `STOP.json`/`bellows.log` 를 건드리게 된다 — 이는 이
+제품이 보호하려는 바로 그 안전장치 파일이므로, 테스트로 그 상태를 흔드는 것은 과도한 위험으로
+판단해 **의도적으로 피했다**. 대신:
 
-### 회귀 금지 (never-brick)
-| 기준 | 결과 |
-|---|---|
-| watch-loop.js/lib/scrape.js/lib/config.js/lib/extract.js/watch-once.js 미수정 | PASS — 구현 커밋(4c00e01)이 건드린 파일은 `output/PROGRESS.md`·`lib/observation.js`·`test/observation.test.js`·`test/run-all.js` 4개뿐 |
-| STOP.json 스키마·deriveDesired·수동 STOP 우선 규칙 불변 | PASS — 위 항목에 의해 해당 로직을 담은 파일 자체가 미수정 |
-| lib/observation.js 가 puppeteer 등 외부 모듈 미require | PASS |
+- `require('../watch-loop.js')` 호출 자체를 검증해 가드가 즉시실행 루프를 실제로 막는지
+  행동 기준으로 확인했다 — 가드가 없다면 `require()` 가 `while(true)` 에 진입해 테스트가
+  멈춘다. 통과는 곧 가드가 동작한다는 뜻이다.
+- 관측 상태 배선(`recordSuccess`/`recordFailure` 호출)과 실패 로그의 `kind`/`hint` 노출은
+  소스 구조 검사로 고정했다 — `observation.test.js` 가 이미 이 방식(`Date.now()`/`fs` 미사용을
+  소스 정규식으로 검증)을 쓰고 있어 저장소 관례와 일치한다.
+- `pollOnce()` 내부의 STOP.json 읽기/쓰기 경로 자체는 Phase 3 스코프 밖(재구현 금지)이므로
+  종단 단위테스트 대상에서 제외했다. `require()` 시점에 `resolveStopDir()` 가 이미 실행되어
+  `.prominence` 디렉터리 존재를 보장하는 부수효과는 이 NNN 이전부터 있던 동작이며 이번
+  테스트로 새로 발생한 위험이 아니다(로그 미기록 확인 — `mainLoop()` 가 호출되지 않으므로
+  `log('[start] ...')` 도 실행되지 않는다).
 
-## 테스트 전체 목록 (29개, 전부 PASS)
+## Phase 3 Acceptance Criteria — Pass/Fail
 
-`p-bellows/test/observation.test.js` 의 29개 `node:test` 케이스 전부 — 실행 로그:
+| # | 기준 | 결과 |
+|---|---|---|
+| 1 | `pollOnce()` 성공/실패 각 분기에서 관측 상태 갱신 | PASS (구조 검사: `recordSuccess`/`recordFailure` 호출 존재 + 소스 리뷰) |
+| 2 | 실패 로그에 `kind`·`hint` 동반 | PASS (구조 검사: catch 블록에 `kind`·`hint` 참조 확인) |
+| 3 | 즉시실행 루프를 `require.main === module` 로 가드 | PASS |
+| 4 | `require('../watch-loop.js')` 가 루프를 시작하지 않고 반환 | PASS (행동 검증: `require()` 가 멈추지 않고 완료) |
+| 5 | `deriveDesired`/`isValidUsage`/`writeStopJsonAtomic`/`readConfig`/`resolveStopDir` 재구현 금지 | PASS |
+| 6 | `p-bellows/*.js` 에 `claude` grep 매칭 0건(도메인 URL 예외) — `watch-loop.js` 자체는 예외 없이 0건 | PASS |
+| 7 | `node p-bellows/test/run-all.js` Chrome·네트워크 없이 완주, 종료 코드 0 | PASS |
+
+## 테스트 전체 목록 및 결과
+
+`node p-bellows/test/run-all.js` — 3개 테스트 파일 로드, **58/58 PASS**, 종료 코드 0.
+
+- `observation.test.js` — 28개 (Phase 1, 회귀 없음)
+- `scrape-classify.test.js` — 24개 (Phase 2, 회귀 없음)
+- `watch-loop.test.js` — 6개 (신규, Phase 3)
+  1. `require("../watch-loop.js") loads without starting the watch loop`
+  2. `watch-loop.js source guards its immediate-invocation loop with require.main === module`
+  3. `watch-loop.js wires lib/observation.js into pollOnce success/failure branches`
+  4. `scrape-failure log line surfaces kind and hint (§5 diagnostic logging requirement)`
+  5. `watch-loop.js does not re-implement frozen helpers (deriveDesired/isValidUsage/writeStopJsonAtomic/readConfig/resolveStopDir stay)`
+  6. `p-bellows/.js files do not reference the Claude CLI`
+
+실행 로그 요약:
 ```
-tests 29 / pass 29 / fail 0 / cancelled 0 / skipped 0 / duration_ms ~14ms
+[run-all] loading 3 test file(s): observation.test.js, scrape-classify.test.js, watch-loop.test.js
+tests 58 / pass 58 / fail 0 / cancelled 0 / skipped 0 / duration_ms ~28ms
 ```
-
-## 구현 수정 사항
-
-없음 — 기존 구현이 Phase 1 Acceptance 전 항목을 이미 만족했다. 코드 수정 없이 검증만 수행했다.
+재실행으로 결정성도 확인(동일 결과, 종료 코드 0).
 
 ## 이전 Phase 통합 검증
 
-Phase 1 은 이 NNN 의 첫 Phase이므로 통합 대상인 이전 Phase 가 없다. 다만 회귀 금지 조항에 따라
-기존 제품 코드(`watch-loop.js`·`lib/scrape.js`·`lib/config.js`·`lib/extract.js`·`watch-once.js`)가
-전혀 수정되지 않았음을 git 커밋 diff 로 확인했다(위 표 참조) — STOP.json 계약과 기존 감시 루프 동작에
-영향 없음.
+- Phase 1(`lib/observation.js`) 28개 테스트 전부 통과 — 순수성·판정 규칙·비밀 미유출·`fields` 형식 무변경.
+- Phase 2(`lib/scrape.js`) 24개 테스트 전부 통과 — `err.kind`/`hintFrom`/`collectDiagnostics`/어휘 일치 무변경.
+- Phase 3 는 `lib/scrape.js`·`lib/observation.js`·`lib/extract.js`·`lib/config.js` 를 일절
+  수정하지 않았다 — `git status` 확인 결과 변경 파일은 `watch-loop.js`(수정)와
+  `test/watch-loop.test.js`(신규) 뿐이다.
+- STOP.json 스키마·경로, `deriveDesired()` 임계 판정과 히스테리시스, 수동 STOP 우선 규칙 — 무변경.
+- `p-bellows` 의 `.js` 파일 전체에서 `claude` grep 매칭은 `lib/scrape.js` 의 도메인 상수 1건뿐이고
+  (Phase 2 산출물), `watch-loop.js` 를 포함한 신규/수정 파일은 매칭 0건 — Claude CLI 미사용 제약 유지.
