@@ -30,7 +30,8 @@ Started: 2026-08-19T05:10:46Z
 | 1 | `lib/control-server.js` 코어 — `127.0.0.1` 고정 리스너 · 라우팅 · `GET /api/health`(id=`quaestor`) · `GET /api/status`(`deriveState()` 투영, 부작용 0) · never-throw 기동 계약 | DONE |
 | 2 | 인증 — `Authorization: Bearer` + `crypto.timingSafeEqual` 상수시간 비교 · `config.js` 의 `control`(port·authToken) 블록 · 비밀 미유출 · `POST /api/stop` 의도적 미구현 명문화 | DONE |
 | 3 | `watch-loop.js` 배선(never-brick — 기동 실패해도 루프 계속) + `test/control-server.test.js` 실포트 통합 검증 | DONE |
-| 4 | 004 종단 통합 검증 · 계약 원문 대조 — 조립 경로(`readConfig()`→`startControlServer()`) 기본 포트 실바인딩 왕복 · 계약 체크리스트 1:1 대조표 · 계약 문서와의 이탈점(`id`/`tokenFrom`) 인수인계 기록 · USER_GATE 증거 절차 | CURRENT |
+| 4 | 004 종단 통합 검증 · 계약 원문 대조 — 조립 경로(`readConfig()`→`startControlServer()`) 기본 포트 실바인딩 왕복 · 계약 체크리스트 1:1 대조표 · 계약 문서와의 이탈점(`id`/`tokenFrom`) 인수인계 기록 · USER_GATE 증거 절차 | DONE |
+| 5 | 역경로·강건성 매트릭스 — 모든 응답 경로(200/401/404/405/500/501)의 JSON·헤더·`ok` 직접 단언 · 비정상 요청 매트릭스 · 동시 요청·연결 중단 앞에서의 프로세스 생존(never-brick 의 마지막 미검증 면) | CURRENT |
 
 ## 비고
 - 모든 검증은 hermetic (Chrome·claude.ai·Foreman 없이 실행). 🔒 실제 포트를 열고 실제 요청을 보낸다.
@@ -43,7 +44,17 @@ Started: 2026-08-19T05:10:46Z
 - `deploy.json` 갱신은 이 NNN 의 범위 밖(데이터 파일 — 사람이 직접 쓴다).
 - ⚠️ 이 NNN 이 끝나도 화면에는 변화가 없다(Foreman 클라이언트 미구현). 실패가 아니다.
 - Phase 3 은 eval 에서 완료 판정(122/122, exit 0)을 받았으나 Phase Guard 로 승격이 유예되어
-  이번 라운드에 DONE 으로 확정하고 Phase 4(종단 통합 검증·계약 대조)를 CURRENT 로 연다.
-- Phase 4 는 **검증·문서 Phase 다.** `lib/` 와 `watch-loop.js` 의 동작 코드를 수정하지 않는다.
-  🔒 지금까지의 통합 검증은 전부 `port: 0` 이었고, 계약이 못 박은 `http://127.0.0.1:3210` 은
-  한 번도 실제로 바인딩된 적이 없다 — 그 공백이 Phase 4 의 존재 이유다.
+  DONE 으로 확정하고 Phase 4(종단 통합 검증·계약 대조)를 열었다.
+- Phase 4 는 **검증·문서 Phase 였다.** `lib/` 와 `watch-loop.js` 의 동작 코드를 수정하지 않았다.
+  🔒 그때까지의 통합 검증은 전부 `port: 0` 이었고, 계약이 못 박은 `http://127.0.0.1:3210` 은
+  한 번도 실제로 바인딩된 적이 없었다 — 그 공백을 갚았다(123/123, exit 0).
+- Phase 4 도 eval 에서 완료 판정(123/123, exit 0)을 받았으나 Phase Guard 로 승격이 유예되어
+  이번 라운드에 DONE 으로 확정하고 Phase 5 를 CURRENT 로 연다.
+- Phase 5 역시 **검증 Phase 다.** 갚는 공백은 두 가지이며 둘 다 실제 지적에서 왔다:
+  ① Phase 4 eval 이 남긴 지적 — "모든 응답 경로가 파싱 가능한 JSON" 의 근거가 간접적이었다
+  (다른 테스트들이 `res.body.ok` 를 참조해 우연히 커버). 직접 단언으로 승격한다.
+  ② 🔒 지금까지의 모든 HTTP 검증은 `fetch` 로 보내는 **선량한 요청**뿐이었다. 감시자는 상시
+  프로세스이고 "계기판이 차단기를 죽이면 안 된다"(작업지시서 §4)는 조항이 비정상 요청·연결
+  중단·동시 요청 앞에서 한 번도 확인된 적이 없다.
+- 🔒 Phase 5 는 라우팅을 관대하게 만들지 않는다 — 후행 슬래시·대소문자·`HEAD`·`clientError`
+  핸들러를 새로 지원하지 않는다. 계약이 요구하지 않는 표면 확장은 이 NNN 의 범위 밖이다.

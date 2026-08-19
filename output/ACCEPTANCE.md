@@ -234,3 +234,67 @@
 
 - [SPEC] 감시자를 실제로 띄운 뒤 `http://127.0.0.1:3210/api/status` 를 열면 현재의 고장난 측정 상태가 `"state": "crit"` 으로 보인다. 🔒 여기서 `ok` 가 나오면 계약을 구현하면서 3주 침묵을 새 층에 재현한 것이다.
 - [SPEC] 같은 주소의 `/api/health` 는 `{"ok":true,"id":"quaestor",...}` 다 — `/api/status` 가 `crit` 이어도 `/api/health` 는 `ok` 이며, 두 값은 다른 질문에 답한다.
+
+---
+
+# ACCEPTANCE — 004 Phase 5
+
+대상: `p-bellows/test/control-server.test.js`(증분)
+🔒 **검증 Phase 다.** `lib/*` 와 `watch-loop.js` 의 동작 코드는 수정되지 않는다(설계 §11-2).
+전제: 모든 기준은 **hermetic** 하게 검증된다 — Chrome·claude.ai·Foreman·외부 네트워크 없이 만족해야 한다.
+🔒 갚으려는 공백 둘(설계 §11-0): ① "모든 응답 경로가 파싱 가능한 JSON" 의 근거가 간접적이었다
+(Phase 4 eval 이 남긴 유일한 미해결 지적) ② 지금까지의 HTTP 검증은 전부 `fetch` 가 보내는
+선량한 요청뿐이었고, 뜬 뒤에 들어오는 비정상 요청 앞의 프로세스 생존은 확인된 적이 없다.
+🔒 프로브는 전부 `port: 0` 을 쓴다 — 계약 기본 포트 3210 을 다투면 Phase 4 의 조립 경로 검증이 무력화된다.
+
+## Phase 5 Acceptance Criteria
+
+### 응답 형식 매트릭스 (직접 단언 — 간접 논증의 승격)
+
+- [SPEC] 도달 가능한 응답 경로 **200(health) · 200(status) · 401 · 404 · 405 · 500 · 501 전부**를 실제 요청으로 유발하고, 각각에 대해 본문이 `JSON.parse()` 로 **파싱된다**고 그 자리에서 직접 단언한다 — 다른 테스트가 `body.ok` 를 참조하다 깨졌을 것이라는 간접 논증에 의존하지 않는다.
+- [SPEC] 위 모든 경로의 본문에 `ok` 가 있고 `typeof ok === 'boolean'` 이며, 2xx 가 아닌 모든 응답에서 `ok === false` 다 — 🔒 정보 부재·거부·오류를 성공으로 내지 않는다.
+- [SPEC] 위 모든 경로의 본문 전체 문자열에 설정된 토큰 값 · `.profile` · `cookie` · 스택 트레이스 · 절대 파일 경로가 **없다**(대소문자 무시).
+- [SPEC] 위 모든 경로를 거친 직후 같은 서버에 `GET /api/health` 를 보내면 여전히 200 이다 — 어떤 응답 경로도 서버를 상하게 하지 않는다.
+- [DERIVED] 위 모든 경로의 응답 헤더에 `Content-Type: application/json; charset=utf-8` 과 `Cache-Control: no-store` 가 있다.
+- [DERIVED] 매트릭스는 (유발 방법, 기대 상태) 를 **선언 배열**로 두고 공통 단언 묶음을 루프로 적용한다 — 경로별 손수 작성 테스트를 늘려 새 경로가 조용히 빠지는 형태를 만들지 않는다.
+- [DERIVED] `I1`(JSON 파싱 가능)의 적용 범위는 **well-formed HTTP 요청에 대한 이 제품의 응답**으로 한정된다. HTTP 파서 계층(Node 기본 `clientError`)은 이 제품의 라우팅 계층이 아니다.
+
+### 역경로 매트릭스 — well-formed 이지만 비정상인 요청
+
+- [SPEC] 계약 경로가 아닌 모든 경로 변형(후행 슬래시 `/api/status/` · 이중 슬래시 `//api/status` · 대문자 `/API/STATUS` · 퍼센트 인코딩 `/api/%73tatus`)에 대해 서버는 **유효한 JSON 으로 거부**하고 프로세스는 생존한다. 🔒 이들을 200 으로 만드는 라우팅 관대화를 추가하지 않는다 — 계약은 정확한 경로를 쓴다.
+- [SPEC] `/api/../api/status` 처럼 정규화되는 경로가 200 을 받더라도 파일시스템에 접근하지 않는다 — 이 제품은 요청 경로를 파일 경로로 쓰지 않는다(경로 문자열이 `fs` 로 흘러가는 코드가 없다).
+- [SPEC] 계약 경로에 대한 미지 메서드(`PATCH`·`DELETE`·`OPTIONS`, `/api/stop` 에 대한 `GET`)는 유효한 JSON 으로 거부되며 500 이나 프로세스 종료로 이어지지 않는다.
+- [SPEC] 중복된 `Authorization` 헤더, 수 KB 짜리 Bearer 토큰 등 비정상 인증 헤더는 **401** 로 처리되고 예외가 새지 않는다(500 이 아니다) — 상수시간 비교가 길이·형식에 걸려 넘어지지 않는다.
+- [SPEC] 요청 본문이 실린 `GET /api/status` 도 200 이며 부작용이 없다 — 서버는 요청 본문을 읽지 않는다.
+- [DERIVED] 위 경로 변형들의 기대 상태는 404, 미지 메서드는 405 다.
+- [DERIVED] `HEAD /api/health` 는 405 로 응답하며, HTTP 규약상 본문이 없으므로 이 프로브에는 JSON 파싱 단언을 적용하지 않고 상태 코드와 헤더만 확인한다. 🔒 HEAD 를 지원하려고 라우팅을 바꾸지 않는다.
+- [DERIVED] 매우 긴 경로(약 8KB)에 대해서는 정확한 상태 코드를 못 박지 않는다(Node 파서 계층이 정한다). 요구하는 성질은 4xx 응답과 프로세스 생존뿐이다.
+
+### 복원력 — 🔒 계기판이 차단기를 죽이지 않는다 (never-brick 의 마지막 미검증 면)
+
+- [SPEC] 응답 도중 클라이언트가 소켓을 끊어도 서버 프로세스가 죽지 않는다 — 직후의 `GET /api/health` 가 200 이다.
+- [SPEC] HTTP 로 파싱할 수 없는 바이트열을 원시 소켓으로 보내도 프로세스가 죽지 않고 직후의 정상 요청이 200 이다. 🔒 이 경로의 **응답 형식은 규정하지 않는다** — Node 기본 `clientError` 처리는 이 제품의 계층이 아니며, 이것을 JSON 으로 만들려고 `server.on('clientError')` 를 새로 붙이지 않는다.
+- [SPEC] 위 모든 프로브가 도는 동안 `uncaughtException` · `unhandledRejection` 이 **한 번도 발생하지 않는다**(테스트가 리스너를 걸어 관측하고 종료 시 제거한다).
+- [SPEC] 다수의 `/api/status` 동시 요청이 전부 200 이며 각각 유효한 JSON 이고, 🔒 관측 객체의 `totalPolls`·`totalFailures`·`consecutiveFailures` 가 요청 전후로 불변이다 — 동시성이 부작용 없음 조항을 깨지 않는다.
+- [SPEC] 전 프로브 구간에서 STOP.json 이 생성·수정·삭제되지 않고, 스크래핑이 유발되지 않는다.
+- [DERIVED] 인증 실패(401)·미지 경로(404)·미지 메서드(405) 경로에서는 `getSnapshot()` 호출 횟수가 0 이다 — 거부되는 요청이 관측 계층에 닿지 않는다.
+- [DERIVED] 동시 요청 수는 성질 검증에 충분한 소수(예: 25건)로 하며, 이 항목은 성능 벤치마크가 아니다.
+
+### 🔒 무회귀 · 경계 (검증 Phase 의 자기 구속)
+
+- [SPEC] `p-bellows/lib/control-server.js` · `lib/config.js` · `lib/observation.js` · `lib/scrape.js` · `watch-loop.js` 가 이 Phase 에서 **수정되지 않는다**(`git status` 로 실증). 유일한 예외는 프로브가 **실제 [SPEC] 위반**(요청 하나로 프로세스가 죽는 등)을 드러낸 경우의 최소 수정이며, 그때는 무엇이 왜 바뀌었는지를 `TEST_RESULT.md` 에 명시한다. 🔒 기대값을 소스에 맞춰 느슨하게 고치는 방향의 수정은 금지다.
+- [SPEC] 계약면이 넓어지지 않는다 — 새 엔드포인트·새 지원 메서드·새 라우팅 규칙이 추가되지 않는다.
+- [SPEC] 바인딩은 여전히 `127.0.0.1` 고정이며(`0.0.0.0`·`::` 리터럴 부재, 호스트 옵션 키 부재), `POST /api/stop` 은 여전히 미구현이고 호출해도 STOP.json 이 변하지 않는다.
+- [SPEC] `deriveDesired()` 의 임계·히스테리시스, STOP.json 의 위치·이름·스키마, 수동 STOP(`source === 'manual'`) 우선 규칙이 무변경이다.
+- [SPEC] `run-bellows.ps1` · `deploy-bellows.ps1` · `deploy.json` · `_guides\SUPERVISED_TOOL_CONTRACT.md` · Foreman 저장소가 수정되지 않는다.
+- [SPEC] Phase 1·2·3·4 의 모든 기준이 계속 만족되며 **어느 하나도 삭제·완화되지 않는다** — 이 Phase 는 순증분이다.
+- [SPEC] `node p-bellows/test/run-all.js` 가 기존 123개를 포함해 전부 통과하고 종료 코드 0 이며, 프로세스가 매달리지 않는다(모든 프로브 서버와 원시 소켓이 정리된다).
+- [SPEC] 의존성이 늘지 않는다 — `package.json` 의 `dependencies` 는 `puppeteer` 하나이고, 새 테스트는 내장 `node:test`/`node:assert`/`node:http`/`node:net`/`fetch` 만 쓴다.
+- [SPEC] `p-bellows` 의 `.js` 파일에 `claude` 문자열이 grep 매칭 0건으로 유지된다(도메인 URL 상수 예외).
+- [DERIVED] 프로브는 전부 `port: 0` 을 쓰고 `try/finally` 로 `close()` 한다 — 계약 기본 포트 3210 을 점유해 Phase 4 의 조립 경로 검증을 `started:false` 갈래로 밀어내지 않는다.
+- [DERIVED] `deploy-bellows.ps1 -DryRun` 이 종료 코드 0 으로 끝난다(PS 5.1 파싱 0 errors).
+
+### USER_GATE (사람 확인 — 자동 테스트로 대체 불가, 이전 Phase 기준의 재확인)
+
+- [SPEC] 감시자를 실제로 띄운 뒤 `http://127.0.0.1:3210/api/status` 를 열면 현재의 고장난 측정 상태가 `"state": "crit"` 으로 보인다. 🔒 여기서 `ok` 가 나오면 계약을 구현하면서 3주 침묵을 새 층에 재현한 것이다.
+- [SPEC] 같은 주소의 `/api/health` 는 `{"ok":true,"id":"quaestor",...}` 다 — 두 값은 다른 질문에 답한다.
