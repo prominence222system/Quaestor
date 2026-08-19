@@ -175,6 +175,11 @@ authToken 설정 ─┬─ Authorization 헤더 없음        ─▶ 401
 | 1 | `lib/control-server.js` 코어 — 리스너(127.0.0.1 고정) · 라우팅 · `/api/health` · `/api/status` · never-throw 기동 계약 | 003 의 `observation.js` |
 | 2 | 인증(Bearer · 상수시간 비교) + `config.js` 의 `control` 블록 + 비밀 미유출 검증 + `POST /api/stop` 미구현 명문화 | Phase 1 |
 | 3 | `watch-loop.js` 배선(never-brick) + `test/control-server.test.js` 실포트 통합 검증 | Phase 1·2 |
+| 4 | 종단 통합 검증(조립 경로 → 계약 기본 주소 실바인딩) + 계약 원문 대조·이탈점 인수인계 기록 | Phase 1·2·3 |
+
+⚠️ 작업지시서는 "예상 phase 3" 이었다. Phase 4 는 기능을 더하는 Phase 가 **아니라**
+Phase 3 승격 유예 라운드를 써서 남은 검증 공백 하나(계약이 지정한 `3210` 실바인딩)를 갚는
+**검증·문서 Phase** 다. 동작 코드는 한 줄도 바뀌지 않는다(§10-2).
 
 ---
 
@@ -670,7 +675,179 @@ Phase 3 도 그대로 따른다.
 
 ---
 
-## 10. USER_GATE (완료 시 사용자 확인 절차)
+## 10. Phase 4 상세 설계 (CURRENT — 종단 통합 검증 · 계약 대조)
+
+### 10-0. 이 Phase 가 왜 있나
+
+Phase 3 은 eval 에서 완료 판정(122/122, exit 0)을 받았지만 Phase Guard 로 승격이 유예됐다.
+그 유예를 그냥 소비하지 않고, 004 를 닫기 전에 **아직 한 번도 검증되지 않은 이음매 하나**를 갚는다.
+
+🔒 **지금까지의 모든 실포트 통합 테스트는 `port: 0`(OS 임의 할당)으로 돌았다.**
+계약 원문(`_guides\SUPERVISED_TOOL_CONTRACT.md` §부팅층)이 못 박은 주소는
+`"baseUrl": "http://127.0.0.1:3210"` 이고, Foreman 은 **그 주소로만** 찾아온다.
+즉 **계약이 지정한 바로 그 포트에 실제로 뜨는가**는 이 제품에서 한 번도 확인된 적이 없다.
+`readConfig()` 의 기본 포트 3210 은 단위 테스트가, 리스너는 임의 포트 테스트가 각각 확인했을 뿐이고,
+**둘을 잇는 조립 경로**(`readConfig() → startControlServer() → 3210 바인딩)는 공백이다.
+
+이것은 003 이 남긴 교훈의 같은 모양이다 — **격리 통과 · 통합 실패.**
+부품은 각각 옳았고 3주 동안 아무도 몰랐다. 그 형태를 다시 만들지 않는다.
+
+### 10-1. 목표 (3가지, 전부 검증·문서)
+
+1. **조립 경로 종단 검증** — `readConfig()` 가 내놓은 값 그대로 `startControlServer()` 에 넘겨
+   계약이 지정한 기본 주소에 실제로 바인딩하고 `/api/health`·`/api/status` 왕복을 확인한다
+2. **계약 원문 1:1 대조** — 계약의 "도구 쪽 체크리스트" 전 항목에 대해
+   충족 / 의도적 미구현 / 대상 밖을 명시한 대조표를 남긴다
+3. **이탈점 인수인계** — 계약 예시와 이 구현이 다른 두 곳(`id`, `tokenFrom`)을 기록해
+   Foreman 쪽 절반(`products\Foreman\work\010`)이 잘못된 키로 붙지 않게 한다
+
+### 10-2. 🔒 이 Phase 가 수정하지 않는 것
+
+| 대상 | 이유 |
+|---|---|
+| `lib/control-server.js` · `lib/config.js` · `lib/observation.js` · `lib/scrape.js` | Phase 1·2 에서 계약을 만족한 상태로 확정됐다. 검증 Phase 가 동작 코드를 건드리면 검증의 의미가 사라진다 |
+| `watch-loop.js` | Phase 3 에서 배선 완료. 🔒 불변 헬퍼·STOP.json 경로·`require.main` 가드 전부 무변경 |
+| `run-bellows.ps1` · `deploy-bellows.ps1` · `deploy.json` | 범위 밖(§7 — 데이터·배포 계약은 사람 몫) |
+| `_guides\SUPERVISED_TOOL_CONTRACT.md` | 🔒 **남의 제품(Foreman)이 소유한 계약 문서다.** "구현 현황" 표가 이 제품을 아직 ❌ 로 적고 있어도 이 NNN 이 고치지 않는다 — 계약은 Foreman 이 정의하고 대상이 맞춘다(의존 방향) |
+| `work/` · `MASTER.md` | forge 규칙상 불변 |
+
+즉 **변경 파일은 테스트 1개와 인수인계 문서뿐이다.**
+
+| 파일 | 변경 |
+|---|---|
+| `p-bellows/test/control-server.test.js` | 조립 경로 종단 검증 증분(§10-3) |
+| `CONTINUATION.md` (Synology) | 계약 대조표 + 이탈점 기록(§10-4·10-5) |
+
+### 10-3. 조립 경로 종단 검증 — 설계
+
+#### (a) 검증 대상 이음매
+
+```
+bellows-config.json (없음 — 실측)
+        │  readConfig(CONFIG_PATH)          ← Phase 2
+        ▼
+  cfg.control = { port: 3210, authToken: null }
+        │  ★ 이 대입이 이번 Phase 의 검증 대상 ★     ← Phase 3 의 배선과 동일한 형태
+        ▼
+  startControlServer({ port: cfg.control.port, ... })   ← Phase 1
+        ▼
+  실제 리스너 : 127.0.0.1:3210                 ← 계약의 baseUrl
+        ▼
+  fetch('http://127.0.0.1:3210/api/health')  → 200 · id==='quaestor'
+  fetch('http://127.0.0.1:3210/api/status')  → 200 · summary·state·fields
+```
+
+🔒 **`3210` 을 테스트에 리터럴로 다시 적어 넣고 그것으로 서버를 띄우면 이 검증은 무의미하다.**
+포트 값은 반드시 `readConfig()` 가 돌려준 값에서 와야 한다. 테스트가 확인하는 것은
+"3210 에서 서버가 뜨는가" 가 아니라 **"설정 경로가 계약 주소를 만들어내는가"** 이다.
+계약 리터럴 `3210` 은 오직 **기대값 쪽**(assert 우변)에만 등장한다.
+
+#### (b) 🔒 포트 점유는 실패가 아니다 — 플레이키 회피 설계
+
+3210 은 실측상 비어 있지만, **감시자가 실제로 돌고 있으면 점유돼 있다.**
+그 경우 테스트를 빨갛게 만들면 "제품이 정상 동작 중일 때 테스트가 깨지는" 형태가 된다.
+
+그래서 이 테스트의 판정은 **이지선다(二枝選多)** 로 쓴다:
+
+```
+r = await startControlServer({ port: cfg.control.port, getSnapshot, ... })
+
+r.started === true  ─▶ r.port === 3210 이고 r.address === '127.0.0.1' 이며
+                       /api/health·/api/status 왕복이 계약 형식으로 성공한다
+r.started === false ─▶ r.error 가 비어 있지 않고, 예외가 새지 않았으며,
+                       그 뒤 테스트 코드가 계속 실행된다 (never-brick 재확인)
+```
+
+🔒 **두 가지 중 어느 쪽도 아닌 경우(throw · `started` 부재 · `port` 불일치)만 실패다.**
+이것은 기준을 무르게 하는 것이 아니라, 계약이 요구하는 성질(never-brick)을
+검증 자체에 반영하는 것이다. `started === true` 경로가 이 기계의 정상 상태이며
+CI 없이 로컬에서 도는 이 프로젝트에서는 사실상 항상 그 경로를 탄다.
+
+#### (c) 왜 `watch-loop.js` 를 자식 프로세스로 띄우지 않는가
+
+가장 강한 통합은 `node watch-loop.js` 를 실제로 돌려 3210 을 찌르는 것이다. **하지 않는다.**
+
+- 🔒 `watch-loop.js` 는 모듈 로드 시 `resolveStopDir()` 로 **이 기계의 실제** `.prominence` 를 잡고,
+  루프가 돌면 진짜 `STOP.json` 과 `bellows.log` 를 쓴다. 테스트가 안전장치의 실물을 오염시킨다
+- Chrome 이 `--remote-debugging-port=9222` 로 떠 있어야 해 hermetic 이 깨진다
+- 003·Phase 3 이 이미 채택한 원칙(`pollOnce()` 를 테스트에서 구동하지 않는다)을 뒤집게 된다
+
+대신 **배선과 동일한 형태**(`readConfig()` → 같은 인자 조립 → `startControlServer()`)를
+테스트 안에서 재구성한다. Phase 3 의 구조 검증이 "`mainLoop()` 이 이 형태를 쓴다"를 이미 고정했고,
+이번 Phase 가 "그 형태가 계약 주소를 만든다"를 고정한다. 둘이 만나면 종단이 닫힌다.
+
+#### (d) 정리 조항
+
+- `try/finally` 로 `close()` 보장. 🔒 **테스트가 3210 을 붙잡은 채 끝나면 그 다음 실행이
+  전부 `started:false` 가 되어 이 검증이 스스로를 무력화한다**
+- `close()` 이후 같은 포트가 다시 바인딩 가능함을 확인해 핸들 누수를 배제한다
+- 이 테스트는 파일에서 **마지막**에 두어, 앞선 임의 포트 테스트들과 자원이 겹치지 않게 한다
+
+### 10-4. 계약 원문 대조표 (산출물)
+
+계약 §"도구 쪽 체크리스트" 를 그대로 옮겨 현재 상태를 못 박는다.
+
+| 계약 체크리스트 | 이 제품 | 근거 |
+|---|---|---|
+| `GET /api/health` 노출 (최소 `{ok, id}`) | ✅ 충족 | Phase 1. `id='quaestor'`·`version`·`startedAt` 포함 |
+| `GET /api/status` — `summary`·`state`·`fields` | ✅ 충족 | Phase 1. `deriveState()` 무재판정 투영 |
+| `POST /api/stop` | 🔒 **의도적 미구현(501)** | 계약상 선택 조항. "Foreman 은 확인 없이 호출한다" → 안전장치를 확인 없이 끌 수 없다(D9) |
+| `Authorization: Bearer` 확인 | ✅ 충족 | Phase 2. 상수시간 비교. 미설정 시 통과 |
+| 응답에 비밀 없음 | ✅ 충족 | Phase 2. 응답 전체 문자열 부분검사로 고정 |
+| Foreman `supervised[]` 에 항목 추가 | ⛔ **대상 밖** | Foreman 저장소의 설정. 🔒 이쪽에서 건드리면 의존 방향이 뒤집힌다 |
+| 이관 시 `roots` 앞에 새 경로 추가 | ⛔ **대상 밖** | 동상 |
+| 도구가 Foreman 을 `require` 하지 않는다 | ✅ 충족 | 전 Phase. Foreman 참조 0건 |
+
+계약 §"부재 규칙" 중 **이 제품이 책임지는 행**:
+
+| 상황 | 계약 요구 | 이 제품의 보장 |
+|---|---|---|
+| 응답 JSON 이 깨짐 | Foreman 은 "형식 오류" 표시 후 화면 유지 | 🔒 모든 경로(200/401/404/405/500/501)가 **항상 유효한 JSON** 을 낸다 — HTML 오류 페이지·스택 트레이스 없음 |
+| HTTP 응답 없음 | Foreman 은 "응답 없음" 표시 | 서버가 안 떠도(never-brick) 감시 루프는 돈다. 대상 부재가 Foreman 을 깨뜨리지 않는 것은 Foreman 쪽 책임 |
+| `control` 이 없음 | "계약 미구현" 표시 | 해당 없음(구현함) |
+
+### 10-5. 🔒 계약 문서와의 이탈점 — 인수인계 기록
+
+계약 원문의 예시와 이 구현이 **의도적으로 다른 두 곳**이 있다.
+이 둘이 기록되지 않으면 Foreman 쪽 절반(`work\010`)이 잘못된 키로 붙어 조용히 빈 칸을 그린다.
+
+| 위치 | 계약 원문 예시 | 이 구현 | 근거 · Foreman 이 해야 할 일 |
+|---|---|---|---|
+| `supervised[].id` | `"bellows"` | **`"quaestor"`** | 작업지시서 §2 가 계약 예시를 덮는다(제품명 확정). Foreman 설정의 키를 `quaestor` 로 적어야 한다 |
+| `control.tokenFrom` | `"bellows-config.json#authToken"` | **`control.authToken`** 우선, 최상위 `authToken` 폴백 | §4 "계약 문서와의 불일치 처리". 🔒 **폴백을 남겨 뒀으므로 계약 원문 표기대로 써도 동작한다** — 이탈이 파손을 만들지 않는 형태로 흡수돼 있다 |
+
+추가 기록 사항:
+- `baseUrl` 은 `http://127.0.0.1:3210` — 🔒 이 Phase 가 **실제 바인딩으로 확인**한 값이다
+- 포트·토큰은 **기동 시 1회** 확정된다. 변경은 재시작(§9-4(d))
+- `deploy.json` 의 포트 반영은 사람 몫(§7) — 이 기록이 그 근거가 된다
+
+기록 위치는 `CONTINUATION.md`(Synology 스펙 폴더)다.
+🔒 `_guides\SUPERVISED_TOOL_CONTRACT.md` 는 고치지 않는다 — 남의 제품이 소유한 문서다.
+
+### 10-6. Phase 4 검증 방식
+
+| 무엇 | 어디서 | 방식 |
+|---|---|---|
+| 조립 경로 종단 | `test/control-server.test.js` | `readConfig()` → `startControlServer()` → 실바인딩 → `fetch` 왕복. `try/finally` close |
+| 무회귀 | `node p-bellows/test/run-all.js` | 기존 122개 전부 통과 · 종료 코드 0 · 프로세스 미매달림 |
+| 엔트리포인트 | `deploy-bellows.ps1 -DryRun` | 종료 코드 0 (PS 5.1 파싱 0 errors) |
+| 계약 대조 | 문서 | §10-4 표가 `CONTINUATION.md` 에 남는다 |
+| USER_GATE | 사람 | §11 |
+
+🔒 **기존 122개 중 어느 하나도 삭제·완화하지 않는다.** 이 Phase 는 순증분이다.
+
+### 10-7. Phase 4 가 하지 않는 것
+
+- `POST /api/stop` 구현 — 🔒 영구히 하지 않는다(D9)
+- `lib/*` · `watch-loop.js` 의 동작 코드 수정 — §10-2
+- `_guides` 의 계약 문서 수정 · Foreman 저장소의 무엇도 — 🔒 의존 방향
+- `deploy.json` · `run-bellows.ps1` · `deploy-bellows.ps1` 수정 — 범위 밖
+- `watch-loop.js` 를 자식 프로세스로 띄우는 통합 테스트 — §10-3(c)
+- 폴더·저장소 개명(`Bellows` → `Quaestor`) — 별도 시스템 스펙
+
+---
+
+## 11. USER_GATE (완료 시 사용자 확인 절차)
 
 감시자를 띄운 뒤 `http://127.0.0.1:3210/api/status` 를 열어
 **지금 이 고장난 상태가 `"state": "crit"` 으로 나오는지** 눈으로 확인한다.

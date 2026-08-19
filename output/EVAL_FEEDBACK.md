@@ -1,6 +1,5 @@
 ## Verdict
-PASS
-
+NEXT
 ## Verdict Criteria (current work file only)
 - NEXT: a phase REMAINS WITHIN the current work file (not for other work files)
 - FIX: Current Phase has bugs or missing features
@@ -80,3 +79,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File ./run-bellows.ps1
 ⚠️ `npm` 사용 금지 — `node` 를 직접 호출할 것.
 ⚠️ `node watch-loop.js` 단독 실행 금지 — Chrome 이 `--remote-debugging-port=9222` 로 떠 있어야 한다.
 ⚠️ 이 NNN 이 끝나도 화면상 변화는 없다 — Foreman 클라이언트가 아직 미구현이며, 이는 정상 종료 상태다.
+
+
+## Phase Guard
+PROGRESS.md still has unfinished phase(s): 3:CURRENT. Eval returned PASS but promotion was deferred so the run advances to the next phase instead. Record this deferral in Korean in the next EVAL_FEEDBACK.md under "## Phase Guard".
+
+## Verdict
+NEXT

@@ -180,3 +180,57 @@
 ### USER_GATE (사람 확인 — 자동 테스트로 대체 불가)
 - [SPEC] 감시자를 실제로 띄운 뒤 `http://127.0.0.1:3210/api/status` 를 열면 현재의 고장난 측정 상태가 `"state": "crit"` 으로 보인다. 🔒 여기서 `ok` 가 나오면 계약을 구현하면서 3주 침묵을 새 층에 재현한 것이다.
 - [SPEC] `http://127.0.0.1:3210/api/health` 는 `{"ok":true,"id":"quaestor",...}` 로 응답한다 — `/api/status` 가 `crit` 이어도 `/api/health` 는 `ok` 다(두 값은 다른 질문에 답한다).
+
+---
+
+# ACCEPTANCE — 004 Phase 4
+
+대상: `p-bellows/test/control-server.test.js`(증분) · `CONTINUATION.md`(Synology, 인수인계 기록)
+🔒 **검증·문서 Phase 다.** `lib/*` 와 `watch-loop.js` 의 동작 코드는 수정되지 않는다(설계 §10-2).
+전제: 모든 기준은 **hermetic** 하게 검증된다 — Chrome·claude.ai·Foreman·외부 네트워크 없이 만족해야 한다.
+🔒 갚으려는 공백: 지금까지 실포트 검증은 전부 `port: 0` 이었고, 계약이 못 박은
+`http://127.0.0.1:3210` 은 한 번도 실제로 바인딩된 적이 없다(설계 §10-0).
+
+## Phase 4 Acceptance Criteria
+
+### 조립 경로 종단 검증 (readConfig → startControlServer → 계약 주소)
+
+- [SPEC] 계약(`_guides\SUPERVISED_TOOL_CONTRACT.md`)이 지정한 기본 제어 주소는 `http://127.0.0.1:3210` 이다 — `readConfig()` 가 설정 파일 부재 시 내놓는 `control.port` 가 `3210` 이고, 그 값을 그대로 `startControlServer()` 에 넘겼을 때 기동에 성공하면 `port === 3210` · `address === '127.0.0.1'` 이다.
+- [SPEC] 테스트에 넘기는 포트 값은 **`readConfig()` 반환값에서 온다** — 테스트가 `3210` 리터럴로 직접 서버를 띄우지 않는다(계약 리터럴은 기대값 쪽에만 등장한다). 검증 대상은 "3210 에서 뜨는가" 가 아니라 "설정 경로가 계약 주소를 만들어내는가" 다.
+- [SPEC] 기동에 성공한 경우 `GET /api/health` 가 200 이고 `id === 'quaestor'` 이며, `GET /api/status` 가 200 이고 `summary`·`state`·`fields`·`updatedAt` 이 모두 존재한다 — 임의 포트가 아니라 **계약이 지정한 주소에서** 확인된다.
+- [SPEC] 계약 기본 포트가 이미 점유돼 있어도(감시자가 실제로 돌고 있는 경우) **예외가 새지 않고** `started === false` + 비어 있지 않은 `error` 로 resolve 하며, 그 이후 테스트 코드가 계속 실행된다 — 제품이 정상 동작 중일 때 검증이 깨지는 형태를 만들지 않는다.
+- [SPEC] 위 두 갈래(`started === true` 의 계약 형식 왕복 / `started === false` 의 무예외 보고) 중 **어느 쪽도 아닌 결과**(throw · `started` 부재 · 성공했는데 포트·주소 불일치)는 실패로 판정된다.
+- [SPEC] 이 테스트는 `try/finally` 로 `close()` 를 보장해 계약 기본 포트를 붙잡은 채 끝나지 않는다 — 붙잡으면 다음 실행이 전부 `started:false` 가 되어 이 검증이 스스로를 무력화한다.
+- [DERIVED] `close()` 이후 같은 포트를 다시 바인딩할 수 있음을 확인해 핸들 누수를 배제한다.
+- [DERIVED] 계약 기본 포트를 쓰는 테스트는 파일 내 마지막에 배치되어 앞선 임의 포트(`port: 0`) 테스트들과 자원이 겹치지 않는다.
+
+### 계약 원문 대조 · 인수인계 기록
+
+- [SPEC] 계약 §"도구 쪽 체크리스트" 전 항목에 대해 **충족 / 의도적 미구현 / 대상 밖**이 1:1 로 명시된 대조표가 산출물로 남는다 — 판정되지 않은 항목이 없다.
+- [SPEC] `POST /api/stop` 은 대조표에서 **의도적 미구현**으로 분류되고 그 근거(계약이 확인 없는 호출을 허용하므로 안전장치를 이 경로에 붙이지 않는다)가 함께 기록된다 — "미구현" 으로만 적어 다음 사람이 결손으로 오해하게 두지 않는다.
+- [SPEC] 계약 예시와 이 구현의 이탈점 두 곳이 기록된다: `supervised[].id` 가 `"bellows"` 가 아니라 **`"quaestor"`** 라는 것, 그리고 토큰 출처가 `control.authToken` 우선(최상위 `authToken` 폴백)이라는 것. 🔒 Foreman 쪽 절반이 잘못된 키로 붙어 조용히 빈 칸을 그리는 것을 막는 기록이다.
+- [SPEC] 🔒 `_guides\SUPERVISED_TOOL_CONTRACT.md` 는 수정되지 않는다 — 계약은 Foreman 이 소유하고 대상이 맞춘다. "구현 현황" 표가 이 제품을 아직 미구현으로 적고 있어도 이쪽에서 고치지 않는다(의존 방향 불변).
+- [SPEC] Foreman 저장소·설정(`foreman-config.json` 의 `supervised[]`)은 이 Phase 에서도 건드리지 않는다 — 대조표에 **대상 밖**으로 분류될 뿐이다.
+- [DERIVED] 기록 위치는 Synology 스펙 폴더의 `CONTINUATION.md` 이며, 계약 기본 주소·포트/토큰의 기동 시 1회 확정 성질(변경은 재시작)·`deploy.json` 반영이 사람 몫이라는 점이 함께 남는다.
+
+### 계약 §"부재 규칙" 중 이 제품이 지는 몫
+
+- [SPEC] 모든 응답 경로(200 · 401 · 404 · 405 · 500 · 501)의 본문이 **항상 파싱 가능한 JSON** 이다 — HTML 오류 페이지·스택 트레이스·빈 본문이 나오는 경로가 없다. (계약: "응답 JSON 이 깨짐" 은 Foreman 이 형식 오류로 표시해야 하는 상황이며, 이 제품이 그 상황을 만들지 않는다)
+- [SPEC] 컨트롤 서버가 아예 뜨지 못한 상태에서도 감시 루프는 계속 돈다 — Phase 3 의 never-brick 기준이 이 Phase 에서도 유지된다(무회귀).
+
+### 🔒 무회귀 · 경계 (검증 Phase 의 자기 구속)
+
+- [SPEC] `p-bellows/lib/control-server.js` · `lib/config.js` · `lib/observation.js` · `lib/scrape.js` · `watch-loop.js` 가 이 Phase 에서 **수정되지 않는다** — 검증 Phase 가 동작 코드를 고치면 검증의 의미가 사라진다. 테스트를 통과시키기 위해 소스를 바꾸는 일이 없다.
+- [SPEC] `run-bellows.ps1` · `deploy-bellows.ps1` · `deploy.json` 이 수정되지 않는다(범위 밖 — §7).
+- [SPEC] `deriveDesired()` 의 임계·히스테리시스, STOP.json 의 위치·이름·스키마, 수동 STOP(`source === 'manual'`) 우선 규칙이 무변경이다.
+- [SPEC] `watch-loop.js` 를 자식 프로세스로 띄우는 통합 테스트를 만들지 않는다 — 실제 `.prominence` 의 STOP.json·bellows.log 를 오염시키고 Chrome 을 요구해 hermetic 이 깨진다(설계 §10-3(c)).
+- [SPEC] Phase 1·2·3 의 모든 기준이 계속 만족되며 **어느 하나도 삭제·완화되지 않는다** — 이 Phase 는 순증분이다.
+- [SPEC] `node p-bellows/test/run-all.js` 가 기존 122개를 포함해 전부 통과하고 종료 코드 0 이며, 프로세스가 매달리지 않는다(모든 테스트 서버가 `close()` 된다).
+- [SPEC] 의존성이 늘지 않는다 — `package.json` 의 `dependencies` 는 `puppeteer` 하나이고, 새 테스트는 내장 `node:test`/`node:assert`/`fetch` 만 쓴다.
+- [SPEC] `p-bellows` 의 `.js` 파일에 `claude` 문자열이 grep 매칭 0건으로 유지된다(도메인 URL 상수 예외).
+- [DERIVED] `deploy-bellows.ps1 -DryRun` 이 종료 코드 0 으로 끝난다(PS 5.1 파싱 0 errors).
+
+### USER_GATE (사람 확인 — 자동 테스트로 대체 불가, Phase 3 기준의 재확인)
+
+- [SPEC] 감시자를 실제로 띄운 뒤 `http://127.0.0.1:3210/api/status` 를 열면 현재의 고장난 측정 상태가 `"state": "crit"` 으로 보인다. 🔒 여기서 `ok` 가 나오면 계약을 구현하면서 3주 침묵을 새 층에 재현한 것이다.
+- [SPEC] 같은 주소의 `/api/health` 는 `{"ok":true,"id":"quaestor",...}` 다 — `/api/status` 가 `crit` 이어도 `/api/health` 는 `ok` 이며, 두 값은 다른 질문에 답한다.
