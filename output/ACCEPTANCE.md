@@ -54,3 +54,64 @@
 - [SPEC] 의존성이 늘지 않는다 — `package.json` 의 `dependencies` 는 `puppeteer` 하나로 유지되고, `control-server.js` 는 `node:http`(및 Phase 2 의 `node:crypto`) 등 내장 모듈만 사용한다.
 - [SPEC] `lib/control-server.js` 에 `claude` 문자열이 grep 매칭되지 않는다(도메인 URL 예외 없음 — 이 파일은 URL 을 쓰지 않는다).
 - [SPEC] `node p-bellows/test/run-all.js` 가 기존 58개 테스트를 포함해 전부 통과하고 종료 코드 0 이다 — 기존 기준의 삭제·완화가 없다.
+
+---
+
+# ACCEPTANCE — 004 Phase 2
+
+대상: `p-bellows/lib/control-server.js`(수정) · `p-bellows/lib/config.js`(수정) ·
+`p-bellows/test/control-server.test.js`(증분) · `PROJECT_INTENT.md`(기록)
+전제: 모든 기준은 **hermetic** 하게 검증된다 — Chrome·claude.ai·Foreman·외부 네트워크 없이 만족해야 한다.
+🔒 인증 기준은 **실제 포트를 열고 실제 HTTP 요청**을 보내 확인한다.
+
+## Phase 2 Acceptance Criteria
+
+### 인증 — `Authorization: Bearer`
+- [SPEC] `authToken` 이 설정된 서버에 `Authorization` 헤더 **없이** `GET /api/status` 를 요청하면 **401** 이다.
+- [SPEC] `authToken` 이 설정된 서버에 **틀린** 토큰을 `Bearer` 로 보내면 **401** 이다.
+- [SPEC] `authToken` 이 설정된 서버에 **맞는** 토큰을 `Bearer` 로 보내면 **200** 이다.
+- [SPEC] `authToken` 이 **설정되지 않은** 서버(현재 실측 상태)에 헤더 없이 요청하면 **200** 이다 — 기본값을 인증 필수로 바꾸지 않는다.
+- [SPEC] 401 응답 본문에 **기대 토큰 값이 포함되지 않는다.** 토큰의 길이·접두사·일부 문자·해시 등 값을 역추론할 수 있는 어떤 파생물도 없다.
+- [SPEC] 401 응답 본문의 `ok` 가 **`false`** 다 — 인증 실패를 `ok: true` 로 내지 않는다(정보 부재는 성공이 아니다).
+- [SPEC] "헤더 없음" 과 "값 불일치" 의 응답이 **구분 불가능**하다 — 상태 코드와 본문이 동일하다.
+- [SPEC] 토큰 비교는 `crypto.timingSafeEqual` 로 이루어지며 **길이 무관**이다 — 기대 토큰과 길이가 크게 다른(예: 1자, 수백 자) 토큰을 보내도 예외가 새지 않고 500 이 아니라 **401** 로 답한다.
+- [SPEC] `control-server.js` 소스에 토큰을 `===`/`==`/`!==`/`startsWith`/`indexOf` 로 비교하는 코드와, 비교 전에 길이로 분기하는 코드가 **없다** — 상수시간 경로가 유일하다.
+- [SPEC] 인증 검사는 **라우팅보다 먼저** 실행된다 — 토큰이 설정된 상태에서 존재하지 않는 경로(예: `/api/nope`)를 요청하면 404 가 아니라 **401** 이다(경로 존재 여부를 누설하지 않는다).
+- [SPEC] 인증 게이트는 `POST /api/stop` 에도 적용된다 — 토큰 설정 상태에서 헤더 없이 POST 하면 501 이 아니라 **401** 이다.
+- [DERIVED] `Bearer` 스킴 비교는 대소문자를 무시한다(RFC 7235) — `bearer <token>` 도 통과한다.
+- [DERIVED] 401 응답에 `WWW-Authenticate: Bearer` 헤더가 있고, 그 값에 파일 경로·토큰·계정이 들어 있지 않다.
+- [DERIVED] `Basic` 등 다른 스킴이나 형식이 깨진 `Authorization` 헤더는 401 로 처리된다(500 이 아니다).
+
+### `config.js` — `control` 블록
+- [SPEC] `readConfig()` 는 어떤 입력(파일 없음 · 깨진 JSON · 잘못된 타입 · 만료)에도 **throw 하지 않는다** — never-brick 이 설정 경로에서도 유지된다.
+- [SPEC] `readConfig()` 반환값에 `control.port`(number)와 `control.authToken`(string 또는 `null`)이 **항상 존재한다** — 파일이 없어도 하드 기본값으로 채워진다.
+- [SPEC] 기존 필드 의미가 무변경이다 — `enabled` · `thresholds`(85/90/70/75 기본) · `expires_at` · `_parseError` · `_expired` 의 동작과 값이 이전과 동일하다(🔒 `deriveDesired()` 임계·히스테리시스에 영향 0).
+- [DERIVED] 기본 포트는 `3210` 이고, 파일의 `control.port` 가 정수이며 `1..65535` 범위일 때만 덮어쓴다. 범위 밖·문자열·`NaN` 은 무시하고 기본값을 쓴다.
+- [DERIVED] `control.authToken` 이 빈 문자열이거나 공백만이면 `null`(인증 없음)로 정규화된다.
+- [DERIVED] 파일에 `control.authToken` 이 없고 최상위 `authToken` 만 있으면 그것을 인정하며, 둘 다 있으면 `control.authToken` 이 우선한다.
+- [DERIVED] `expires_at` 만료 또는 JSON 파싱 실패 시 `control` 도 기본값으로 되돌아간다(토큰 없음 = 인증 꺼짐). 방어선은 `127.0.0.1` 바인딩이다.
+- [DERIVED] 환경변수 `BELLOWS_CONTROL_PORT`·`BELLOWS_CONTROL_TOKEN` 로 기본값을 덮어쓸 수 있고, 파일 값이 있으면 파일이 우선한다.
+
+### 비밀 미유출 (응답 전체 관점)
+- [SPEC] 인증 성공·실패·404·405·501·500 **모든** 응답의 본문 전체 문자열에 설정된 `authToken` 값이 **포함되지 않는다**.
+- [SPEC] 모든 응답 본문 전체 문자열에 `.profile` · `cookie` · `Authorization` 헤더 원문이 **포함되지 않는다**(대소문자 무시).
+- [SPEC] 모든 응답 본문에 스택 트레이스 · 절대 파일 경로 · 설정 파일 경로 · 사용자 계정명이 없다.
+- [SPEC] `getSnapshot()`/`deriveState()` 가 던진 예외 메시지가 응답 본문에 실리지 않는다 — 고정 문구로만 답한다.
+- [DERIVED] 응답 헤더에도 토큰·경로가 없다(`Set-Cookie` 를 보내지 않는다).
+- [DERIVED] `onLog` 로 남기는 인증 관련 로그에 수신 토큰·기대 토큰이 찍히지 않는다. 기동 로그는 값이 아니라 여부(`auth: enabled` / `auth: disabled`)만 남긴다.
+
+### `POST /api/stop` — 의도적 미구현 명문화
+- [SPEC] `POST /api/stop` 은 차단기를 끄지 않는다 — 호출해도 STOP.json 이 생성·수정·삭제되지 않고 `deriveDesired()` 경로가 실행되지 않는다.
+- [SPEC] `control-server.js` 에 미구현 **사유**(계약이 확인 없는 호출을 허용하므로 안전장치를 이 경로에 붙이지 않는다)가 주석으로 남아 있다.
+- [SPEC] `PROJECT_INTENT.md` 에 같은 결정과 근거가 기록돼 있다.
+- [DERIVED] 인증을 통과한 `POST /api/stop` 은 501 이며 본문에 의도적 미구현임을 나타내는 표시가 있다.
+
+### 경계 · 무변경 보장
+- [SPEC] `lib/observation.js` 와 `lib/scrape.js` 는 이 Phase 에서 수정되지 않는다.
+- [SPEC] `watch-loop.js` 는 이 Phase 에서 수정되지 않는다(배선은 Phase 3) — `deriveDesired()` · `writeStopJsonAtomic()` · `resolveStopDir()` · STOP.json 스키마 무변경.
+- [SPEC] 🔒 바인딩은 여전히 `127.0.0.1` 고정이며 인증 도입이 이를 완화하지 않는다 — "토큰이 있으니 외부에 열어도 된다" 는 변경이 없다(`0.0.0.0`·`::` 리터럴 부재, 호스트 옵션 키 부재).
+- [SPEC] 의존성이 늘지 않는다 — `package.json` 의 `dependencies` 는 `puppeteer` 하나이고, 새로 쓰는 것은 내장 `node:crypto` 뿐이다.
+- [SPEC] `lib/control-server.js` · `lib/config.js` 에 `claude` 문자열이 grep 매칭되지 않는다.
+- [SPEC] `lib/control-server.js` 는 Foreman 을 `require` 하지 않고 Foreman 경로를 하드코딩하지 않는다.
+- [SPEC] Phase 1 의 모든 기준이 계속 만족된다 — `/api/health` 의 `id === 'quaestor'`, `/api/status` 의 `deriveState()` 무재판정·부작용 0, 인증 통과 후 응답 형태 불변.
+- [SPEC] `node p-bellows/test/run-all.js` 가 기존 테스트를 포함해 전부 통과하고 종료 코드 0 이며, 프로세스가 매달리지 않는다(모든 테스트 서버가 `close()` 된다).

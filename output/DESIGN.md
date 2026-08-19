@@ -277,7 +277,176 @@ const SERVICE_ID   = 'quaestor';    // 🔒 [SPEC] 폴더는 Bellows 지만 제�
 
 ---
 
-## 8. USER_GATE (완료 시 사용자 확인 절차)
+## 8. Phase 2 상세 설계 (CURRENT)
+
+### 8-1. 목표
+
+Phase 1 이 만든 HTTP 면에 **문을 단다.** 세 가지를 끝낸다.
+
+1. `bellows-config.json` 의 `control` 블록(`port` · `authToken`)을 `config.js` 가 정규화해 내놓는다
+   — Phase 3 의 `watch-loop.js` 배선이 읽어갈 **유일한 원천**이 된다
+2. `Authorization: Bearer` 게이트를 **라우팅보다 먼저** 통과시킨다. 비교는 길이 무관 상수시간
+3. 🔒 응답 전체에 비밀이 없음을 **테스트로 고정**하고, `POST /api/stop` 미구현 사유를
+   코드 주석과 `PROJECT_INTENT.md` 에 남긴다
+
+⚠️ **실측 전제:** `bellows-config.json` 은 지금 디스크에 없다. 즉 이 Phase 를 끝낸 뒤에도
+기본 동작은 **토큰 미설정 = 인증 없이 허용**이며, 방어선은 `127.0.0.1` 바인딩 하나다.
+🔒 그것이 작업지시서 §5 의 표가 정한 규칙이므로 "안전하게" 기본값을 인증 필수로 바꾸지 않는다 —
+바꾸면 Foreman 클라이언트가 붙는 순간 401 만 보게 된다.
+
+### 8-2. 수정 파일
+
+| 파일 | 변경 |
+|---|---|
+| `lib/config.js` | `control` 블록 정규화 추가 (**additive** — 기존 `enabled`/`thresholds`/`expires_at` 의미 무변경) |
+| `lib/control-server.js` | 인증 게이트 + 상수시간 비교 + 기동 로그에 auth 여부. `POST /api/stop` 사유 주석 확정 |
+| `test/control-server.test.js` | 인증 케이스 4종 + 비밀 미유출 + `config.control` 정규화 케이스 증분 |
+| `PROJECT_INTENT.md` (Synology) | `POST /api/stop` 의도적 미구현 결정 기록 |
+
+🔒 무변경: `lib/observation.js` · `lib/scrape.js` · `watch-loop.js`(Phase 3 몫) · `deploy.json`.
+
+### 8-3. `config.js` — `control` 블록
+
+`HARD_DEFAULTS` 에 다음을 더한다.
+
+```js
+control: { port: 3210, authToken: null }
+```
+
+`envDefaults()` 는 두 환경변수를 인정한다(기존 `envInt` 재사용).
+
+| 키 | 환경변수 | 파일 경로 | 검증 |
+|---|---|---|---|
+| `control.port` | `BELLOWS_CONTROL_PORT` | `control.port` | 정수 · `1..65535` 범위 밖이면 **무시하고 기본값** |
+| `control.authToken` | `BELLOWS_CONTROL_TOKEN` | `control.authToken` → 없으면 최상위 `authToken` | 문자열 · `trim()` 후 빈 문자열이면 `null` |
+
+- 🔒 **정규화 실패는 예외가 아니라 기본값이다.** `readConfig()` 는 지금도 어떤 입력에도
+  throw 하지 않는다 — 그 성질을 유지한다. 설정 파일 오타로 감시 루프가 죽으면 never-brick 위반이다
+- 최상위 `authToken` 폴백은 계약 원문의 `bellows-config.json#authToken` 표기를 받는
+  **[DERIVED]** 결정이다(§4 "계약 문서와의 불일치 처리"). `control.authToken` 이 우선한다
+- 🔒 **`_parseError` · `_expired` 경로도 `control` 기본값을 포함한다.** 즉 설정이 깨졌거나
+  만료되면 토큰도 함께 사라져 **인증이 꺼진다.** 이는 의도된 것이다 — `readConfig()` 의
+  기존 계약("파일이 못 믿을 상태면 통째로 기본값")을 인증 하나 때문에 바꾸지 않는다.
+  방어선은 `127.0.0.1` 이고, 잠기는 쪽으로 바꾸면 설정 오타가 감독 화면을 전부 401 로 만든다
+- 🔒 `readConfig()` 는 토큰을 **로그·리턴 문자열에 요약하지 않는다.** 값 그대로 담아 돌려주고,
+  그 값이 응답에 새지 않도록 막는 책임은 `control-server.js` 에 있다(§8-5)
+
+### 8-4. 인증 게이트 — `lib/control-server.js`
+
+```js
+const crypto = require('node:crypto');
+
+// 길이 무관 상수시간 비교. timingSafeEqual 은 길이가 다르면 throw 하므로
+// 양쪽을 고정 길이(32B) SHA-256 다이제스트로 만들어 비교한다.
+function sha256(s) { return crypto.createHash('sha256').update(String(s), 'utf8').digest(); }
+function tokensMatch(expected, provided) {
+  return crypto.timingSafeEqual(sha256(expected), sha256(provided));
+}
+
+// 'Bearer <token>' 에서 토큰만 뽑는다. 스킴은 RFC 7235 대로 대소문자 무시.
+function bearerFrom(headerValue) -> string | null
+
+// authToken 이 null 이면 항상 통과. 설정돼 있으면 Bearer 일치만 통과.
+function isAuthorized(ctx, req) -> boolean
+```
+
+`requestListener` 안의 순서:
+
+```
+req ─▶ pathname 파싱 ─▶ ① isAuthorized()  ──false──▶ 401 { ok:false, error:'unauthorized' }
+                              │ true
+                              ▼
+                       ② 라우팅(health / status / stop / 404 / 405)
+```
+
+- 🔒 **① 이 ② 보다 먼저다**(D12). 토큰이 설정된 상태에서 존재하지 않는 경로를 찔러도
+  404 가 아니라 **401** 이 나와야 한다 — 경로 존재 여부를 누설하지 않는다
+- 401 헤더에 `WWW-Authenticate: Bearer` 를 붙인다(realm 없음 — realm 문자열에 경로가 실릴 여지를 만들지 않는다)
+- 🔒 **401 본문에 기대 토큰·길이·접두사·"토큰이 틀렸다/누락됐다" 구분이 없다.**
+  헤더 없음과 값 불일치는 **동일한 응답**이다
+- 🔒 **401 의 `ok` 는 `false` 다.** 정보 부재는 성공이 아니다
+- 🔒 인증 실패를 `onLog` 에 남길 때도 받은 토큰을 찍지 않는다. 남길 수 있는 것은 경로와 결과뿐
+
+#### 상수시간 비교를 이렇게 하는 이유
+
+`timingSafeEqual(a, b)` 은 `a.length !== b.length` 면 즉시 `RangeError` 를 던진다.
+길이로 갈라 먼저 `false` 를 돌려주면 **길이 자체가 타이밍으로 누설**되고, 던지면 500 이 된다.
+양쪽을 SHA-256 다이제스트(항상 32바이트)로 정규화하면 길이 분기가 사라진다.
+🔒 `expected === provided` 같은 `===`/`==` 단축 비교를 남기지 않는다 — 하나만 남아도 상수시간이 깨진다.
+
+### 8-5. 비밀 차단 — 응답 전체 관점
+
+003 은 `fields` 화이트리스트로 비밀을 막았다. 이 Phase 는 그 검사를 **응답 JSON 전체**로 넓힌다.
+
+| 새는 경로 | 차단 |
+|---|---|
+| `authToken` 값 | 서버는 토큰을 `ctx` 에만 보관하고 어떤 응답 본문·헤더에도 싣지 않는다 |
+| `.profile` 경로 · 쿠키 · 계정 | `/api/status` 는 `deriveState()` 결과만 싣는다(D7 — 재가공 없음) |
+| 예외 메시지 | `getSnapshot()`/`deriveState()` 예외는 고정 문구 `'status unavailable'` 로만 답한다(Phase 1 확정) |
+| 설정 파일 경로 | `error` 문자열에 경로를 넣지 않는다. 기동 실패 메시지는 `onLog` 쪽(응답 아님)에만 간다 |
+
+🔒 검증은 **응답 전체를 문자열화해 부분 문자열을 찾는 방식**으로 한다 —
+필드별 화이트리스트 점검은 새 필드가 추가될 때 조용히 통과한다.
+
+### 8-6. `POST /api/stop` — 🔒 영구 미구현 명문화
+
+Phase 1 이 이미 501 + 주석을 심었다. Phase 2 가 확정하는 것:
+
+- 코드 주석에 **근거**를 남긴다: 계약이 "확인 없이 호출한다"고 규정하므로,
+  안전장치를 끄는 동작을 이 경로에 붙이면 확인 없이 차단기가 꺼진다
+- `PROJECT_INTENT.md`(Synology 스펙 폴더)에 같은 결정을 남긴다 —
+  다음 사람이 "계약에 있는데 왜 없지?" 하고 무심코 추가하지 않도록
+- 🔒 인증 게이트는 이 경로에도 **동일하게** 적용된다(토큰 설정 시 401 이 501 보다 먼저)
+
+### 8-7. 데이터 흐름 (Phase 1 → 2 통합)
+
+```
+bellows-config.json (없을 수도 있음)
+        │  readConfig()   ← [Phase 2 추가] control 블록 정규화
+        ▼
+{ enabled, thresholds, expires_at, control: { port, authToken } }
+        │
+        │ (Phase 3 이 배선한다 — 이 Phase 는 값을 만들 뿐)
+        ▼
+startControlServer({ port: cfg.control.port, authToken: cfg.control.authToken, getSnapshot, onLog })
+        │
+        ▼
+  ctx = { getSnapshot, version, startedAt, authToken }   🔒 authToken 은 여기서 끝. 응답에 안 나간다
+        │
+   요청 ─▶ isAuthorized(ctx, req) ─┬─ false ─▶ 401 { ok:false, error:'unauthorized' }
+                                  └─ true  ─▶ Phase 1 의 라우팅 그대로
+```
+
+기동 로그(값이 아니라 **여부**만):
+
+```
+[control] listening on 127.0.0.1:3210
+[control] auth: enabled        // 또는  auth: disabled (loopback only)
+```
+
+### 8-8. Phase 2 검증 방식
+
+Phase 1 과 동일하게 **실제 포트를 열고 실제 요청**을 보낸다(`port: 0` + `fetch`, `try/finally` 로 `close()`).
+
+- 토큰 설정 서버 1개 + 미설정 서버 1개를 각각 띄워 4가지 조합을 확인한다
+  (헤더 없음 / 틀린 토큰 / 맞는 토큰 / 미설정+헤더 없음)
+- 상수시간 성질은 **시간 측정으로 증명하지 않는다**(플레이키). 대신
+  ① 길이가 크게 다른 토큰으로도 throw 없이 401 이 나오는지,
+  ② 소스에 `===`/`==` 토큰 비교와 길이 분기가 없는지로 고정한다
+- 비밀 미유출은 응답 본문 전체 문자열에 대한 부분 문자열 부재로 확인한다
+- `config.control` 정규화는 임시 JSON 파일을 써서 `readConfig()` 를 직접 호출해 확인한다
+  (HTTP 없이 — 순수 함수 경계)
+
+### 8-9. Phase 2 가 하지 않는 것
+
+- `watch-loop.js` 수정 — Phase 3
+- `POST /api/stop` 실제 구현 — 🔒 영구히 하지 않는다(D9)
+- `deploy.json` 갱신 · Foreman 쪽 무엇도
+- 레이트리밋 · HTTPS · CORS — 로컬 루프백 제어면에 불필요하고, 계약이 요구하지 않는다
+
+---
+
+## 9. USER_GATE (완료 시 사용자 확인 절차)
 
 감시자를 띄운 뒤 `http://127.0.0.1:3210/api/status` 를 열어
 **지금 이 고장난 상태가 `"state": "crit"` 으로 나오는지** 눈으로 확인한다.
