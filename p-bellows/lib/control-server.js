@@ -5,8 +5,9 @@
 // Exposes GET /api/health and GET /api/status over node:http only -- no
 // new dependencies.
 //
-// Phase 1 scope: listener + routing + health/status. No auth yet (Phase 2),
-// no watch-loop.js wiring yet (Phase 3).
+// Phase 1: listener + routing + health/status.
+// Phase 2 (this revision): Authorization: Bearer auth gate + secret-leak
+// guarantees. watch-loop.js wiring is still Phase 3.
 //
 // Design invariants (see output/DESIGN.md):
 // - HOST is a hard constant: loopback only. Never read from opts.
@@ -19,6 +20,7 @@
 //   re-implement or duplicate threshold/state judgement.
 
 const http = require('node:http');
+const crypto = require('node:crypto');
 const { deriveState } = require('./observation');
 
 const HOST = '127.0.0.1';       // [SPEC] fixed. not configurable via opts.
@@ -35,6 +37,40 @@ function packageVersion() {
     }
   }
   return cachedVersion;
+}
+
+// -- auth: Authorization: Bearer, constant-time, length-independent --------
+//
+// timingSafeEqual(a, b) throws RangeError when the two buffer lengths do not
+// match. Branching on length before comparing (or throwing on mismatch)
+// leaks the length itself through timing/error behavior. Hashing both sides
+// to a fixed-size (32-byte) SHA-256 digest first removes the length branch
+// entirely.
+// [SPEC] no ===/==/startsWith/indexOf token comparison anywhere in this file.
+
+function sha256(s) {
+  return crypto.createHash('sha256').update(String(s), 'utf8').digest();
+}
+
+function tokensMatch(expected, provided) {
+  return crypto.timingSafeEqual(sha256(expected), sha256(provided));
+}
+
+// 'Bearer <token>' -> token. Scheme match is case-insensitive (RFC 7235).
+function bearerFrom(headerValue) {
+  if (typeof headerValue !== 'string') return null;
+  const m = /^Bearer\s+(.+)$/i.exec(headerValue.trim());
+  return m ? m[1] : null;
+}
+
+// authToken unset (current on-disk default) -> always authorized; the
+// defense line is the 127.0.0.1 bind, not this check. authToken set ->
+// only an exact Bearer match passes.
+function isAuthorized(ctx, req) {
+  if (!ctx.authToken) return true;
+  const provided = bearerFrom(req.headers['authorization']);
+  if (provided === null) return false;
+  return tokensMatch(ctx.authToken, provided);
 }
 
 function sendJson(res, statusCode, body) {
@@ -107,6 +143,13 @@ function requestListener(ctx) {
       return;
     }
     try {
+      // [SPEC] auth gate runs before routing -- a 404 vs 401 split would
+      // leak which paths exist when a token is configured.
+      if (!isAuthorized(ctx, req)) {
+        res.setHeader('WWW-Authenticate', 'Bearer');
+        sendJson(res, 401, { ok: false, error: 'unauthorized' });
+        return;
+      }
       if (pathname === '/api/health') {
         if (req.method !== 'GET') { sendJson(res, 405, { ok: false, error: 'method not allowed' }); return; }
         handleHealth(res, ctx);
@@ -147,8 +190,12 @@ function startControlServer(opts) {
         : new Date().toISOString());
   const onLog = typeof o.onLog === 'function' ? o.onLog : noop;
   const port = typeof o.port === 'number' ? o.port : DEFAULT_PORT;
+  // [SPEC] unset (typeof !== 'string' or empty) -> auth off, loopback-only.
+  const authToken = (typeof o.authToken === 'string' && o.authToken.length > 0)
+    ? o.authToken
+    : null;
 
-  const ctx = { getSnapshot, version, startedAt };
+  const ctx = { getSnapshot, version, startedAt, authToken };
 
   return new Promise((resolve) => {
     let settled = false;
@@ -184,6 +231,8 @@ function startControlServer(opts) {
       settled = true;
       const addr = server.address();
       onLog('[control] listening on ' + HOST + ':' + addr.port);
+      // value is never logged, only whether auth is on
+      onLog('[control] auth: ' + (authToken ? 'enabled' : 'disabled (loopback only)'));
       resolve({
         started: true,
         port: addr.port,

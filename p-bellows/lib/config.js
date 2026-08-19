@@ -1,7 +1,7 @@
 'use strict';
 const fs = require('fs');
 
-// Hardcoded defaults — used as final fallback
+// Hardcoded defaults -- used as final fallback
 const HARD_DEFAULTS = {
   enabled: true,
   thresholds: {
@@ -10,7 +10,11 @@ const HARD_DEFAULTS = {
     session_stop:    90,
     session_release: 75
   },
-  expires_at: null
+  expires_at: null,
+  control: {
+    port:      3210,
+    authToken: null
+  }
 };
 
 function envInt(name, fallback) {
@@ -18,6 +22,13 @@ function envInt(name, fallback) {
   if (raw == null || raw === '') return fallback;
   const n = parseInt(raw, 10);
   return isNaN(n) ? fallback : n;
+}
+
+function envToken(name, fallback) {
+  const raw = process.env[name];
+  if (raw == null) return fallback;
+  const trimmed = raw.trim();
+  return trimmed === '' ? null : trimmed;
 }
 
 function envDefaults() {
@@ -29,20 +40,24 @@ function envDefaults() {
       session_stop:    envInt('BELLOWS_SESSION_STOP',    HARD_DEFAULTS.thresholds.session_stop),
       session_release: envInt('BELLOWS_SESSION_RELEASE', HARD_DEFAULTS.thresholds.session_release)
     },
-    expires_at: HARD_DEFAULTS.expires_at
+    expires_at: HARD_DEFAULTS.expires_at,
+    control: {
+      port:      envInt('BELLOWS_CONTROL_PORT', HARD_DEFAULTS.control.port),
+      authToken: envToken('BELLOWS_CONTROL_TOKEN', HARD_DEFAULTS.control.authToken)
+    }
   };
 }
 
 function isExpired(iso) {
   if (!iso) return false;
   const t = Date.parse(iso);
-  if (isNaN(t)) return false;  // unparseable → ignore field, treat as not expired
+  if (isNaN(t)) return false;  // unparseable -- ignore field, treat as not expired
   return Date.now() >= t;
 }
 
 // Read config from file, merging on top of env defaults.
-// File missing or invalid → return env defaults.
-// expires_at past → return env defaults (config considered expired).
+// File missing or invalid -- return env defaults.
+// expires_at past -- return env defaults (config considered expired).
 function readConfig(configPath) {
   const base = envDefaults();
   if (!configPath) return base;
@@ -85,6 +100,33 @@ function readConfig(configPath) {
     }
   }
   if (typeof parsed.expires_at === 'string') merged.expires_at = parsed.expires_at;
+
+  // control block: port + authToken. Normalization never throws -- an
+  // invalid value here just falls back to the base default, same as
+  // every other field in this function (never-brick).
+  merged.control = Object.assign({}, base.control);
+  let controlAuthTokenProvided = false;
+  if (parsed.control && typeof parsed.control === 'object') {
+    if (typeof parsed.control.port === 'number'
+        && Number.isInteger(parsed.control.port)
+        && parsed.control.port >= 1
+        && parsed.control.port <= 65535) {
+      merged.control.port = parsed.control.port;
+    }
+    if (typeof parsed.control.authToken === 'string') {
+      controlAuthTokenProvided = true;
+      const t = parsed.control.authToken.trim();
+      merged.control.authToken = t === '' ? null : t;
+    }
+  }
+  // [DERIVED] top-level authToken is a fallback for the contract's
+  // "bellows-config.json#authToken" fragment notation. control.authToken
+  // wins if both are present.
+  if (!controlAuthTokenProvided && typeof parsed.authToken === 'string') {
+    const t = parsed.authToken.trim();
+    merged.control.authToken = t === '' ? null : t;
+  }
+
   return merged;
 }
 

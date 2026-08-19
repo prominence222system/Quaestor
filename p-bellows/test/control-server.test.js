@@ -4,8 +4,11 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 
+const os = require('node:os');
+
 const { startControlServer, HOST, DEFAULT_PORT, SERVICE_ID } = require('../lib/control-server');
 const { createObservation, recordFailure, recordSuccess, deriveState } = require('../lib/observation');
+const { readConfig, HARD_DEFAULTS } = require('../lib/config');
 
 const SRC_PATH = path.join(__dirname, '..', 'lib', 'control-server.js');
 const SRC = fs.readFileSync(SRC_PATH, 'utf8');
@@ -354,4 +357,334 @@ test('control-server.js does not reference the Claude CLI', () => {
 
 test('no new runtime dependency: package.json dependencies is still puppeteer-only', () => {
   assert.deepStrictEqual(Object.keys(PKG.dependencies), ['puppeteer']);
+});
+
+// ---- Phase 2: Authorization: Bearer -----------------------------------
+
+const TOKEN = 'phase2-secret-token-abc123';
+
+test('auth: token set, no Authorization header -> 401 ok:false', async () => {
+  const r = await startControlServer({ port: 0, authToken: TOKEN, getSnapshot: okSnapshot });
+  try {
+    const res = await getJson(r.port, '/api/status');
+    assert.strictEqual(res.status, 401);
+    assert.strictEqual(res.body.ok, false);
+  } finally {
+    await r.close();
+  }
+});
+
+test('auth: token set, wrong token -> 401', async () => {
+  const r = await startControlServer({ port: 0, authToken: TOKEN, getSnapshot: okSnapshot });
+  try {
+    const res = await getJson(r.port, '/api/status', { headers: { Authorization: 'Bearer wrong-token' } });
+    assert.strictEqual(res.status, 401);
+    assert.strictEqual(res.body.ok, false);
+  } finally {
+    await r.close();
+  }
+});
+
+test('auth: token set, correct token -> 200', async () => {
+  const r = await startControlServer({ port: 0, authToken: TOKEN, getSnapshot: okSnapshot });
+  try {
+    const res = await getJson(r.port, '/api/status', { headers: { Authorization: 'Bearer ' + TOKEN } });
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.ok, true);
+  } finally {
+    await r.close();
+  }
+});
+
+test('auth: token not set (current on-disk default), no header -> 200', async () => {
+  const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });
+  try {
+    const res = await getJson(r.port, '/api/status');
+    assert.strictEqual(res.status, 200);
+  } finally {
+    await r.close();
+  }
+});
+
+test('auth: "missing header" and "wrong token" responses are indistinguishable', async () => {
+  const r = await startControlServer({ port: 0, authToken: TOKEN, getSnapshot: okSnapshot });
+  try {
+    const noHeader = await getJson(r.port, '/api/status');
+    const wrongToken = await getJson(r.port, '/api/status', { headers: { Authorization: 'Bearer nope' } });
+    assert.strictEqual(noHeader.status, wrongToken.status);
+    assert.deepStrictEqual(noHeader.body, wrongToken.body);
+  } finally {
+    await r.close();
+  }
+});
+
+test('auth: 401 body never contains the expected token value', async () => {
+  const r = await startControlServer({ port: 0, authToken: TOKEN, getSnapshot: okSnapshot });
+  try {
+    const res = await getJson(r.port, '/api/status', { headers: { Authorization: 'Bearer wrong' } });
+    assert.ok(!res.text.includes(TOKEN));
+  } finally {
+    await r.close();
+  }
+});
+
+test('auth: constant-time compare does not throw on very different token lengths (1 char / 500 chars)', async () => {
+  const r = await startControlServer({ port: 0, authToken: TOKEN, getSnapshot: okSnapshot });
+  try {
+    const short = await getJson(r.port, '/api/status', { headers: { Authorization: 'Bearer x' } });
+    assert.strictEqual(short.status, 401);
+    const long = await getJson(r.port, '/api/status', { headers: { Authorization: 'Bearer ' + 'x'.repeat(500) } });
+    assert.strictEqual(long.status, 401);
+  } finally {
+    await r.close();
+  }
+});
+
+test('source: no ===/==/startsWith/indexOf token comparison, and no length-based branch', () => {
+  assert.ok(!/expected\s*===\s*provided|provided\s*===\s*expected/.test(SRC));
+  assert.ok(!/expected\s*==\s*provided|provided\s*==\s*expected/.test(SRC));
+  assert.ok(!/authToken\.startsWith/.test(SRC));
+  assert.ok(!/authToken\.indexOf/.test(SRC));
+  assert.ok(!/\.length\s*!==\s*.*\.length/.test(SRC), 'must not branch on token length before comparing');
+  assert.ok(/timingSafeEqual/.test(SRC), 'must use crypto.timingSafeEqual');
+});
+
+test('auth: gate runs before routing -- unknown path with token set returns 401, not 404', async () => {
+  const r = await startControlServer({ port: 0, authToken: TOKEN, getSnapshot: okSnapshot });
+  try {
+    const res = await getJson(r.port, '/api/nope');
+    assert.strictEqual(res.status, 401);
+  } finally {
+    await r.close();
+  }
+});
+
+test('auth: gate applies to POST /api/stop -- 401 before 501 when header missing', async () => {
+  const r = await startControlServer({ port: 0, authToken: TOKEN, getSnapshot: okSnapshot });
+  try {
+    const res = await getJson(r.port, '/api/stop', { method: 'POST' });
+    assert.strictEqual(res.status, 401);
+  } finally {
+    await r.close();
+  }
+});
+
+test('auth: Bearer scheme match is case-insensitive', async () => {
+  const r = await startControlServer({ port: 0, authToken: TOKEN, getSnapshot: okSnapshot });
+  try {
+    const res = await getJson(r.port, '/api/status', { headers: { Authorization: 'bearer ' + TOKEN } });
+    assert.strictEqual(res.status, 200);
+  } finally {
+    await r.close();
+  }
+});
+
+test('auth: malformed / other-scheme Authorization header -> 401, not 500', async () => {
+  const r = await startControlServer({ port: 0, authToken: TOKEN, getSnapshot: okSnapshot });
+  try {
+    const basic = await getJson(r.port, '/api/status', { headers: { Authorization: 'Basic dXNlcjpwYXNz' } });
+    assert.strictEqual(basic.status, 401);
+    const garbage = await getJson(r.port, '/api/status', { headers: { Authorization: 'not-a-valid-header' } });
+    assert.strictEqual(garbage.status, 401);
+  } finally {
+    await r.close();
+  }
+});
+
+test('auth: 401 has WWW-Authenticate: Bearer header with no path/token/account in its value', async () => {
+  const r = await startControlServer({ port: 0, authToken: TOKEN, getSnapshot: okSnapshot });
+  try {
+    const res = await fetch('http://127.0.0.1:' + r.port + '/api/status');
+    assert.strictEqual(res.status, 401);
+    const hv = res.headers.get('www-authenticate') || '';
+    assert.strictEqual(hv, 'Bearer');
+    assert.ok(!hv.toLowerCase().includes(TOKEN.toLowerCase()));
+  } finally {
+    await r.close();
+  }
+});
+
+// ---- Phase 2: secret non-leak across all response codes -----------------
+
+test('secrets never leak: 200/401/404/405/501/500 bodies never contain the token, .profile, cookie, or the raw Authorization header', async () => {
+  const r = await startControlServer({
+    port: 0,
+    authToken: TOKEN,
+    getSnapshot: () => { throw new Error('getSnapshot boom: ' + TOKEN); }
+  });
+  try {
+    const authHeader = 'Bearer ' + TOKEN;
+    const cases = [
+      await getJson(r.port, '/api/health', { headers: { Authorization: authHeader } }),           // 200
+      await getJson(r.port, '/api/status'),                                                        // 401 (no header)
+      await getJson(r.port, '/api/nope', { headers: { Authorization: authHeader } }),               // 404
+      await getJson(r.port, '/api/health', { method: 'POST', headers: { Authorization: authHeader } }), // 405
+      await getJson(r.port, '/api/stop', { method: 'POST', headers: { Authorization: authHeader } }),   // 501
+      await getJson(r.port, '/api/status', { headers: { Authorization: authHeader } })              // 500 (getSnapshot throws)
+    ];
+    const statuses = cases.map((c) => c.status).sort();
+    assert.deepStrictEqual(statuses, [200, 401, 404, 405, 500, 501]);
+    for (const c of cases) {
+      const lower = c.text.toLowerCase();
+      assert.ok(!lower.includes(TOKEN.toLowerCase()), 'leaked token in ' + c.status + ' body: ' + c.text);
+      assert.ok(!lower.includes('.profile'), '.profile leaked in ' + c.status + ' body');
+      assert.ok(!lower.includes('cookie'), 'cookie leaked in ' + c.status + ' body');
+      assert.ok(!lower.includes('bearer ' + TOKEN.toLowerCase()), 'raw Authorization header leaked in ' + c.status + ' body');
+      assert.ok(!lower.includes('getsnapshot boom'), 'exception message leaked in ' + c.status + ' body');
+    }
+  } finally {
+    await r.close();
+  }
+});
+
+test('onLog never receives the received or expected token on an auth failure', async () => {
+  const logs = [];
+  const r = await startControlServer({
+    port: 0,
+    authToken: TOKEN,
+    getSnapshot: okSnapshot,
+    onLog: (msg) => logs.push(msg)
+  });
+  try {
+    await getJson(r.port, '/api/status', { headers: { Authorization: 'Bearer some-other-value' } });
+    for (const msg of logs) {
+      assert.ok(!msg.includes(TOKEN));
+      assert.ok(!msg.includes('some-other-value'));
+    }
+  } finally {
+    await r.close();
+  }
+});
+
+test('startup onLog reports auth enabled/disabled by presence, not by value', async () => {
+  const logsOn = [];
+  const on = await startControlServer({ port: 0, authToken: TOKEN, getSnapshot: okSnapshot, onLog: (m) => logsOn.push(m) });
+  const logsOff = [];
+  const off = await startControlServer({ port: 0, getSnapshot: okSnapshot, onLog: (m) => logsOff.push(m) });
+  try {
+    assert.ok(logsOn.some((m) => /auth:\s*enabled/.test(m)));
+    assert.ok(!logsOn.some((m) => m.includes(TOKEN)));
+    assert.ok(logsOff.some((m) => /auth:\s*disabled/.test(m)));
+  } finally {
+    await on.close();
+    await off.close();
+  }
+});
+
+// ---- Phase 2: POST /api/stop stays a no-op even past the auth gate -------
+
+test('POST /api/stop with a valid token still does nothing (501, no STOP.json/deriveDesired path touched)', async () => {
+  const r = await startControlServer({ port: 0, authToken: TOKEN, getSnapshot: okSnapshot });
+  try {
+    const res = await getJson(r.port, '/api/stop', { method: 'POST', headers: { Authorization: 'Bearer ' + TOKEN } });
+    assert.strictEqual(res.status, 501);
+    assert.strictEqual(res.body.ok, false);
+  } finally {
+    await r.close();
+  }
+});
+
+test('control-server.js source documents why POST /api/stop is intentionally unimplemented', () => {
+  assert.ok(/intentionally/i.test(SRC));
+  assert.ok(/PROJECT_INTENT\.md/.test(SRC));
+});
+
+// ---- Phase 2: config.js control block -----------------------------------
+
+function withTempConfig(obj, fn) {
+  const p = path.join(os.tmpdir(), 'bellows-control-config-test-' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.json');
+  fs.writeFileSync(p, JSON.stringify(obj));
+  try {
+    return fn(p);
+  } finally {
+    fs.unlinkSync(p);
+  }
+}
+
+test('config: readConfig() always has control.port (number) and control.authToken (string|null), even with no file', () => {
+  const cfg = readConfig(path.join(os.tmpdir(), 'bellows-does-not-exist-' + Date.now() + '.json'));
+  assert.strictEqual(typeof cfg.control.port, 'number');
+  assert.strictEqual(cfg.control.port, 3210);
+  assert.strictEqual(cfg.control.authToken, null);
+});
+
+test('config: HARD_DEFAULTS.control matches the documented default (port 3210, authToken null)', () => {
+  assert.strictEqual(HARD_DEFAULTS.control.port, 3210);
+  assert.strictEqual(HARD_DEFAULTS.control.authToken, null);
+});
+
+test('config: readConfig() never throws on malformed input (missing file / broken JSON / wrong types / expired)', () => {
+  assert.doesNotThrow(() => readConfig(null));
+  assert.doesNotThrow(() => readConfig(path.join(os.tmpdir(), 'nope-' + Date.now() + '.json')));
+  const brokenPath = path.join(os.tmpdir(), 'bellows-broken-' + Date.now() + '.json');
+  fs.writeFileSync(brokenPath, '{ not valid json');
+  try {
+    assert.doesNotThrow(() => readConfig(brokenPath));
+    const cfg = readConfig(brokenPath);
+    assert.strictEqual(cfg.control.port, 3210);
+    assert.strictEqual(cfg.control.authToken, null);
+  } finally {
+    fs.unlinkSync(brokenPath);
+  }
+});
+
+test('config: file control.port overrides default when a valid 1..65535 integer', () => {
+  withTempConfig({ control: { port: 4444 } }, (p) => {
+    const cfg = readConfig(p);
+    assert.strictEqual(cfg.control.port, 4444);
+  });
+});
+
+test('config: file control.port out of range or wrong type falls back to default', () => {
+  withTempConfig({ control: { port: 0 } }, (p) => assert.strictEqual(readConfig(p).control.port, 3210));
+  withTempConfig({ control: { port: 70000 } }, (p) => assert.strictEqual(readConfig(p).control.port, 3210));
+  withTempConfig({ control: { port: '4444' } }, (p) => assert.strictEqual(readConfig(p).control.port, 3210));
+  withTempConfig({ control: { port: 12.5 } }, (p) => assert.strictEqual(readConfig(p).control.port, 3210));
+});
+
+test('config: file control.authToken sets the token; empty/whitespace normalizes to null', () => {
+  withTempConfig({ control: { authToken: 'file-token' } }, (p) => {
+    assert.strictEqual(readConfig(p).control.authToken, 'file-token');
+  });
+  withTempConfig({ control: { authToken: '   ' } }, (p) => {
+    assert.strictEqual(readConfig(p).control.authToken, null);
+  });
+});
+
+test('config: top-level authToken is a fallback only when control.authToken is absent; control.authToken wins when both present', () => {
+  withTempConfig({ authToken: 'top-level-token' }, (p) => {
+    assert.strictEqual(readConfig(p).control.authToken, 'top-level-token');
+  });
+  withTempConfig({ authToken: 'top-level-token', control: { authToken: 'control-token' } }, (p) => {
+    assert.strictEqual(readConfig(p).control.authToken, 'control-token');
+  });
+});
+
+test('config: expired config or parse-error config resets control to defaults (auth off)', () => {
+  withTempConfig({ control: { authToken: 'should-not-survive', port: 5555 }, expires_at: '2000-01-01T00:00:00Z' }, (p) => {
+    const cfg = readConfig(p);
+    assert.strictEqual(cfg._expired, true);
+    assert.strictEqual(cfg.control.authToken, null);
+    assert.strictEqual(cfg.control.port, 3210);
+  });
+  const brokenPath = path.join(os.tmpdir(), 'bellows-broken2-' + Date.now() + '.json');
+  fs.writeFileSync(brokenPath, '{"control":{"authToken":"leak-attempt"');
+  try {
+    const cfg = readConfig(brokenPath);
+    assert.strictEqual(cfg._parseError !== undefined, true);
+    assert.strictEqual(cfg.control.authToken, null);
+  } finally {
+    fs.unlinkSync(brokenPath);
+  }
+});
+
+test('config: existing fields (enabled/thresholds/expires_at) are unaffected by the control block addition', () => {
+  withTempConfig({ enabled: false, thresholds: { weekly_stop: 80 } }, (p) => {
+    const cfg = readConfig(p);
+    assert.strictEqual(cfg.enabled, false);
+    assert.strictEqual(cfg.thresholds.weekly_stop, 80);
+    assert.strictEqual(cfg.thresholds.weekly_release, 70);
+    assert.strictEqual(cfg.thresholds.session_stop, 90);
+    assert.strictEqual(cfg.thresholds.session_release, 75);
+  });
 });
