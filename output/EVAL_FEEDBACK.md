@@ -13,7 +13,7 @@ NO
 
 ## Current Phase Evaluation
 - Phase: 3
-- Feature: `watch-loop.js` 배선 — 관측 상태 갱신(`recordSuccess`/`recordFailure`) · 실패 로그에 `kind`/`hint` 동반 · `require.main === module` 가드 · 모듈 로드 경계 검증
+- Feature: `lib/observation.js` 순수 모듈 — 관측 구조체(`createObservation`/`recordSuccess`/`recordFailure`) + `deriveState()` 판정 + `fields` 구성 · `test/run-all.js` 하네스
 - Complete: yes
 - Issues found: 없음. `require('../watch-loop.js')` 가 실제로 루프를 시작하지 않고 반환함을 직접 재현해 확인(가드 부재 시 무한 루프로 테스트가 멈추는 방식의 행동 검증). `pollOnce()` 성공/실패 분기 각각 `recordSuccess`/`recordFailure` 호출 확인, 실패 로그 라인에 `kind`·`hint` 노출 확인. `deriveDesired`/`isValidUsage`/`writeStopJsonAtomic`/`readConfig`/`resolveStopDir` 는 소스 diff 없이 그대로 유지됨(재구현 금지 준수).
 
@@ -193,3 +193,112 @@ NO
 - 비밀 미유출 검증을 필드별 화이트리스트가 아니라 응답 전체 문자열 부분매치로 구현 — 새 필드 추가 시 조용히 통과하는 함정을 설계 단계에서 이미 회피(D 결정과 일치).
 - `PROJECT_INTENT.md` 와 코드 주석 이중 기록으로 "계약에 있는데 왜 없지" 재발을 방지.
 - Phase 1 무회귀(83/83 유지) + Phase 2 신규 27개 전부 그린, `git diff --stat` 로 `observation.js`/`scrape.js`/`watch-loop.js` 무수정을 직접 실측 확인.
+
+---
+
+## Verdict (Phase 3, 최종)
+PASS
+
+## Verdict Criteria (current work file only)
+- NEXT: a phase REMAINS WITHIN the current work file (not for other work files)
+- FIX: Current Phase has bugs or missing features
+- REDESIGN: Fundamental design issues require architecture change
+- INTEGRATE: ALL phases of the current work file are DONE, need an integration test
+- PASS: the current work file is complete (all its phases DONE, tests pass); forge advances to the next work file
+
+## Redesign Needed
+NO
+
+## Current Phase Evaluation
+- Phase: 3
+- Feature: `watch-loop.js` never-brick 배선(컨트롤 서버 기동을 감시 루프에 연결) + `test/control-server.test.js`·`test/watch-loop.test.js` 실포트 통합 검증
+- Complete: yes
+- Issues found: 없음
+
+## Acceptance-Criteria Integrity Check (output/ACCEPTANCE.md 존재 — 실행함)
+`output/ACCEPTANCE.md` 의 "004 Phase 3" 절 전 항목을 `output/TEST_RESULT.md` 의 "Phase 3 Acceptance
+기준별 결과" 표 및 실제 소스와 1:1 대조했다.
+
+- **never-brick** 6항목 — `watch-loop.js` L196-209(`try { const cfg0 = readConfig(...); const r =
+  await startControlServer(...); if (!r.started) log(...) } catch (e) { log(...) }`) 구조 확인.
+  `never-brick simulation: startup on an occupied port resolves started:false and the caller keeps
+  running` + `C2 (structural): the startControlServer call is wrapped in try/catch, and the polling
+  loop follows unconditionally` 로 커버 → 충족
+- **모듈 로드 경계** 4항목 — `startControlServer(` 호출이 `mainLoop()` 본문(L198)에만 있고 모듈
+  최상위에는 `require.main === module` 가드(L219-221)뿐임을 직접 확인. `C1: requiring watch-loop.js
+  does not call startControlServer at module-load time` 로 행동 검증(호출 카운터 0) → 충족
+- **라이브 관측** 4항목 — `controlSnapshot()`(L176-186) 이 클로저로 `observation` 모듈 변수를 매
+  호출 시점에 읽음(값 캡처 아님). `live closure: reassigning the observation variable changes the
+  next /api/status response` + `first poll before any success ... state !== ok` 로 커버 → 충족
+- **`getSnapshot()` 부작용 없음(C3)** 3항목 — `controlSnapshot()` 본문에 `fs.*`/`scrapeUsage`/
+  `STOP_PATH` 참조 없음(구조 검증 테스트로 고정) + `readStopJson()` 호출 지점이 `pollOnce()` 내부
+  1곳(L117)뿐임을 직접 확인(신규 fs I/O 없음) → 충족
+- **`deriveState()` 입력(ctx) 전달** 5항목 — `ctx.stop`/`configSource` 전파가 `/api/status` 의
+  STOP·설정 출처 필드에 반영됨을 전용 테스트(`ctx.stop and ctx.configSource propagate ...`)로 확인,
+  `85`/`90`/`70`/`75` 리터럴·`state` 판정 분기가 배선 코드에 없음을 구조 테스트로 확인 → 충족
+- **env 우선순위 자동화** 3항목 — Phase 2 에서 수동(`node -e`) 검증에 그쳤던 항목이 이번 Phase에서
+  `env: BELLOWS_CONTROL_PORT / BELLOWS_CONTROL_TOKEN override hard defaults; file values still win
+  over env` 자동 테스트로 승격됨을 확인(Phase 2 Issues 에 남긴 공백이 이번 라운드에 메워짐) → 충족
+- **불변·무회귀** 10항목 — `deriveDesired()`(L61-76)·수동 STOP skip(L130-133)·`resolveStopDir()`/
+  `readStopJson()`/`writeStopJsonAtomic()`/`isValidUsage()` 본문이 003 이후 문자 그대로임을 직접
+  대조, `lib/observation.js`·`lib/scrape.js`·`lib/control-server.js`·`lib/config.js` 가 이번 Phase 에서
+  전혀 수정되지 않았음(Phase 1·2 산출물 보존)을 확인, `claude` grep 0건·의존성 puppeteer 단일 유지
+  재확인 → 충족
+- **USER_GATE** 2항목 — 사람 확인 전용이라 hermetic 자동 테스트 대체가 계약상 애초에 요구되지
+  않는 항목(ACCEPTANCE.md 자체가 "자동 테스트로 대체 불가"라 명시). `TEST_RESULT.md` 가 미실행
+  사실과 코드 경로상 근거(라이브 클로저·`/api/health` 의 `getSnapshot()` 미호출)를 정직하게
+  기록했으므로 갭으로 보지 않는다.
+
+이전 iteration(Phase 1·2 ACCEPTANCE) 대비 [SPEC] 삭제·완화 없음 — 두 섹션 모두 무변경으로 그대로
+존재한다. `node p-bellows/test/run-all.js` 직접 재실행으로 확인: **122/122 통과, 종료 코드 0**
+(Phase 1·2 누적 110 + Phase 3 신규 12). TEST_RESULT.md 의 수치와 일치. Synology
+`PROJECT_INTENT.md` 를 직접 열람해 `POST /api/stop` 미구현 결정 기록(§"결정 — POST /api/stop 은
+영구히 구현하지 않는다")이 실재함을 재확인했다.
+
+## Work Detail
+- 리뷰 대상: `p-bellows/watch-loop.js`(배선 — `mainLoop()` 진입부에 컨트롤 서버 기동 + `lastCfg`/
+  `lastStop`/`lastConfigSource` 모듈 변수 + `controlSnapshot()`), `p-bellows/lib/control-server.js`
+  (Phase 1·2에서 이미 완성, 이번 Phase 에서 무수정), `p-bellows/lib/config.js`(무수정),
+  `p-bellows/test/control-server.test.js`·`p-bellows/test/watch-loop.test.js`(각 증분)
+- `node p-bellows/test/run-all.js` 재실행 결과 122/122 pass, exit code 0 — 직접 실행으로 재확인
+  (Phase 1(58+25=83) + Phase 2(27) + Phase 3(12) = 122 산술 일치)
+- `TEST_RESULT.md` 는 이번 라운드에서 코드 수정이 전혀 없었다고 밝혔고(구현이 이미 계약을 만족한
+  상태로 발견), 소스 직접 대조 결과도 동일함을 확인했다
+
+## Issues
+없음.
+
+## Good Points
+- `deriveState()` 재판정 금지·`getSnapshot()` 부작용 0·라이브 클로저(기동 시점 값 캡처 금지) 같은
+  설계의 핵심 불변 조항이 구조 검증(소스 리터럴 부재)과 행동 검증(재대입 반영) 양쪽으로 이중
+  확인됨 — "3주 침묵을 새 층에 재현하지 않는다"는 이 NNN 전체의 핵심 조항이 실제로 지켜짐
+- never-brick 이 `try/catch` + 결과 분기의 이중 방어로 구현되고, 점유 포트 시뮬레이션으로 실제
+  검증됨 — "계기판이 차단기를 죽이지 않는다"는 Phase 3 의 유일한 위험을 정확히 겨냥해 막았다
+- `POST /api/stop` 미구현 결정이 코드 주석 + `PROJECT_INTENT.md` 양쪽에 근거와 함께 기록되어,
+  "계약에 있는데 왜 없지" 하는 향후 오해를 예방함(Phase 2 부터 유지된 규율)
+- Phase 2 에서 남긴 유일한 자동화 공백(env 우선순위 수동 검증)이 이번 Phase 3 에서 자동 테스트로
+  스스로 메워짐 — 이전 이터레이션의 Issues 를 다음 라운드가 실제로 해소한 사례
+- 004 전체(Phase 1~3)가 003 의 `deriveDesired()`/STOP.json 불변 조항을 한 줄도 건드리지 않고
+  HTTP 계약면만 순수하게 얹었다 — `lib/observation.js`·`lib/scrape.js` 가 Phase 1 이후 전혀
+  수정되지 않았음을 세 Phase 모두에서 일관되게 확인
+
+## How to Run
+
+이 Phase 로 `watch-loop.js` 배선이 완료되어, 감시자를 실제로 띄우면 `/api/health`·`/api/status`
+가 동작한다(다만 화면상 변화는 없다 — Foreman 클라이언트가 아직 미구현이라 이 NNN 의 정상적인
+종료 상태다).
+
+```bash
+# 전체 테스트(hermetic, Chrome/claude.ai 불필요)
+node p-bellows/test/run-all.js
+
+# 실제로 감시자를 띄워 눈으로 확인하려면 (USER_GATE, Chrome 필요):
+powershell -NoProfile -ExecutionPolicy Bypass -File ./run-bellows.ps1
+# 별도 터미널에서:
+#   curl http://127.0.0.1:3210/api/health
+#   curl http://127.0.0.1:3210/api/status
+# 🔒 지금 고장난 측정 상태에서는 /api/status 의 state 가 "crit" 이어야 정상이다.
+```
+
+⚠️ `npm` 사용 금지 — `node` 를 직접 호출할 것.
+⚠️ `node watch-loop.js` 단독 실행 금지 — Chrome 이 `--remote-debugging-port=9222` 로 떠 있어야 한다.
