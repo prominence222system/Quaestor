@@ -4,6 +4,11 @@
 **대상 Phase**: Phase 3 — `watch-loop.js` 배선 (관측 상태 갱신 · `kind`/`hint` 로그 · `require.main` 가드)
 **판정**: **PASS** (58/58 통과, 종료 코드 0)
 
+**QA 재검증 (별도 세션)**: `node p-bellows/test/run-all.js` 를 저장소 루트에서 재실행해
+동일하게 58/58 PASS, 종료 코드 0 을 확인했다. `p-bellows/*.js` 전체(재귀) grep 으로
+`watch-loop.js`·`watch-once.js` 에 `claude` 매칭 0건, `lib/scrape.js` 에는 도메인 상수
+1건만 존재함을 재확인했다. 구현·테스트 코드 수정 없음 — 아래 기존 결과가 그대로 유효하다.
+
 ## 기준 문서에 대한 메모
 
 `output/ACCEPTANCE.md` 는 **Phase 1**(`lib/observation.js`)과 **Phase 2**(`lib/scrape.js`)까지만
