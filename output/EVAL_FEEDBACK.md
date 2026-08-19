@@ -87,3 +87,56 @@ NO
 NNN: 004-control-http-contract
 Started: 2026-08-19T05:10:46Z
 ===========================================
+
+## Verdict
+NEXT
+
+## Verdict Criteria (current work file only)
+- NEXT: a phase REMAINS WITHIN the current work file (not for other work files)
+- FIX: Current Phase has bugs or missing features
+- REDESIGN: Fundamental design issues require architecture change
+- INTEGRATE: ALL phases of the current work file are DONE, need an integration test
+- PASS: the current work file is complete (all its phases DONE, tests pass); forge advances to the next work file
+
+## Redesign Needed
+NO
+
+## Current Phase Evaluation
+- Phase: 1
+- Feature: `lib/control-server.js` 코어 — `127.0.0.1` 고정 리스너 · 라우팅 · `GET /api/health`(id=`quaestor`) · `GET /api/status`(`deriveState()` 투영, 부작용 0) · never-throw 기동 계약
+- Complete: yes
+- Issues found: 없음
+
+## Acceptance-Criteria Integrity Check (output/ACCEPTANCE.md 존재 — 실행함)
+- `output/ACCEPTANCE.md` 의 Phase 1 절 전체([SPEC] 다수 + [DERIVED] 다수)를 `output/TEST_RESULT.md` 의
+  "Acceptance 기준별 결과" 표와 1:1 대조. 누락 없음 — 바인딩·기동 계약, `/api/health`, `/api/status`,
+  라우팅·응답 형식, 경계·무변경 보장 4개 섹션 전부 테스트 이름과 매핑되어 있다.
+- 이전 iteration 대비 [SPEC] 항목이 삭제·완화된 흔적 없음(`## Superseded` 노트 불필요 — 004 최초 평가).
+- `node p-bellows/test/run-all.js` 직접 재실행으로 확인: **83/83 통과, 종료 코드 0**
+  (기존 58 + control-server 신규 25). TEST_RESULT.md 의 수치와 일치.
+
+## Work Detail
+- Files created/modified: `p-bellows/lib/control-server.js`(신규), `p-bellows/test/control-server.test.js`(신규)
+- `startControlServer(opts)` → `{ started, port, address, error, close }` — never-throw 기동 계약,
+  `HOST='127.0.0.1'` 하드코딩(opts 로 오버라이드 불가), `EADDRINUSE` 등 실패 시 reject 없이 `started:false`.
+- `GET /api/health` — `getSnapshot()` 을 호출하지 않는다(observation-free). `id:'quaestor'` 고정(폴더명 `bellows` 와 분리).
+- `GET /api/status` — `deriveState()` 결과를 그대로 투영. 재판정 로직 없음, `getSnapshot` throw 시 `ok:true` 안 냄.
+- `POST /api/stop` — 501 + 의도적 미구현 마커(작업지시서 §6 대로).
+- 라우팅: 404(미지 경로)·405(GET 아닌 메서드)·쿼리스트링 무시·`Content-Type`/`Cache-Control: no-store` 헤더.
+- `config.js`·`watch-loop.js` 는 `git diff` 로 무수정 확인 — Phase 2/3 범위 조기 착수 없음.
+
+## Issues
+없음.
+
+## Good Points
+- 실제 포트(`port:0`)를 열고 `fetch` 로 실요청 — 주입 픽스처만으로 끝내지 않는다는 §Acceptance 요구를 정확히 이행.
+- `/api/health`(HTTP 생존)과 `/api/status`(측정 건강)를 코드·테스트 양쪽에서 분리 — 3주 침묵 재발 방지 조항을 지켰다.
+- `getSnapshot` 호출 횟수·observation 불변성(`totalPolls` 등)까지 관측 가능한 방식으로 부작용 없음을 증명.
+- 소스에 `85`/`90`/`70`/`75` 임계 리터럴이 없음을 grep 테스트로 확인 — 판정 중복 방지가 문서상 결정에 그치지 않고 코드로 검증됨.
+- 테스트 파일의 구문 오류(잔재 `------`)를 발견해 즉시 수정하고 그 사실을 TEST_RESULT.md 에 정직하게 기록함.
+
+## How to Run (Phase 1 한정 — 004 전체 완료 아님)
+```
+node p-bellows/test/run-all.js
+```
+전체 작업(004) 완료 후 실제 기동 확인은 Phase 3 종료 시 USER_GATE 절차(`work/004` §USER_GATE)를 따른다.
