@@ -99,6 +99,23 @@ test('omitting opts.port uses DEFAULT_PORT (3210)', async () => {
   }
 });
 
+test('concurrent binds to the same port: one succeeds, the other resolves started:false without throwing (late error-event safety)', async () => {
+  const probe = await startControlServer({ port: 0, getSnapshot: okSnapshot });
+  const port = probe.port;
+  await probe.close();
+  const results = await Promise.all([
+    startControlServer({ port, getSnapshot: okSnapshot }),
+    startControlServer({ port, getSnapshot: okSnapshot })
+  ]);
+  const started = results.filter((r) => r.started === true);
+  const failed = results.filter((r) => r.started === false);
+  assert.strictEqual(started.length, 1);
+  assert.strictEqual(failed.length, 1);
+  assert.strictEqual(typeof failed[0].error, 'string');
+  assert.ok(failed[0].error.length > 0);
+  await Promise.all(results.map((r) => r.close()));
+});
+
 // ---- GET /api/health ---------------------------------------------------
 
 test('GET /api/health -- 200, id=quaestor, ok/version/startedAt present, does not touch getSnapshot', async () => {
@@ -213,7 +230,47 @@ test('response JSON never contains authToken value, .profile, or cookie', async 
   }
 });
 
-// ---- routing / response shape --------------------------------------------
+test('GET /api/status does not touch the filesystem -- an unrelated temp file stays unchanged (mtime + existence)', async () => {
+  const tmpPath = path.join(require('node:os').tmpdir(), 'bellows-control-server-test-STOP.json');
+  fs.writeFileSync(tmpPath, JSON.stringify({ source: 'manual' }));
+  const before = fs.statSync(tmpPath).mtimeMs;
+  const snap = okSnapshot();
+  const r = await startControlServer({ port: 0, getSnapshot: () => snap });
+  try {
+    await getJson(r.port, '/api/status');
+    await getJson(r.port, '/api/status');
+    assert.ok(fs.existsSync(tmpPath));
+    assert.strictEqual(fs.statSync(tmpPath).mtimeMs, before);
+  } finally {
+    await r.close();
+    fs.unlinkSync(tmpPath);
+  }
+});
+
+test('control-server.js source never references STOP.json / scrapeUsage / writeStopJsonAtomic', () => {
+  assert.ok(!/STOP\.json/.test(SRC));
+  assert.ok(!/scrapeUsage/.test(SRC));
+  assert.ok(!/writeStopJsonAtomic/.test(SRC));
+  assert.ok(!/resolveStopDir/.test(SRC));
+});
+
+// ---- routing / response shape --------------------------------------
+
+test('response bodies are valid JSON with no stack traces, HTML, or internal file paths', async () => {
+  const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });
+  try {
+    const paths = ['/api/health', '/api/status', '/nope'];
+    for (const p of paths) {
+      const res = await getJson(r.port, p);
+      assert.ok(res.body !== null, p + ' response is valid JSON');
+      assert.ok(!res.text.includes('<html'), p + ' has no HTML');
+      assert.ok(!/at\s+\S+\s+\(.*:\d+:\d+\)/.test(res.text), p + ' has no stack trace frames');
+      assert.ok(!/[A-Za-z]:[\\\/][^"]*\.js/i.test(res.text), p + ' has no internal file path');
+    }
+  } finally {
+    await r.close();
+  }
+});
 
 test('unknown path -> 404 ok:false', async () => {
   const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });

@@ -1,118 +1,113 @@
-# TEST_RESULT — Phase 3
+# TEST_RESULT — 004 Phase 1
 
-**대상 NNN**: 003-observation-state-and-failure-classification
-**대상 Phase**: Phase 3 — `watch-loop.js` 배선 (관측 상태 갱신 · `kind`/`hint` 로그 · `require.main` 가드)
-**판정**: **PASS** (58/58 통과, 종료 코드 0)
+대상: `p-bellows/lib/control-server.js` · `p-bellows/test/control-server.test.js`
+기준: `output/ACCEPTANCE.md` (004 Phase 1) — 수정하지 않음(read-only 준수).
 
-**QA 재검증 (별도 세션)**: `node p-bellows/test/run-all.js` 를 저장소 루트에서 재실행해
-동일하게 58/58 PASS, 종료 코드 0 을 확인했다. `p-bellows/*.js` 전체(재귀) grep 으로
-`watch-loop.js`·`watch-once.js` 에 `claude` 매칭 0건, `lib/scrape.js` 에는 도메인 상수
-1건만 존재함을 재확인했다. 구현·테스트 코드 수정 없음 — 아래 기존 결과가 그대로 유효하다.
+## 요약
 
-## 기준 문서에 대한 메모
+- `node p-bellows/test/run-all.js` — **83개 테스트 전부 통과, 종료 코드 0**
+  (기존 58개 + 이번 Phase 1 신규 25개 = 83개, 기존 테스트 완화·삭제 없음)
+- Phase 1 acceptance 항목은 전부 **PASS**.
+- 구현 코드(`control-server.js`) 자체는 수정 불필요 — 이미 계약을 만족했다.
+  버그는 **테스트 파일 쪽**(직전 편집이 남긴 문법 오류) 1건, 즉시 수정.
 
-`output/ACCEPTANCE.md` 는 **Phase 1**(`lib/observation.js`)과 **Phase 2**(`lib/scrape.js`)까지만
-정의되어 있고, `output/PROGRESS.md` 가 CURRENT 로 표시한 **Phase 3**(`watch-loop.js` 배선)에 대한
-기준이 없다. 규칙에 따라 **작업지시서 §5 `watch-loop.js` 배선 · §6 검증 하네스 · 최상단
-Acceptance 항목**을 Phase 3 의 기준으로 채택했다. `output/ACCEPTANCE.md` 는 수정하지 않았다.
+## 발견/수정한 버그
 
-채택한 Phase 3 기준:
-- [SPEC] `pollOnce()` 의 성공/실패 각 분기에서 관측 상태(`observation.js`)를 갱신한다.
-- [SPEC] 실패 로그에 `kind` 와 `hint` 를 함께 남긴다.
-- [SPEC] 파일 맨 아래 즉시실행 루프를 `require.main === module` 가드로 감싼다.
-- [SPEC] `require('../watch-loop.js')` 가 감시 루프를 시작하지 않고 반환한다.
-- [SPEC] `deriveDesired()`·`isValidUsage()`·`writeStopJsonAtomic()`·`readConfig()`·`resolveStopDir()`
-  를 재구현하지 않는다(그대로 유지).
-- [SPEC] `claude` 문자열이 `.js` 코드에 grep 매칭되지 않는다(도메인 URL 예외).
-- [SPEC] `node p-bellows/test/run-all.js` 가 Chrome·네트워크 없이 완주하고 종료 코드 0 이다.
-
-## 구현 중 발견/수정한 버그
-
-착수 시점에 `watch-loop.js` 는 Phase 1·2 산출물이 준비된 뒤에도 **배선이 되어 있지 않았다** —
-관측 상태 갱신이 없고, 파일 맨 아래 즉시실행 루프에 `require.main` 가드도 없어
-`require('./watch-loop')` 만 해도 감시 루프가 시작되는 상태였다(작업지시서 §5 가 정확히 지적한
-결함). 이번 라운드에서 다음을 구현해 해소했다:
-
-1. `lib/observation.js` 의 `createObservation`/`recordSuccess`/`recordFailure` import.
-2. 모듈 스코프 `let observation = createObservation();` 추가, 그리고
-   - `scrapeUsage()` 예외 분기 — `kind = e.kind || 'unknown'`, `hint = e.detail && e.detail.hint`
-     를 로그 줄에 남기고 `observation = recordFailure(observation, kind, e.detail || null, Date.now())`.
-   - `isValidUsage()` 실패 분기 — `observation = recordFailure(observation, 'invalid-extraction', null, Date.now())`.
-   - 성공 분기 — `observation = recordSuccess(observation, usage, Date.now())`.
-3. 즉시실행 IIFE 를 `async function mainLoop() {...}` 로 이름 붙이고
-   `if (require.main === module) { mainLoop(); }` 가드로 감쌌다.
-4. `deriveDesired`·`isValidUsage`·`writeStopJsonAtomic`·`readConfig`·`resolveStopDir` 는
-   시그니처·동작 무변경(재구현 없음) — `git status` 로 확인: 변경 파일은 `watch-loop.js` 와
-   신규 `test/watch-loop.test.js` 뿐, `lib/*.js` 는 손대지 않았다.
-
-이 변경으로 STOP.json 판정 로직·히스테리시스에는 변화가 없다.
-
-## Hermetic 검증에 대한 설계 결정
-
-`resolveStopDir()` 는 실제 Synology 드라이브(`D:`/`F:`)를 훑어 `.prominence` 를 찾는 🔒 불변
-로직이며, 이 NNN 스코프에서 주입 가능하게 바꾸는 것이 금지되어 있다. 그 결과 `pollOnce()` 를
-실제로 호출하는 종단 테스트는 실제 `STOP.json`/`bellows.log` 를 건드리게 된다 — 이는 이
-제품이 보호하려는 바로 그 안전장치 파일이므로, 테스트로 그 상태를 흔드는 것은 과도한 위험으로
-판단해 **의도적으로 피했다**. 대신:
-
-- `require('../watch-loop.js')` 호출 자체를 검증해 가드가 즉시실행 루프를 실제로 막는지
-  행동 기준으로 확인했다 — 가드가 없다면 `require()` 가 `while(true)` 에 진입해 테스트가
-  멈춘다. 통과는 곧 가드가 동작한다는 뜻이다.
-- 관측 상태 배선(`recordSuccess`/`recordFailure` 호출)과 실패 로그의 `kind`/`hint` 노출은
-  소스 구조 검사로 고정했다 — `observation.test.js` 가 이미 이 방식(`Date.now()`/`fs` 미사용을
-  소스 정규식으로 검증)을 쓰고 있어 저장소 관례와 일치한다.
-- `pollOnce()` 내부의 STOP.json 읽기/쓰기 경로 자체는 Phase 3 스코프 밖(재구현 금지)이므로
-  종단 단위테스트 대상에서 제외했다. `require()` 시점에 `resolveStopDir()` 가 이미 실행되어
-  `.prominence` 디렉터리 존재를 보장하는 부수효과는 이 NNN 이전부터 있던 동작이며 이번
-  테스트로 새로 발생한 위험이 아니다(로그 미기록 확인 — `mainLoop()` 가 호출되지 않으므로
-  `log('[start] ...')` 도 실행되지 않는다).
-
-## Phase 3 Acceptance Criteria — Pass/Fail
-
-| # | 기준 | 결과 |
+| 항목 | 내용 | 조치 |
 |---|---|---|
-| 1 | `pollOnce()` 성공/실패 각 분기에서 관측 상태 갱신 | PASS (구조 검사: `recordSuccess`/`recordFailure` 호출 존재 + 소스 리뷰) |
-| 2 | 실패 로그에 `kind`·`hint` 동반 | PASS (구조 검사: catch 블록에 `kind`·`hint` 참조 확인) |
-| 3 | 즉시실행 루프를 `require.main === module` 로 가드 | PASS |
-| 4 | `require('../watch-loop.js')` 가 루프를 시작하지 않고 반환 | PASS (행동 검증: `require()` 가 멈추지 않고 완료) |
-| 5 | `deriveDesired`/`isValidUsage`/`writeStopJsonAtomic`/`readConfig`/`resolveStopDir` 재구현 금지 | PASS |
-| 6 | `p-bellows/*.js` 에 `claude` grep 매칭 0건(도메인 URL 예외) — `watch-loop.js` 자체는 예외 없이 0건 | PASS |
-| 7 | `node p-bellows/test/run-all.js` Chrome·네트워크 없이 완주, 종료 코드 0 | PASS |
+| 테스트 파일 구문 오류 | `control-server.test.js` 에 새 테스트를 추가하는 편집 과정에서 `});` 뒤에 `------` 잔재가 남아 `SyntaxError: Invalid left-hand side expression in prefix operation` 발생 → `run-all.js` 가 파일 로드 자체를 실패시켜 control-server 테스트 25개가 통째로 스킵됐다(다른 파일 58개만 통과로 보임). | 잔재 제거. 재실행 후 83개 전부 통과 확인. |
 
-## 테스트 전체 목록 및 결과
+구현 코드(`lib/control-server.js`) 결함은 없었다.
 
-`node p-bellows/test/run-all.js` — 3개 테스트 파일 로드, **58/58 PASS**, 종료 코드 0.
+## Acceptance 기준별 결과
 
-- `observation.test.js` — 28개 (Phase 1, 회귀 없음)
-- `scrape-classify.test.js` — 24개 (Phase 2, 회귀 없음)
-- `watch-loop.test.js` — 6개 (신규, Phase 3)
-  1. `require("../watch-loop.js") loads without starting the watch loop`
-  2. `watch-loop.js source guards its immediate-invocation loop with require.main === module`
-  3. `watch-loop.js wires lib/observation.js into pollOnce success/failure branches`
-  4. `scrape-failure log line surfaces kind and hint (§5 diagnostic logging requirement)`
-  5. `watch-loop.js does not re-implement frozen helpers (deriveDesired/isValidUsage/writeStopJsonAtomic/readConfig/resolveStopDir stay)`
-  6. `p-bellows/.js files do not reference the Claude CLI`
+### 바인딩 · 기동 계약
+| 기준 | 결과 | 테스트 |
+|---|---|---|
+| 바인딩 주소 `127.0.0.1` (server.address + 반환값) | PASS | `binds to 127.0.0.1 and reports it in the resolved value` |
+| 소스에 `0.0.0.0`/`::`/호스트 오버라이드 옵션 없음 | PASS | `source has no 0.0.0.0 / :: literals and no host override option` |
+| 점유된 포트 → 예외 없이 `started:false` | PASS | `startControlServer never rejects/throws on an already-occupied port...` |
+| `started:false` 여도 `close` 는 안전한 no-op 함수 | PASS | 위 테스트 내 `b.close()` 검증 |
+| 기동 실패 시 `error` 는 비어있지 않은 문자열 | PASS | 위 테스트 내 `b.error` 검증 |
+| `close()` 후 포트 재바인딩 가능, 프로세스 안 매달림 | PASS | `after close(), the port is bindable again (no lingering handle)` |
+| [DERIVED] `opts.port` 생략 시 3210, `port:0` 시 OS 할당 | PASS | `omitting opts.port uses DEFAULT_PORT (3210)` + 다수 테스트의 `port:0` 사용 |
+| [DERIVED] `EADDRINUSE` 이후 늦은 `error` 이벤트가 이미 해결된 Promise 를 재해결해도 죽지 않음 | PASS (신규 테스트 추가) | `concurrent binds to the same port: one succeeds, the other resolves started:false without throwing` |
 
-실행 로그 요약:
-```
-[run-all] loading 3 test file(s): observation.test.js, scrape-classify.test.js, watch-loop.test.js
-tests 58 / pass 58 / fail 0 / cancelled 0 / skipped 0 / duration_ms ~28ms
-```
-재실행으로 결정성도 확인(동일 결과, 종료 코드 0).
+### `GET /api/health`
+| 기준 | 결과 | 테스트 |
+|---|---|---|
+| 200 + `id === 'quaestor'` | PASS | `GET /api/health -- 200, id=quaestor, ...` |
+| `ok`·`version`·`startedAt` 모두 존재 | PASS | 위 동일 |
+| `version` 이 `package.json` 과 일치 | PASS | 위 동일 (`PKG.version` 비교) |
+| `startedAt` ISO 파싱 가능, 두 번 요청해도 불변 | PASS | `GET /api/health startedAt is constant across two requests` |
+| `/api/health` 는 `getSnapshot()` 호출 안 함(횟수 0) | PASS | `GET /api/health ...` 내 `calls === 0` 검증 |
 
-## 이전 Phase 통합 검증
+### `GET /api/status`
+| 기준 | 결과 | 테스트 |
+|---|---|---|
+| 200 + `summary`·`state`·`fields` 존재 | PASS | `GET /api/status -- 200, state matches deriveState()...` |
+| `state` 가 `deriveState()` 반환값과 정확히 동일(crit 픽스처) | PASS | 위 동일 (`state === 'crit'`, `!== 'ok'`) |
+| `summary`·`fields` 깊은 비교 동일 | PASS | 위 동일 (`deepStrictEqual`) |
+| `updatedAt` ISO 파싱 가능 | PASS | 위 동일 |
+| 부작용 없음 — observation 필드(`totalPolls` 등) 불변 | PASS | `GET /api/status has no side effects: getSnapshot observation is unchanged across two GETs` |
+| 부작용 없음 — 스크래핑/STOP.json 미접근 | PASS (신규 테스트 추가) | `GET /api/status does not touch the filesystem -- an unrelated temp file stays unchanged` + `control-server.js source never references STOP.json / scrapeUsage / writeStopJsonAtomic` |
+| 응답에 `authToken`·`.profile`·`cookie` 없음 | PASS | `response JSON never contains authToken value, .profile, or cookie` |
+| `getSnapshot()` throw 시 `ok:true` 아님 | PASS | `GET /api/status: getSnapshot throwing does not yield ok:true` |
 
-- Phase 1(`lib/observation.js`) 28개 테스트 전부 통과 — 순수성·판정 규칙·비밀 미유출·`fields` 형식 무변경.
-- Phase 2(`lib/scrape.js`) 24개 테스트 전부 통과 — `err.kind`/`hintFrom`/`collectDiagnostics`/어휘 일치 무변경.
-- Phase 3 는 `lib/scrape.js`·`lib/observation.js`·`lib/extract.js`·`lib/config.js` 를 일절
-  수정하지 않았다 — `git status` 확인 결과 변경 파일은 `watch-loop.js`(수정)와
-  `test/watch-loop.test.js`(신규) 뿐이다.
-- STOP.json 스키마·경로, `deriveDesired()` 임계 판정과 히스테리시스, 수동 STOP 우선 규칙 — 무변경.
-- `p-bellows` 의 `.js` 파일 전체에서 `claude` grep 매칭은 `lib/scrape.js` 의 도메인 상수 1건뿐이고
-  (Phase 2 산출물), `watch-loop.js` 를 포함한 신규/수정 파일은 매칭 0건 — Claude CLI 미사용 제약 유지.
+### 라우팅 · 응답 형식
+| 기준 | 결과 | 테스트 |
+|---|---|---|
+| 유효 JSON, 스택 트레이스·HTML·내부 경로 미노출 | PASS (신규 테스트 추가) | `response bodies are valid JSON with no stack traces, HTML, or internal file paths` |
+| 핸들러 예외 발생해도 서버 계속 응답(health 200 유지) | PASS | `handler exception is caught: after a throwing getSnapshot call, /api/health still responds 200` |
+| [DERIVED] 알 수 없는 경로 → 404 `ok:false` | PASS | `unknown path -> 404 ok:false` |
+| [DERIVED] GET 아닌 메서드 → 405 `ok:false` | PASS | `non-GET on /api/health and /api/status -> 405 ok:false` |
+| [DERIVED] `POST /api/stop` → 501 + 의도적 미구현 표시 | PASS | `POST /api/stop -> 501, intentionally-unimplemented marker present` |
+| [DERIVED] 쿼리스트링 무시 | PASS | `query string is ignored -- /api/status?x=1 matches /api/status shape` |
+| [DERIVED] `Content-Type: application/json; charset=utf-8` + `Cache-Control: no-store` | PASS | `response headers: Content-Type json + Cache-Control no-store` |
 
+### 경계 · 무변경 보장
+| 기준 | 결과 | 확인 방법 |
+|---|---|---|
+| `lib/observation.js` 이 Phase 에서 미수정, 임계값 복제 없음 | PASS | `git status`/`git diff` 로 미수정 확인 + `control-server.js does not re-implement observation thresholds or state judgement`(85/90/70/75 리터럴 부재 검증) |
+| `watch-loop.js` 미수정(Phase 1 범위 아님) | PASS | `git status`/`git diff` 로 미수정 확인 |
+| Foreman 미의존(require/경로 하드코딩 없음) | PASS | `control-server.js does not depend on Foreman (no require, no hardcoded path)` |
+| 의존성 미증가(`puppeteer` 단일 유지) | PASS | `no new runtime dependency: package.json dependencies is still puppeteer-only` |
+| `claude` 문자열 미포함 | PASS | `control-server.js does not reference the Claude CLI` |
+| `node p-bellows/test/run-all.js` 기존 58개 포함 전부 통과, 종료 코드 0 | PASS | 전체 실행 로그(83/83 pass), `echo $?` → 0 |
 
-===========================================
-NNN: 004-control-http-contract
-Started: 2026-08-19T05:10:46Z
-===========================================
+## 전체 테스트 목록 (control-server.test.js, 25개)
+
+1. binds to 127.0.0.1 and reports it in the resolved value
+2. source has no 0.0.0.0 / :: literals and no host override option
+3. startControlServer never rejects/throws on an already-occupied port; started=false, error is a non-empty string
+4. after close(), the port is bindable again (no lingering handle)
+5. omitting opts.port uses DEFAULT_PORT (3210)
+6. concurrent binds to the same port: one succeeds, the other resolves started:false without throwing (late error-event safety) — 신규
+7. GET /api/health -- 200, id=quaestor, ok/version/startedAt present, does not touch getSnapshot
+8. GET /api/health startedAt is constant across two requests
+9. GET /api/status -- 200, state matches deriveState() exactly, no re-judgement (crit fixture)
+10. GET /api/status has no side effects: getSnapshot observation is unchanged across two GETs
+11. GET /api/status: getSnapshot throwing does not yield ok:true
+12. handler exception is caught: after a throwing getSnapshot call, /api/health still responds 200
+13. response JSON never contains authToken value, .profile, or cookie
+14. GET /api/status does not touch the filesystem -- an unrelated temp file stays unchanged (mtime + existence) — 신규
+15. control-server.js source never references STOP.json / scrapeUsage / writeStopJsonAtomic — 신규
+16. response bodies are valid JSON with no stack traces, HTML, or internal file paths — 신규
+17. unknown path -> 404 ok:false
+18. non-GET on /api/health and /api/status -> 405 ok:false
+19. POST /api/stop -> 501, intentionally-unimplemented marker present
+20. query string is ignored -- /api/status?x=1 matches /api/status shape
+21. response headers: Content-Type json + Cache-Control no-store
+22. control-server.js does not re-implement observation thresholds or state judgement
+23. control-server.js does not depend on Foreman (no require, no hardcoded path)
+24. control-server.js does not reference the Claude CLI
+25. no new runtime dependency: package.json dependencies is still puppeteer-only
+
+전체 실행 결과: `tests 83 / pass 83 / fail 0 / cancelled 0 / skipped 0`, 종료 코드 0.
+
+## 이전 Phase(003) 통합 검증
+
+`observation.test.js`(구 003), `scrape-classify.test.js`, `watch-loop.test.js` — 58개 테스트 전부
+control-server 테스트와 같은 `run-all.js` 실행에서 함께 통과. `git status`/`git diff` 로
+`lib/observation.js`·`watch-loop.js`·`package.json` 이 이번 Phase 에서 수정되지 않았음을 확인.
+회귀 없음.
