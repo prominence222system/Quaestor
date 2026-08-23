@@ -360,3 +360,101 @@
 ### USER_GATE (사람 확인 — 자동 테스트로 대체 불가)
 - [SPEC] 랜딩 후 Synology `products\Bellows\` 에 옛 `p-bellows\` 폴더가 남았는지 확인한다. sync-back 은 복사이지 삭제가 아니라 고아 폴더가 남을 수 있다. 남았으면 사람이 정리한다.
 - [SPEC] `run-bellows.ps1` 로 실제 기동해 이전과 같이 뜨는지 확인한다. 🔒 판정 기준은 **"이전과 같은 실패 서명"** 이다 — 측정은 로그인 문제로 여전히 실패할 수 있고 그것은 이 NNN 의 실패가 아니다.
+
+---
+
+# ACCEPTANCE — 006 Phase 2 (경계 검증 — 파일시스템 실존 · PS 파싱)
+
+> 📌 **사후 기록.** Phase 2 EVAL 의 Issues 가 지적한 공백(006 은 Phase 1 절만 있었다)을 메운다.
+> Phase 2 는 이 절 없이 work 파일 [SPEC] 과 `PROGRESS.md` 를 근거로 검증됐고, 아래는 그때
+> 실제로 요구된 기준을 문면화한 것이다. append-only 원칙에 따라 이전 블록은 그대로 둔다.
+> 🔒 검증 전용 Phase 다 — `.js`·`.ps1` 소스 변경 0건이 이 Phase 의 자기 구속이다.
+
+## Phase 2 Acceptance Criteria
+
+- [SPEC] `run-bellows.ps1` 과 `deploy-bellows.ps1` 이 PowerShell 5.1 파서로 **0 errors** 다 — 파싱은 실행이 아니라 `[System.Management.Automation.Language.Parser]::ParseFile()` 같은 정적 파싱으로 확인한다.
+- [SPEC] 🔒 **경계 검증** — `run-bellows.ps1` 이 참조하는 디렉토리·파일이 **파일시스템에 실제로 존재**한다. 문자열 대조가 아니라 실제 존재 확인이어야 한다. 문자열만 맞고 실제 경로가 어긋나면 파싱도 테스트도 통과하는데 **기동만 죽는다**.
+- [SPEC] `deploy-bellows.ps1 -DryRun` 이 종료 코드 **0** 으로 끝난다.
+- [SPEC] `node p-quaestor/test/run-all.js` 가 exit 0 · 146건 이상 · fail 0 으로 무회귀다.
+- [SPEC] 이 Phase 는 `.js` 와 `.ps1` 을 **수정하지 않는다** — `git status` 로 `output/` 외 변경이 없음을 실증한다. 검증 Phase 가 동작 코드를 고치면 검증의 의미가 사라진다.
+- [SPEC] Phase 1 의 모든 기준이 계속 만족되며 어느 하나도 삭제·완화되지 않는다.
+- [DERIVED] Synology 쪽이 아직 `p-bellows` 라 `-DryRun` 의 복사 단계가 조용히 건너뛰어지는 것은 이 Phase 의 실패가 아니다(Phase 1 이 이월 사항으로 예고·문서화했다). 판정 대상은 종료 코드와 파싱이다.
+- [DERIVED] 실행 중인 감시자 프로세스가 붙잡고 있는 빈 `p-bellows/` 디렉토리는 git 추적 대상이 아니고 테스트(hermetic · `__dirname` 상대경로)에 영향이 없다. 사람 확인(USER_GATE)으로 넘긴다 — 🔒 살아 있는 차단기 프로세스를 승인 없이 종료하지 않는다.
+
+---
+
+# ACCEPTANCE — 006 Phase 3 (환경변수 `QUAESTOR_*` 우선 · `BELLOWS_*` 폴백)
+
+대상: `p-quaestor/lib/env.js`(신규) · `lib/config.js` · `watch-loop.js` · `watch-once.js` ·
+`lib/scrape.js`(각 수정) · 관련 테스트(증분)
+전제: 모든 기준은 **hermetic** 하게 검증된다 — Chrome·claude.ai·외부 네트워크·실제 `.prominence`
+접근 없이 만족해야 한다.
+🔒 이 Phase 는 이 NNN 에서 **유일하게 코드 동작 경로를 건드린다.** 그럼에도 합격 기준은 여전히
+**"아무것도 안 달라짐"** 이다 — 오늘 이 기계에 `QUAESTOR_*` 는 하나도 설정돼 있지 않으므로,
+올바르게 구현되면 실행 결과는 정의상 이전과 동일하다.
+
+## Phase 3 Acceptance Criteria
+
+### 우선순위 — work 파일이 못 박은 3케이스
+
+- [SPEC] `QUAESTOR_CONTROL_PORT` 만 설정하면 **그 값**이 쓰인다.
+- [SPEC] `QUAESTOR_CONTROL_PORT` 없이 `BELLOWS_CONTROL_PORT` 만 설정하면 **그 값**이 쓰인다. 🔒 이 줄이 폴백의 존재 이유다 — 옛 이름이 조용히 무시되면 임계값 계열 키에서 **차단기가 풀린다**.
+- [SPEC] 둘 다 설정하면 `QUAESTOR_*` 가 이긴다.
+- [SPEC] 위 3케이스는 **hermetic 자동 테스트**로 검증된다 — 수동 `node -e` 확인에 의존하지 않는다.
+- [SPEC] 같은 우선순위 규칙이 **9개 접미사 전부**에 적용된다: `PROFILE_DIR` · `INTERVAL_MIN` · `WEEKLY_STOP` · `WEEKLY_RELEASE` · `SESSION_STOP` · `SESSION_RELEASE` · `CONTROL_PORT` · `CONTROL_TOKEN` · `CHROME_DEBUG_URL`. 일부 키만 새 이름을 갖는 상태가 남지 않는다.
+- [SPEC] 🔒 **접미사는 한 글자도 바뀌지 않는다** — 바뀌는 것은 접두사뿐이다. 새 환경변수를 추가하거나 기본값을 조정하지 않는다.
+- [SPEC] 🔒 `BELLOWS_*` 키가 **하나도 삭제되지 않는다.** 옛 이름만 설정된 환경에서 이전과 동일하게 동작한다.
+
+### 의미 불변 — 해석 로직은 손대지 않는다
+
+- [SPEC] 새 이름과 옛 이름 **둘 다 미정의**일 때의 결과가 개명 전과 동일하다 — 하드 기본값(`thresholds` 85/70/90/75, `control.port` 3210, `control.authToken` `null`, 프로필 `./.profile`, 인터벌 15, 디버그 URL `http://127.0.0.1:9222`)이 그대로 나온다.
+- [SPEC] `envToken` 계열의 빈 문자열 의미가 보존된다 — 토큰 환경변수가 **정의되어 있고 빈 문자열/공백**이면 `null`(인증 없음)이고, **미정의**면 기본값 경로로 간다. 이 둘은 계속 구분된다.
+- [SPEC] `envInt` 계열의 판정이 보존된다 — 빈 문자열·파싱 불가(`NaN`)는 기본값으로 떨어지고 예외를 던지지 않는다.
+- [SPEC] "있음" 의 판정은 **`undefined` 여부**로 한다 — 새 이름이 정의되어 있으면(빈 문자열이어도) 그 값이 선택되고, 정의되어 있지 않을 때만 옛 이름을 본다. 🔒 truthiness 로 고르면 빈 문자열의 의미가 바뀌어 동작이 달라진다.
+- [SPEC] 기존 `|| 기본값` 표현이 `??` 로 바뀌지 않는다 — 빈 문자열이 기본값으로 떨어지던 곳은 계속 그렇게 동작한다.
+- [SPEC] `readConfig()` 는 어떤 입력(파일 없음·깨진 JSON·잘못된 타입·만료)에도 **throw 하지 않는다**(never-brick 유지).
+- [SPEC] 설정 **파일**의 `control.port`·`control.authToken` 이 존재하면 **두 환경변수 모두**를 이긴다 — 004 Phase 2 가 세운 파일 우선 규칙이 새 층 삽입 후에도 유지된다.
+- [DERIVED] 새 이름이 **빈 문자열**로 정의되고 옛 이름에 값이 있는 경우(E1), 새 이름이 이기고 옛 값은 무시된다. "새 이름을 명시적으로 정의했다면 그것이 의도다" 를 일관 적용한 결과이며, 설계 §3-4 에 **의도된 선택**으로 기록된다.
+
+### 선택층의 형태 (설계 결정)
+
+- [DERIVED] 선택 규칙은 `p-quaestor/lib/env.js` **한 곳**에만 존재한다 — 9개 호출부에 삼항 선택이 복제되지 않는다. 복제된 규칙 중 하나가 임계값 키에서 어긋나는 형태를 만들지 않는다.
+- [DERIVED] `lib/env.js` 는 **순수 조회 함수**다 — 값을 해석하지 않고(`parseInt`·`trim`·기본값 없음), `process.env` 에 쓰지 않고, 캐시하지 않으며, `process.env` 를 호출 시점에 읽는다.
+- [DERIVED] `lib/env.js` 에 임계값 리터럴(85/90/70/75)·기본 포트(3210)·기본 경로가 **없다** — 기본값의 주인은 `HARD_DEFAULTS` 와 각 호출부의 `|| 기본값` 으로 유지된다.
+- [DERIVED] `lib/env.js` 는 의존이 없다(로컬 모듈도 node 내장도 `require` 하지 않는다) — 어떤 모듈에서든 순환 없이 쓸 수 있다.
+- [DERIVED] `p-quaestor` 안에서 `process.env.BELLOWS_` 형태의 **직접 참조가 0건**이다(`lib/env.js` 의 접두사 상수와 테스트가 의도적으로 설정하는 코드는 예외).
+- [DERIVED] `lib/env.js` 는 설정 로더로 확장되지 않는다 — 파일 읽기·병합·검증을 하지 않는다.
+
+### 검증 방법의 정직성
+
+- [SPEC] `lib/config.js` 경로는 **행동 검증**된다 — `envDefaults()`/`readConfig()` 를 실제로 호출해 반환값을 단언한다(소스 문자열 대조로 대체하지 않는다).
+- [SPEC] `watch-loop.js` · `watch-once.js` · `lib/scrape.js` 는 **모듈 로드 시 1회** 평가되는 상수이므로 구조 단언(소스가 선택층을 경유함)으로 검증하며, 🔒 **그 한계가 산출물에 명시된다** — 간접 증거를 직접 증거인 것처럼 적지 않는다.
+- [SPEC] 🔒 검증을 위해 `watch-once.js` 를 `require` 하거나 `watch-loop.js` 를 재로드·자식 프로세스로 띄우지 않는다 — 전자는 즉시 스크레이핑을 시작하고 후자는 실제 `.prominence` 의 STOP.json·bellows.log 를 오염시켜 hermetic 이 깨진다.
+- [SPEC] `pollOnce()` 를 테스트에서 구동하지 않는다(004·005 가 세운 관행의 유지).
+- [SPEC] env 를 변경하는 모든 테스트는 `try/finally` 로 **원상 복구**한다 — 원래 `undefined` 였던 키는 `delete` 로 되돌려 뒤따르는 테스트를 오염시키지 않는다.
+- [DERIVED] `lib/env.js` 자체는 설계 §3-4 진리표의 6개 조합 전부에 대해 직접 단위 테스트된다.
+
+### 🔒 무회귀 · 경계
+
+- [SPEC] `node p-quaestor/test/run-all.js` 가 **exit 0**, 테스트 **146건 이상**, fail **0** 이다. 146 미만이면 테스트가 사라진 것이며 실패로 본다.
+- [SPEC] 004 의 기존 테스트 `env: BELLOWS_CONTROL_PORT / BELLOWS_CONTROL_TOKEN override hard defaults; file values still win over env` 가 **삭제·수정 없이 그대로 통과**한다 — 폴백의 가장 강한 증거다.
+- [SPEC] 005 의 **26일 침묵 fixture 테스트가 계속 통과**한다(`warn` 이 아니라 `crit`).
+- [SPEC] 🔒 로그 줄 형식이 불변이다 — `session=NN% weekly=NN%` · `[poll start]` · `[poll error] scrape failed: ... kind=... hint=...` · `[start] bellows watcher. interval=NNm config=...` · `[restore] lastSuccess=... failures=... kind=...` · `[control] listening on 127.0.0.1:NNNN`. **`[start] bellows watcher` 의 `bellows` 도 그대로 둔다.** `[bellows]`·`[bellows-chrome]`·`[bellows-once]` 콘솔 접두사와 `bellows-test-` 임시파일 접두사도 건드리지 않는다.
+- [SPEC] `deriveDesired()` 의 임계 판정과 히스테리시스, `STOP.json` 의 위치·이름·스키마, 수동 STOP(`source === 'manual'`) 우선 규칙, `resolveStopDir()` 의 드라이브 후보 탐색이 **무변경**이다.
+- [SPEC] `.prominence` 런타임 파일명 `STOP.json` · `bellows.log` · `bellows-config.json` 과 그 경로 해석 코드가 무변경이다.
+- [SPEC] `lib/observation.js` · `lib/logparse.js` · `lib/extract.js` · `lib/control-server.js` 는 이 Phase 에서 **수정되지 않는다** — 이 Phase 가 바꾸는 것은 환경변수 **키 이름의 조회 순서**뿐이다.
+- [SPEC] 제어 서버가 무변경이다 — `127.0.0.1` 고정 바인딩, 기본 포트 3210, `/api/health` 의 `id === 'quaestor'`, `POST /api/stop` 미구현, 토큰의 `timingSafeEqual` 비교.
+- [SPEC] 🔒 `run-bellows.ps1` 과 `deploy-bellows.ps1` 이 이 Phase 에서 **수정되지 않는다**(`git status` 로 실증) — `$env:BELLOWS_INTERVAL_MIN` 도 그대로 둔다. work 파일 §3 이 ps1 내용 편집을 `p-bellows` 경로 참조로 한정했고, 런처를 옛 이름으로 두면 폴백 경로가 실기동에서 실제로 검증된다. 런처의 env 키 개명은 다른 주인(폴더 이동·Foreman 설정)의 몫이다.
+- [SPEC] 두 ps1 이 PS 5.1 파싱 **0 errors** 이고 `deploy-bellows.ps1 -DryRun` 이 exit 0 이다(Phase 2 기준의 무회귀 재확인).
+- [SPEC] 파일명 `run-bellows.ps1` · `deploy-bellows.ps1` 이 그대로 존재하고, 폴더 `projects\Bellows` · git 저장소 이름이 바뀌지 않으며, forge · foundry · Foreman 의 어떤 파일도 수정되지 않는다.
+- [SPEC] 의존성이 늘지 않는다 — `package.json` 의 `dependencies` 는 `puppeteer` 하나이고, 새 테스트는 내장 `node:test`/`node:assert` 만 쓴다. `package.json` 의 `name` 은 `prominence-quaestor` 로 유지되고 `package-lock.json` 과 일치한다.
+- [SPEC] `p-quaestor` 의 `.js` 파일에 `claude` 문자열이 grep 매칭 0건으로 유지된다(도메인 URL 상수 예외) — 신규 `lib/env.js` 포함.
+- [SPEC] 소스 트리에서 `p-bellows` 문자열이 계속 **0건**이다(Phase 1 기준의 무회귀).
+- [SPEC] Phase 1·2 의 모든 기준이 계속 만족되며 **어느 하나도 삭제·완화되지 않는다** — 이 Phase 는 순증분이다.
+
+### USER_GATE (사람 확인 — 자동 테스트로 대체 불가)
+
+- [SPEC] `run-bellows.ps1` 로 실제 기동해 이전과 같이 뜨는지 확인한다. 🔒 판정 기준은 **"이전과 같은 실패 서명"** 이다 — 측정은 로그인 문제로 여전히 실패할 수 있고 그것은 이 NNN 의 실패가 아니다. 🔒 `node watch-loop.js` 단독 실행으로 대신하지 않는다(Chrome 이 9222 로 떠 있어야 하고 실제 STOP.json 을 건드린다).
+- [SPEC] 기동 후 `bellows.log` 에 `[start] bellows watcher. interval=NNm config=...` 이 **이전과 같은 형식**으로 남는지 확인한다 — 로그 형식 불변의 실기동 증거이며, 이것이 깨지면 005 의 26일 복원이 조용히 실패한다.
+- [SPEC] 랜딩 후 Synology `products\Bellows\` 에 옛 `p-bellows\` 폴더가 남았는지 확인한다(Phase 1 이월 사항). 남았으면 사람이 정리한다.
+- [DERIVED] 런처가 세팅하는 `$env:BELLOWS_INTERVAL_MIN` 을 언제 `QUAESTOR_` 로 옮길지는 폴더 이동·Foreman 설정 작업에서 함께 판단한다 — 이 NNN 의 산출물에 인수인계 항목으로 남긴다.
