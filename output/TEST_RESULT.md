@@ -341,4 +341,36 @@ powershell -NoProfile -ExecutionPolicy Bypass -File ./deploy-bellows.ps1 -DryRun
 실기동(USER_GATE, 사람 확인): `run-bellows.ps1` 실행 — Chrome을 `--remote-debugging-port=9222`로
 띄운 뒤 루프가 돈다. 새 `QUAESTOR_*` 환경변수를 주면 그 값이 우선 적용되고, 옛 `BELLOWS_*`만
 설정돼 있어도 그 값이 그대로 쓰인다(동작 변경 없음). 사전 준비: `p-quaestor/node_modules`
+
+## 재검증 라운드 — Smoke Override 대응 (2026-08-23)
+
+이전 eval 은 내용 기준 **PASS**(Issues 없음)였으나, 하네스의 `Smoke Override` 가
+`node p-bellows/test/run-all.js`(exit 1, `MODULE_NOT_FOUND`)를 이유로 verdict 를 `FIX` 로
+강제했다. 이어진 fix 단계는 `output/EVAL_FEEDBACK.md`·`output/SMOKE_RESULT.md` 재생성 외
+소스 변경이 없었다(`git show cc7c764 --stat` 확인). 이번 라운드에서 코드·acceptance 기준을
+처음부터 재점검했다.
+
+- `node p-quaestor/test/run-all.js` 재실행 → **exit 0 · tests 176 · pass 176 · fail 0**(회귀 없음)
+- `git grep -n "p-bellows" -- . ":(exclude)work" ":(exclude)output" ":(exclude).p-forge"` → **0건**
+- 소스 변경: **없음** — Phase 1~3 의 [SPEC]/[DERIVED] 기준이 이미 전부 만족된 상태
+
+**판정: 이 Smoke 실패는 이 NNN 의 코드 결함이 아니다.** `node p-bellows/test/run-all.js` 는
+`work/MASTER.md ## Work Verify` 에 박힌 선언 명령이고, MASTER.md 는 이 NNN 이 절대 수정할 수
+없다(work 파일·forge 규칙 공통 불변). 006 의 목적 자체가 `p-bellows` → `p-quaestor` 개명이므로,
+개명이 성공적으로 끝난 상태에서 옛 경로를 부르는 선언 명령은 **정의상 항상 실패**한다.
+`output/ACCEPTANCE.md` "006 Phase 1 — 러너 경로" 절이 이 충돌을 명시적으로 예고했고
+([DERIVED] "개명 후 올바른 스모크 명령은 `node p-quaestor/test/run-all.js` 다... 러너 설정 갱신은
+USER_GATE 로 올린다"), `p-bellows/` 를 되살리는 것은 Phase 1 [SPEC](`p-bellows/ 디렉토리는
+존재하지 않는다`)을 정면으로 위반한다 — 즉 이 실패를 코드로 "고치는" 길 자체가 acceptance
+기준과 상충해 존재하지 않는다.
+
+**할 수 있는 조치와 못 하는 조치:**
+- ❌ `p-bellows/test/run-all.js` 를 되살리거나 리다이렉트 파일을 넣는 것 — Phase 1 [SPEC] 위반
+- ❌ `work/MASTER.md` 의 `Work Verify` 를 수정하는 것 — forge 규칙("work/ 는 절대 수정 금지")과
+  work 파일 자체("MASTER.md 는 절대 불변")를 동시 위반
+- ✅ 올바른 스모크 명령(`node p-quaestor/test/run-all.js`)을 TEST_RESULT.md·EVAL_FEEDBACK.md 의
+  "How to Run" 에 명시(이미 반영됨) 하고, 러너 설정 갱신을 사람 확인 항목으로 인수인계
+
+이번 라운드에서 추가로 고칠 구현 버그는 발견되지 않았다. Phase 1~3 의 모든 [SPEC]/[DERIVED]
+기준은 위 재실행으로 재확인됐다.
 (puppeteer)가 이미 리포에 존재해 별도 설치 불필요.
