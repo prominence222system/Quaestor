@@ -1,7 +1,7 @@
 {
-  "name": "prominence-bellows",
+  "name": "prominence-quaestor",
   "version": "0.1.0",
-  "description": "Token usage watcher for Prominence — scrapes claude.ai/settings/usage and writes STOP.json",
+  "description": "Token usage watcher for Prominence - scrapes claude.ai/settings/usage and writes STOP.json",
   "private": true,
   "scripts": {
     "once": "node watch-once.js",

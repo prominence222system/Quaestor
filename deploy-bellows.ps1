@@ -77,12 +77,12 @@ function Deploy-Directory {
 $excludeDirs = @('node_modules', '.profile', '.git')
 $excludeExts = @('.log')
 
-# Step 1: copy p-bellows source files with mtime guard
-$srcTool = Join-Path $SrcRoot 'p-bellows'
-$dstTool = Join-Path $Target  'p-bellows'
+# Step 1: copy p-quaestor source files with mtime guard
+$srcTool = Join-Path $SrcRoot 'p-quaestor'
+$dstTool = Join-Path $Target  'p-quaestor'
 if (Test-Path $srcTool) {
     Write-Host ""
-    Write-Host "Step 1: copy p-bellows" -ForegroundColor Cyan
+    Write-Host "Step 1: copy p-quaestor" -ForegroundColor Cyan
     if (-not (Test-Path $dstTool)) { New-Item -ItemType Directory -Path $dstTool -Force | Out-Null }
 
     $files = Get-ChildItem $srcTool -Recurse -File -Force |

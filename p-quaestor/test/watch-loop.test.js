@@ -61,7 +61,7 @@ test('watch-loop.js does not re-implement frozen helpers (deriveDesired/isValidU
   }
 });
 
-test('p-bellows/.js files do not reference the Claude CLI', () => {
+test('p-quaestor/.js files do not reference the Claude CLI', () => {
   const libDir = path.join(__dirname, '..');
   const jsFiles = fs.readdirSync(libDir).filter((f) => f.endsWith('.js'));
   for (const f of jsFiles) {

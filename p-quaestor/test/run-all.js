@@ -1,5 +1,5 @@
 'use strict';
-// Test harness. Run: node p-bellows/test/run-all.js
+// Test harness. Run: node p-quaestor/test/run-all.js
 // Loads every *.test.js in this directory (name order) via require(), so
 // node:test registers and executes them and sets process.exitCode on failure.
 // Does not use `npm` or spawn a subprocess.

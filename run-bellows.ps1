@@ -88,7 +88,7 @@ function Ensure-BellowsChrome {
 
 $ErrorActionPreference = 'Stop'
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$ToolDir   = Join-Path $ScriptDir 'p-bellows'
+$ToolDir   = Join-Path $ScriptDir 'p-quaestor'
 
 if (-not (Test-Path (Join-Path $ToolDir 'node_modules'))) {
   Write-Host '[run-bellows] installing dependencies (first run, may take a few minutes)...'

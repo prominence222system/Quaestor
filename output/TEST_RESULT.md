@@ -43,3 +43,95 @@ node p-bellows/test/run-all.js
 NNN: 006-rename-internals-to-quaestor
 Started: 2026-08-23T07:46:26Z
 ===========================================
+
+## Phase 1 — 폴더 이동 · 패키지 이름 · 문자열 전수 (2026-08-23)
+
+### 결과: PASS
+
+| 항목 | 명령 | 결과 |
+|---|---|---|
+| 테스트 | `node p-quaestor/test/run-all.js` | **exit 0** · tests **146** · pass **146** · fail **0** |
+| 005 회귀 | 26일 침묵 fixture | ✔ `state === crit` 계속 통과 |
+| 이름 잔재 | `git grep -n "p-bellows" -- . ":(exclude)work" ":(exclude)output" ":(exclude).p-forge"` | **0건** |
+| 이동 인식 | `git diff --cached -M --summary` | 17개 전부 **rename … (100%)** |
+| 파일명 유지 | `ls run-bellows.ps1 deploy-bellows.ps1` | 둘 다 존재 |
+| PS 5.1 파싱 | `Parser::ParseFile` | 두 파일 모두 **0 errors** |
+| 경계 검증 | `$ToolDir` 및 하위 참조 경로 실존 | 6/6 **EXISTS** |
+| 패키지 이름 | `package.json` / `package-lock.json` | 셋 다 `prominence-quaestor` 로 일치 |
+
+### 무회귀 기준선 (이동 전 실측)
+
+이동 전 `node p-bellows/test/run-all.js` 는 **pass 123 / fail 0 이지만 exit 1** 이었다.
+원인은 개명과 무관한 **환경 결손**이다 — 작업 트리에 `node_modules/` 가 없어
+`test/scrape-classify.test.js:9` 의 `require.resolve('puppeteer')` 가 로드 단계에서 실패했고,
+`run-all.js` 가 그 로드 실패를 `process.exitCode = 1` 로 올렸다.
+Synology 원본(`products\Bellows\p-bellows\node_modules`, 1.3MB)을 `p-quaestor/node_modules`
+로 복원하자 그 파일이 정상 로드되어 **123 → 146** 이 되었다. 즉 146 중 123 은 이동 전과
+동일한 테스트이고, 늘어난 23 은 신규 추가가 아니라 **원래 있었으나 로드되지 못하던 것**이다.
+`node_modules/` 는 `.gitignore` 대상이라 커밋 diff 에 포함되지 않는다.
+🔒 `npm` 은 쓰지 않았다(Windows `.cmd` shim). 파일 복사와 `node` 실행뿐이다.
+
+### 실제 변경 내역 (diff 전수)
+
+`git diff -M` 의 내용 변경은 아래 **7줄뿐**이며 전부 이름 문자열이다. 로직 변경 0건.
+
+- `p-quaestor/package.json` — `name` → `prominence-quaestor`
+- `p-quaestor/package-lock.json` — 루트 `name` · `packages[""].name` → `prominence-quaestor`
+- `p-quaestor/test/run-all.js:2` — 주석의 실행 경로
+- `p-quaestor/test/watch-loop.test.js:64` — 테스트 **제목** 문자열(본문 `__dirname` 단언 무변경)
+- `run-bellows.ps1:91` — `$ToolDir` → `'p-quaestor'`
+- `deploy-bellows.ps1:80,81,82,85` — `$srcTool`·`$dstTool`·주석·`Write-Host` 문구
+
+추가로 `p-quaestor/package.json:4` 의 `description` 안 em-dash(`—`)를 ASCII `-` 로 바꿨다.
+이는 개명과 무관하며, 저장소의 **edit-gate 훅이 non-ASCII 를 차단**해 같은 편집 단계에서
+수정할 것을 요구했기 때문이다. 값의 의미는 동일하다.
+
+🔒 `deriveDesired()` 임계·히스테리시스, `STOP.json` 경로 해석, 스크레이핑 로직,
+로그 줄 형식(`[start] bellows watcher` 포함), 환경변수 이름은 **한 글자도 바뀌지 않았다**.
+환경변수 개명은 Phase 3 몫이다.
+
+### ⚠️ 미해결 — `p-bellows/` 빈 디렉토리가 남아 있다
+
+`git mv p-bellows p-quaestor`(디렉토리 통째 rename)는 **실패했다**:
+
+```
+fatal: renaming 'p-bellows' failed: Permission denied
+mv: cannot move 'p-bellows' to 'p-quaestor_t': Device or resource busy
+```
+
+원인은 실행 중인 감시자다. `run-bellows.ps1:99` 가 `Push-Location $ToolDir` 후
+`node watch-loop.js` 를 띄우므로 그 프로세스의 **CWD 가 `p-bellows` 자신**이고,
+Windows 는 CWD 인 디렉토리의 rename·삭제를 거부한다.
+
+- 실측: **PID 4260** `node watch-loop.js`, StartTime **2026-08-19** (4일째)
+- 잠긴 것은 **최상위 디렉토리 하나뿐**이다 — `p-bellows/lib` 등 하위 항목의 rename 은 정상 동작함을 실측 확인
+- 그 감시자는 살아서 15분마다 폴링하지만 **매번 실패**한다(`bellows.log` 실측:
+  `[poll error] failed to connect to Chrome at http://127.0.0.1:9222`). 마지막 성공은 2026-07-28
+
+그래서 **디렉토리 통째 rename 대신 항목별 `git mv`** 로 옮겼다. 결과는 동등하다 —
+git 이 17개 전부를 `rename … (100%)` 로 인식하므로 **이력은 끊기지 않는다**(D1 충족).
+untracked 인 `.profile/` 도 함께 옮겼다. 남은 것은 **내용물이 0개인 빈 껍데기**다.
+
+🔒 살아 있는 차단기 프로세스를 **임의로 죽이지 않았다.** 사용자 승인 없이 프로세스를
+종료하는 것은 이 작업의 권한 밖이다. 감시자를 재기동하면 잠금이 풀리고 빈 디렉토리는
+삭제 가능해진다 — work 파일 USER_GATE 가 이미 예상한 "옛 폴더 잔존" 항목과 같은 성격이다.
+
+### USER_GATE (사람이 할 일)
+
+1. 감시자 재기동: 현재 PID 4260 을 멈추고 `run-bellows.ps1` 로 다시 띄운다
+   (이제 `$ToolDir` 이 `p-quaestor` 를 가리킨다)
+2. 재기동 후 남은 빈 디렉토리 삭제: `rmdir p-bellows`
+3. Synology `products\Bellows\` 의 옛 `p-bellows\` 폴더 정리(sync-back 은 복사이지 삭제가 아니다)
+4. ⚠️ `deploy-bellows.ps1 -DryRun` 의 **Step 1 이 조용히 건너뛰어진다.**
+   이 스크립트는 Synology 원본(`products\Bellows\p-quaestor`)을 복사원으로 삼는데,
+   Synology 쪽은 아직 `p-bellows` 라 `Test-Path $srcTool` 이 false 가 되기 때문이다.
+   sync-back 이 `p-quaestor` 를 Synology 에 만들면 자동으로 해소된다.
+   해소 전까지는 Step 1 이 **조용한 무동작**이라는 점에 유의할 것
+5. ⚠️ `work/MASTER.md` 의 `Smoke: node p-bellows/test/run-all.js` 는 낡은 줄이 되었다.
+   MASTER.md 는 불변이라 이 NNN 이 고칠 수 없다 — 러너 설정을 사람이 갱신해야 한다(D6)
+
+## How to Run
+
+```
+node p-quaestor/test/run-all.js
+```

@@ -1,6 +1,6 @@
 # SMOKE_RESULT
 
-Generated: 2026-08-23 16:57:34
+Generated: 2026-08-23 17:04:09
 
 ## File Checks
 - FAIL: declared smoke failed: node p-bellows/test/run-all.js (exit 1)
@@ -21,15 +21,15 @@ Generated: 2026-08-23 16:57:34
 ## Declared Smoke (MASTER.md ## Work Verify)
 - EXECUTED_FAIL: `node p-bellows/test/run-all.js` (cwd: F:\Workspace\Automatic\projects\Bellows, exit 1, 0.9s)
 ```
-lSnapshot) whose body references the observation module variable (0.1609ms)
-✔ C3 (structural): controlSnapshot() body has no fs.* calls, no scrapeUsage, and no STOP_PATH reference (0.0931ms)
-✔ watch-loop.js does not re-judge thresholds when wiring control-server (no new 85/90/70/75 literals or state branches around the wiring) (0.1058ms)
-✔ Phase 2 [SPEC]: 26-day silence fixture restored on boot yields state === crit (2.7066ms)
-✔ Phase 2 [SPEC]: boundary verification -- real log file tail reading and chopped line handling (1.4807ms)
-✔ Phase 2 [SPEC]: non-existent file, 0-byte file, and corrupted binary bytes yield empty observation without throwing (1.6526ms)
-✔ Phase 2 [SPEC]: large file (>64KB) reads at most 64KB (65536 bytes) (37.6656ms)
-✔ Phase 2 [SPEC]: restored observation stringified contains no secrets (.profile, cookie, @) (1.471ms)
-✔ Phase 2 [SPEC]: mainLoop structurally integrates restoreObservation at startup before polling loop (0.1368ms)
+olSnapshot) whose body references the observation module variable (0.1661ms)
+✔ C3 (structural): controlSnapshot() body has no fs.* calls, no scrapeUsage, and no STOP_PATH reference (0.1048ms)
+✔ watch-loop.js does not re-judge thresholds when wiring control-server (no new 85/90/70/75 literals or state branches around the wiring) (0.1227ms)
+✔ Phase 2 [SPEC]: 26-day silence fixture restored on boot yields state === crit (2.6989ms)
+✔ Phase 2 [SPEC]: boundary verification -- real log file tail reading and chopped line handling (1.5302ms)
+✔ Phase 2 [SPEC]: non-existent file, 0-byte file, and corrupted binary bytes yield empty observation without throwing (1.69ms)
+✔ Phase 2 [SPEC]: large file (>64KB) reads at most 64KB (65536 bytes) (37.7404ms)
+✔ Phase 2 [SPEC]: restored observation stringified contains no secrets (.profile, cookie, @) (1.4048ms)
+✔ Phase 2 [SPEC]: mainLoop structurally integrates restoreObservation at startup before polling loop (0.1248ms)
 ℹ tests 123
 ℹ suites 0
 ℹ pass 123
@@ -37,7 +37,7 @@ lSnapshot) whose body references the observation module variable (0.1609ms)
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 783.1713
+ℹ duration_ms 769.9657
 [run-all] failed to load scrape-classify.test.js: Error: Cannot find module 'puppeteer'
 Require stack:
 - F:\Workspace\Automatic\projects\Bellows\p-bellows\test\scrape-classify.test.js
