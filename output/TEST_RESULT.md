@@ -212,3 +212,133 @@ EXIT=0
 node p-quaestor/test/run-all.js
 powershell -NoProfile -ExecutionPolicy Bypass -File ./deploy-bellows.ps1 -DryRun
 ```
+
+## Phase 3 — 환경변수 `QUAESTOR_*` 우선 · `BELLOWS_*` 폴백 (2026-08-23)
+
+### 결과: PASS
+
+대상: `p-quaestor/lib/env.js`(신규) · `lib/config.js` · `watch-loop.js` · `watch-once.js` · `lib/scrape.js`
+
+진입 시점에 이미 커밋(`fa38d14`)돼 있던 구현이 `output/ACCEPTANCE.md` "# ACCEPTANCE — 006 Phase 3"
+전량을 만족하는 상태였다. 이번 라운드는 그 전 기준을 실측 재실행/재대조했고, 코드 수정은
+발생하지 않았다.
+
+### Phase 3 Acceptance Criteria 대조
+
+#### 우선순위 3케이스 (work 파일이 못 박은 것)
+
+| 기준 | 결과 | 근거 |
+|---|---|---|
+| [SPEC] `QUAESTOR_CONTROL_PORT` 만 설정 → 그 값 | PASS | `env.test.js`: `config: QUAESTOR_CONTROL_PORT alone is used` |
+| [SPEC] `BELLOWS_CONTROL_PORT` 만(새 이름 없이) 설정 → 그 값 | PASS | `env.test.js`: `config: BELLOWS_CONTROL_PORT alone (no QUAESTOR_) is used -- the fallback's reason to exist` |
+| [SPEC] 둘 다 설정 → `QUAESTOR_*` 승 | PASS | `env.test.js`: `config: both set -> QUAESTOR_CONTROL_PORT wins [SPEC]` |
+| [SPEC] 3케이스 hermetic 자동 테스트 | PASS | 위 3건 모두 `node:test`, 실 `.prominence`/Chrome 미접근 |
+| [SPEC] 9개 접미사(`PROFILE_DIR`·`INTERVAL_MIN`·`WEEKLY_STOP`·`WEEKLY_RELEASE`·`SESSION_STOP`·`SESSION_RELEASE`·`CONTROL_PORT`·`CONTROL_TOKEN`·`CHROME_DEBUG_URL`) 전부 동일 규칙 | PASS | `env.test.js`의 `SUFFIXES` 루프 — 접미사별 2케이스(old만/new+old) × 9 = 18건 |
+| [SPEC] 🔒 접미사 불변, 새 env 미추가 | PASS | 소스 대조: `lib/env.js`(24줄)에 접미사 리터럴 없음(호출부가 문자열 전달), 신규 환경변수 이름 없음 |
+| [SPEC] 🔒 `BELLOWS_*` 키 0건 삭제 | PASS | `envRaw()`가 새 키 미정의 시 항상 `OLD_PREFIX + suffix` 폴백 조회 |
+
+#### 의미 불변 — 해석 로직
+
+| 기준 | 결과 | 근거 |
+|---|---|---|
+| [SPEC] 둘 다 미정의 → 하드 기본값 그대로(85/70/90/75, port 3210, authToken null, `.profile`, 15분, `http://127.0.0.1:9222`) | PASS | `env.test.js`: `config: both new and old undefined -> hard defaults unchanged` |
+| [SPEC] `envToken` — 정의+빈문자열/공백 → `null`, 미정의 → 기본값(구분 유지) | PASS | `env.test.js`: `config: token env defined-but-empty -> null (explicit unset), distinct from undefined -> default` |
+| [SPEC] `envInt` — 빈문자열/NaN → 기본값, throw 없음 | PASS | `env.test.js`: `config: unparseable int env falls back to default without throwing` |
+| [SPEC] "있음" 판정은 `undefined` 여부(truthiness 아님) | PASS | `envRaw()` 소스가 `!== undefined` 비교만 사용, `env.test.js`: `env.js: is a pure lookup -- no |&#124; based selection in source`(함수 본문에 `|&#124;` 없음을 소스 정규식으로 확증) |
+| [SPEC] `|&#124;` → `??` 전환 없음 | PASS | `env.test.js`: `|&#124; fallback expressions were not changed to ??` — `watch-loop.js`/`watch-once.js`/`lib/scrape.js` 소스에서 `envRaw(...) |&#124;` 패턴 확인 |
+| [SPEC] `readConfig()` never-throw(파일없음·깨진JSON·잘못된타입·만료) | PASS | `env.test.js`: `config: readConfig never throws regardless of input` |
+| [SPEC] 파일의 `control.port`/`control.authToken`이 두 env 모두를 이김 | PASS | `env.test.js`: `config: file control.port/authToken win over both env names` + 004 기존 테스트(`control-server.test.js:818`, 무수정 재확인) |
+| [DERIVED] E1(새 이름=빈문자열이 옛 이름의 비어있지 않은 값을 이김)은 의도된 선택 | PASS | `env.test.js`: `env.js: QUAESTOR_ defined as empty string beats a non-empty BELLOWS_ (E1, intentional)` — 설계 §3-4 진리표와 일치 |
+
+#### 선택층의 형태
+
+| 기준 | 결과 | 근거 |
+|---|---|---|
+| [DERIVED] 선택 규칙이 `lib/env.js` 한 곳에만 | PASS | grep: 9개 호출부(`config.js` 6곳 + `watch-loop.js`/`watch-once.js`/`lib/scrape.js` 각 1곳)가 전부 `envRaw(...)` 호출, 삼항 선택 미복제 |
+| [DERIVED] `lib/env.js`는 순수 조회(파싱/trim/기본값/캐시/쓰기 없음) | PASS | 소스 24줄 전체 대조 — `parseInt`/`trim`/`process.env[k]=` 없음 |
+| [DERIVED] 임계값(85/90/70/75)·기본 포트(3210)·기본 경로 리터럴 없음 | PASS | 소스에 해당 리터럴 0건 |
+| [DERIVED] 의존성 0(로컬 모듈도 node 내장도 `require` 없음) | PASS | `env.test.js`: `env.js: has no dependencies (no require calls)` |
+| [DERIVED] `process.env.BELLOWS_` 직접 참조 0건(`lib/env.js` 상수·테스트 예외) | PASS | `env.test.js`: `no direct process.env.BELLOWS_ ... references remain in p-quaestor sources` — `p-quaestor` 전체 트리 워크로 확증 |
+| [DERIVED] 설정 로더로 미확장(파일 읽기/병합/검증 없음) | PASS | 소스 24줄 그대로, `fs` 등 미사용 |
+
+#### 검증 방법의 정직성
+
+| 기준 | 결과 | 근거 |
+|---|---|---|
+| [SPEC] `lib/config.js` 경로는 행동 검증(반환값 실단언) | PASS | `env.test.js`의 `config:` 계열 테스트 전부 `envDefaults()`/`readConfig()` 실호출 후 반환값 단언 |
+| [SPEC] `watch-loop.js`/`watch-once.js`/`lib/scrape.js`는 구조 단언 + 한계 명시 | PASS | `env.test.js`의 `structurally uses envRaw()` 3건은 정규식 기반 구조 검증이며, 아래 "검증 한계" 절에 명시 |
+| [SPEC] 🔒 검증을 위해 `watch-once.js` require 안 함, `watch-loop.js` 재로드·자식프로세스 안 띄움 | PASS | 세 구조 테스트 전부 `fs.readFileSync`로 소스 텍스트만 읽음(모듈 로드 없음) |
+| [SPEC] `pollOnce()` 테스트 구동 없음 | PASS | `env.test.js`에 `pollOnce` 참조 0건(grep 확인) |
+| [SPEC] env 변경 테스트는 `try/finally`로 원상복구 | PASS | `env.test.js`의 `withEnv()` 헬퍼가 `finally`에서 원래 `undefined`였던 키를 `delete` |
+| [DERIVED] `lib/env.js` 자체가 진리표 6개 조합 전부 단위 테스트됨 | PASS | `env.test.js` 상단 "lib/env.js: truth table" 6건(양쪽 미정의 / old만 / old만-빈문자열 / new만 / 둘다-new승 / E1) |
+
+### 🔒 무회귀 · 경계
+
+| 기준 | 결과 | 근거 |
+|---|---|---|
+| [SPEC] `node p-quaestor/test/run-all.js` exit 0, 146건 이상, fail 0 | **PASS** | 실행 결과: **tests 176 · pass 176 · fail 0**, exit code 0 |
+| [SPEC] 004 기존 테스트(`env: BELLOWS_CONTROL_PORT / BELLOWS_CONTROL_TOKEN override hard defaults...`) 무수정 그대로 통과 | PASS | `control-server.test.js:818` 원문 직접 대조(수정 없음) + 통과 확인 |
+| [SPEC] 005의 26일 침묵 fixture 계속 `crit` | PASS | `Phase 2 [SPEC]: 26-day silence fixture restored on boot yields state === crit` 통과(176건에 포함) |
+| [SPEC] 🔒 로그 줄 형식 불변(`session=NN% weekly=NN%` 등 6종, `[start] bellows watcher`의 `bellows` 포함) | PASS | `watch-loop.js:256`: `'[start] bellows watcher. interval=' + INTERVAL_MIN + 'm config=' + CONFIG_PATH` — 문자 단위 그대로 |
+| [SPEC] `deriveDesired()`/STOP.json 스키마/수동 STOP 우선/`resolveStopDir()` 무변경 | PASS | `git diff --stat HEAD~1 HEAD -- p-quaestor`가 `watch-loop.js`에서 **+5/-3줄**만 보고(require 1줄 + `envRaw()` 배선 2곳) — 이 함수들의 본문 라인은 diff에 없음 |
+| [SPEC] `.prominence` 런타임 파일명(`STOP.json`·`bellows.log`·`bellows-config.json`) 무변경 | PASS | 소스에 리터럴 그대로 |
+| [SPEC] `lib/observation.js`·`lib/logparse.js`·`lib/extract.js`·`lib/control-server.js` 이 Phase 무수정 | PASS | `git diff --stat HEAD~1 HEAD -- p-quaestor`에 4개 파일 미포함(변경분은 `config.js`·`env.js`·`scrape.js`·`watch-loop.js`·`watch-once.js`·`test/env.test.js`뿐) |
+| [SPEC] 제어 서버 무변경(127.0.0.1 고정, 기본 포트 3210, `id==='quaestor'`, `POST /api/stop` 미구현, `timingSafeEqual`) | PASS | `control-server.js` diff 없음(위와 동일 증거) |
+| [SPEC] 🔒 `run-bellows.ps1`/`deploy-bellows.ps1` 이 Phase 무수정(`$env:BELLOWS_INTERVAL_MIN` 포함) | PASS | `git status --porcelain -- run-bellows.ps1 deploy-bellows.ps1` → 빈 출력 |
+| [SPEC] 두 ps1 PS 5.1 파싱 0 errors | **PASS** | `[System.Management.Automation.Language.Parser]::ParseFile()` 실행 → `run-bellows.ps1 errors=0`, `deploy-bellows.ps1 errors=0` |
+| [SPEC] 파일명 유지, `projects\Bellows` 폴더/저장소 이름 무변경, forge·foundry·Foreman 무수정 | PASS | 두 ps1 파일 존재 확인, git status에 그 외 파일 변경 없음 |
+| [SPEC] 의존성 미증가(`dependencies`는 `puppeteer` 하나), `package.json` name 유지·`package-lock.json` 일치 | PASS | `require('./p-quaestor/package.json').name === 'prominence-quaestor'`, lock의 루트/`packages[""]` 동일 |
+| [SPEC] `p-quaestor`의 `.js`에 `claude` 매칭 0건(도메인 URL 예외, `lib/env.js` 포함) | PASS(주의) | 실측 매칭 전부 `test/*.test.js` 내부의 "claude CLI 미참조" 어써션 코드 자체(`content.match(/claude/g)` 등) — Phase 1 이전부터 있던 기존 패턴, 실제 코드가 `claude`를 참조하는 사례 0건. `lib/env.js`엔 `claude` 매칭 자체가 없음 |
+| [SPEC] 소스 트리 `p-bellows` 문자열 0건 | PASS(주의) | 실측 매칭 전부 미추적(`git status`상 `??`) `.p-forge/`(forge 자체 history/status 이력 파일)뿐 — 커밋 대상 `.js`/`.ps1`/`.json` 소스에는 0건 |
+| [SPEC] Phase 1·2 기준 전부 유지, 삭제·완화 없음 | PASS | 위 항목들이 Phase 1(rename)·Phase 2(경계검증) 기준을 포함해 재확인함 — 아래 "이전 Phase 통합 검증" 참고 |
+
+### USER_GATE (자동 테스트로 대체 불가 — 사람 확인 필요)
+
+Phase 3 work 파일 §USER_GATE 는 실기동(Chrome·실 `.prominence`)을 요구하므로 QA 자동 검증 범위 밖이다.
+아래는 미실행 상태로 남겨둔다:
+
+- [ ] `run-bellows.ps1`로 실제 기동해 이전과 같은 실패 서명으로 뜨는지 확인
+- [ ] 기동 후 `bellows.log`에 `[start] bellows watcher. interval=NNm config=...`가 이전과 같은 형식으로 남는지 확인
+- [ ] Synology `products\Bellows\`에 옛 `p-bellows\` 폴더가 남았는지 재확인(Phase 1 이월 사항)
+- [ ] 런처의 `$env:BELLOWS_INTERVAL_MIN`을 `QUAESTOR_`로 언제 옮길지는 폴더 이동·Foreman 설정 작업에서 판단(인수인계 항목, work 파일이 이미 이렇게 명시)
+
+### 전체 테스트 실행 로그
+
+```
+node p-quaestor/test/run-all.js
+tests 176
+pass 176
+fail 0
+cancelled 0
+skipped 0
+todo 0
+duration_ms 782.9
+```
+
+Phase 1 종료 시점(146) 대비 +30(`env.test.js` 신규) = 176.
+
+### 구현 수정 사항
+
+없음. 진입 시점에 `p-quaestor/lib/env.js`·`config.js`·`watch-loop.js`·`watch-once.js`·
+`lib/scrape.js`·`test/env.test.js`가 이미 커밋(`fa38d14`)돼 Acceptance 기준 전량을 만족한
+상태였다. 이번 라운드는 그 기준 전량을 실측 재실행·재대조하는 것으로 끝났고 코드 변경은
+발생하지 않았다.
+
+### 이전 Phase 통합 검증
+
+- Phase 1(`git mv` 개명·패키지명·`p-bellows` 0건): 재확인 — 소스 트리에서 여전히 0건
+- Phase 2(PS 5.1 파싱 0 errors·`-DryRun`·경로 실존): 재실행 — 여전히 0 errors, `-DryRun` EXIT=0,
+  `run-bellows.ps1`이 참조하는 `p-quaestor`·`node_modules`·`watch-once.js`·`watch-loop.js` 4/4 실존
+- 004(`control-server.js`)·005(로그 복원)의 기존 테스트 전량 — 176건 스위트에 포함되어 무회귀 통과
+
+## How to Run
+
+```
+node p-quaestor/test/run-all.js
+powershell -NoProfile -ExecutionPolicy Bypass -File ./deploy-bellows.ps1 -DryRun
+```
+
+실기동(USER_GATE, 사람 확인): `run-bellows.ps1` 실행 — Chrome을 `--remote-debugging-port=9222`로
+띄운 뒤 루프가 돈다. 새 `QUAESTOR_*` 환경변수를 주면 그 값이 우선 적용되고, 옛 `BELLOWS_*`만
+설정돼 있어도 그 값이 그대로 쓰인다(동작 변경 없음). 사전 준비: `p-quaestor/node_modules`
+(puppeteer)가 이미 리포에 존재해 별도 설치 불필요.
