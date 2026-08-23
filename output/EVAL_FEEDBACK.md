@@ -1,5 +1,5 @@
 ## Verdict
-FIX
+NEXT
 
 ## Verdict Criteria (current work file only)
 - NEXT: a phase REMAINS WITHIN the current work file (not for other work files)
@@ -12,40 +12,55 @@ FIX
 NO
 
 ## Current Phase Evaluation
-- Phase: 1
-- Feature: `git mv p-bellows p-quaestor` + 패키지 이름(`prominence-quaestor`) + 저장소 내 `p-bellows` 문자열 전수 갱신(ps1 경로 참조 포함)
-- Complete: no
-- Issues found: **Phase 1 이 여전히 구현되지 않았다.** 이번 이터레이션에서도 실측 재확인 결과 동일하다:
-  - `p-quaestor/` 디렉토리가 존재하지 않는다. `p-bellows/` 가 그대로 존재한다(`ls` 실측).
-  - `git mv` 가 수행된 적이 없다 — `git status --porcelain -M` 이 `.p-forge/` 외에 아무것도 보고하지 않고, 최근 006 관련 커밋 5개(design/test/fix/eval/test)의 diff 를 확인해도 소스 트리(`p-bellows/*`, `run-bellows.ps1`, `deploy-bellows.ps1`)에 대한 변경이 전혀 없다 — 전부 `output/ANDROIDSMOKE_RESULT.md`·`output/SMOKE_RESULT.md` 같은 forge 러너 산출물만 갱신했다.
-  - `p-bellows/package.json` 의 `"name"` 이 여전히 `"prominence-bellows"` 다(실측).
-  - `run-bellows.ps1:91` 이 여전히 `Join-Path $ScriptDir 'p-bellows'` 다(실측 grep).
-  - `output/TEST_RESULT.md` 에 006 Phase 1 에 대한 실제 테스트 결과가 없다 — 005 Phase 2 결과 뒤에 `NNN: 006-rename-internals-to-quaestor` / `Started:` 헤더만 붙어 있고 본문이 비어 있다.
-  - `output/SMOKE_RESULT.md`(최근 실행)가 `SMOKE_FAIL` 이다: 선언 스모크 `node p-bellows/test/run-all.js` 가 exit 1 이다. 원인은 `p-bellows/test/scrape-classify.test.js` 가 `puppeteer` 모듈을 찾지 못함(`p-bellows/node_modules` 자체가 없음) — 별개 환경 문제로 보이나, 애초에 스모크 경로가 여전히 `p-bellows` 를 가리키고 있다는 사실 자체가 Phase 1 미착수를 재확인시킨다.
+- Phase: 2
+- Feature: 경계 검증 — PS 5.1 파싱 · `deploy-bellows.ps1 -DryRun` · `run-bellows.ps1` 참조 경로의 파일시스템 실존 확인
+- Complete: yes
+- Issues found: 없음 (실측 재확인 결과 TEST_RESULT.md 의 모든 주장이 그대로 재현됨)
 
-  DESIGN.md 는 Phase 1 의 정확한 작업 순서(§"1-1" ①~⑩, 파일:줄 단위 목록)까지 매우 상세히 설계했고 PROGRESS.md 도 Phase 1 을 CURRENT 로 정확히 표시하고 있으나, 그 설계가 코드로 옮겨진 흔적이 이번에도 없다.
+### 실측 재확인 (독립 검증)
+| 확인 | 명령/방법 | 결과 |
+|---|---|---|
+| PS 5.1 파싱 | `[Parser]::ParseFile()` 로 두 ps1 파일 직접 파싱 | `run-bellows.ps1 errors: 0`, `deploy-bellows.ps1 errors: 0` |
+| DryRun | `deploy-bellows.ps1 -DryRun` 재실행 | `EXIT=0`, Step 2 정상 출력, TEST_RESULT.md 로그와 동일 |
+| 참조 경로 실존 | `ls p-quaestor/{watch-loop.js,watch-once.js,node_modules}` | 셋 다 존재 |
+| ps1 내부 참조 | `grep p-quaestor run-bellows.ps1 deploy-bellows.ps1` | `$ToolDir`·`$srcTool`·`$dstTool` 모두 `p-quaestor` |
+| 테스트 | `node p-quaestor/test/run-all.js` | tests 146, pass 146, fail 0 |
+| 이름 잔재 | `git grep -n "p-bellows" -- . ":(exclude)work" ":(exclude)output" ":(exclude).p-forge"` | 0건 (exit 1 = no match) |
+| 이력 연결 | `git log --oneline --follow p-quaestor/watch-loop.js` | 이동 커밋 + 이전 5개 커밋(689e2e4 까지) |
+| Phase 3 조기 착수 여부 | `grep -r QUAESTOR_ p-quaestor` | 매치 없음 — 환경변수 개명은 아직 손대지 않음(설계대로) |
+| diff 범위 | `git status --porcelain -M` | `output/` 외 변경 없음 — Phase 2 가 `.js`/`.ps1` 소스를 건드리지 않았다는 주장과 일치 |
+
+Phase 2 는 D4(Phase 분할 조정)에서 설계가 예고한 대로 **검증 전용**이었고, 실제로 코드 변경 없이
+Phase 1 산출물이 파일시스템 수준에서 유효함을 실증했다. 남은 `p-bellows/` 빈 디렉토리(잠긴
+프로세스로 인한 이월 사항)는 이미 Phase 1 TEST_RESULT.md 와 USER_GATE 에 문서화돼 있고,
+git(추적 대상 아님)·테스트(hermetic, `__dirname` 상대경로)에는 영향이 없음을 재확인했다.
 
 ## Work Detail
-- Files created/modified: 없음(소스 트리 기준). `output/` 산출물(DESIGN.md, PROGRESS.md, ACCEPTANCE.md 006 Phase 1 절, 러너 산출물)만 존재.
-- Key changes summary: 이전 이터레이션 대비 소스 트리에 실질적인 변경이 없다. `git mv` 미실행, `package.json`/`package-lock.json` 이름 미변경, `run-bellows.ps1`/`deploy-bellows.ps1` 경로 문자열 미변경.
+- Files created/modified this Phase: 없음(`output/PROGRESS.md`, `output/TEST_RESULT.md` 갱신만).
+- Key changes summary: 코드 변경 0. `run-bellows.ps1`/`deploy-bellows.ps1` 의 PS 파싱 및
+  `p-quaestor` 참조 경로가 실제 파일시스템과 일치함을 확인만 했다.
 
 ## Issues
-- Acceptance-criteria integrity check: `output/ACCEPTANCE.md` 의 "# ACCEPTANCE — 006 Phase 1" [SPEC] 항목 전체가 미충족·미검증 상태다. 특히:
-  - "`p-quaestor/` 디렉토리가 존재하고 `p-bellows/` 디렉토리는 존재하지 않는다" — 미충족
-  - "이동은 `git mv` 로 수행된다(`git status --porcelain -M` 이 rename 으로 인식)" — 이동 자체가 없음
-  - "`node p-quaestor/test/run-all.js` 가 exit 0, 146건 이상" — 경로 자체가 존재하지 않아 실행 불가, TEST_RESULT.md 에 근거 없음
-  - "`p-quaestor/package.json` 의 `name` 이 `prominence-quaestor`" — 미충족
-  - "`run-bellows.ps1:91` 의 `$ToolDir` 와 `deploy-bellows.ps1` 의 `$srcTool`·`$dstTool` 이 `p-quaestor` 를 가리킨다" — 미충족
-- ACCEPTANCE.md 의 006 Phase 1 절 자체는 이전 절(001~005)을 삭제·완화 없이 append-only 로 잘 이어갔다 — integrity 위반은 없다. 문제는 순수하게 "구현 부재"다.
-- 다음 이터레이션은 DESIGN.md §"1-1 작업 순서"(①git mv → ③④ package name → ⑤⑥ 문자열 → ⑦⑧ ps1 → ⑨ 테스트 → ⑩ grep/이력 확인)를 그대로 실행하고, `output/TEST_RESULT.md` 에 실제 실행 결과(테스트 수·pass/fail·`git grep "p-bellows"` 결과·`git log --follow` 결과)를 기록해야 한다.
-- 부수적으로: `p-bellows/node_modules` 부재로 `scrape-classify.test.js` 가 로드 실패해 선언 스모크가 exit 1 이다. 이는 006 의 범위(이름만 바꾼다)와 무관해 보이지만, 구현 이터레이션은 이 상태에서 `node p-bellows/test/run-all.js`(이동 전)가 실제로 몇 개를 통과하는지 먼저 확인해 무회귀 기준선을 잡아야 한다.
+- (경미, Phase 2 의 결함 아님) `output/ACCEPTANCE.md` 에 "006 Phase 2" 절이 없어 이 Phase 는
+  work 파일의 [SPEC] 항목과 `PROGRESS.md` 의 Phase 2 제목을 근거로 검증했다. 원래 각 라운드는
+  Phase 별 ACCEPTANCE 절을 갖는 패턴(004 Phase 1~5, 005 Phase 1)이었는데 006 은 Phase 1 절만
+  있다. TEST_RESULT.md 가 이 공백을 스스로 밝히고 대체 근거를 명시했으므로 이번 Phase 를
+  막지는 않지만, design-next 가 Phase 3 진입 전에 ACCEPTANCE.md 에 "006 Phase 2/3" 절을
+  append 해 두는 편이 다음 라운드 대조를 쉽게 한다(append-only 이므로 지금 추가해도
+  기존 006 Phase 1 절을 훼손하지 않는다).
 
 ## Good Points
-- `output/DESIGN.md` 가 실측 기반으로 매우 정밀하다 — 바꿔야 할 문자열의 전수(파일:줄 단위)를 미리 조사해뒀고, Phase 분할 근거(D4, 깨진 창 방지)와 환경변수 폴백 설계(D7)가 명확하다.
-- `output/ACCEPTANCE.md` 의 006 Phase 1 절이 구체적이고 검증 가능한 [SPEC] 항목으로 잘 작성되어, 다음 구현 이터레이션이 무엇을 충족해야 하는지 명확하다.
+- `git mv` 실패(디렉토리 rename 거부) 상황을 항목별 `git mv` 로 우회하면서도 `rename (100%)`
+  인식을 지켜 이력 보존(D1)을 실제로 달성했다.
+- 살아 있는 감시자 프로세스(PID 4260)를 임의로 종료하지 않고 USER_GATE 로 넘긴 판단이
+  안전 원칙과 일치한다.
+- Phase 2 를 순수 검증으로 한정해 `.js`/`.ps1` diff 를 0으로 유지한 것이 D4 설계 의도와 정확히 맞다.
+- 참조 경로 실존을 문자열 대조가 아니라 실제 `ls`/`Resolve-Path` 로 확인해 "문자열은 맞는데
+  기동만 죽는" 사고 계열을 실측으로 배제했다.
 
 ## How to Run
-(아직 구현되지 않았으므로 이전과 동일)
+
 ```
-node p-bellows/test/run-all.js
+node p-quaestor/test/run-all.js
+powershell -NoProfile -ExecutionPolicy Bypass -File ./deploy-bellows.ps1 -DryRun
 ```
