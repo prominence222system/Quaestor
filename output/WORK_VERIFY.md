@@ -115,3 +115,122 @@ on malformed input (missing file / broken JSON / wrong types / expired) (1.2288m
 
 ```
 
+## 2026-08-23T07:07:06Z  round=Round 3  completed=005-restore-observation-on-boot.md  verdict=VERIFIED
+- project: Bellows
+- project_dir: F:\Workspace\Automatic\projects\Bellows
+- head: b2230e180c01dfdd4cf30759fd5e7989a2b9b5c6
+- worktree: UNCHANGED
+- duration: 1s
+- checks: 1 declared / 1 ran / 1 passed
+- NOTE: report only. This is NOT a verdict and does NOT change project state.
+
+### [1/1] SMOKE 1/1 -- PASS (exit 0)
+- command: node p-bellows/test/run-all.js
+- workdir: F:\Workspace\Automatic\projects\Bellows
+- failure point: none (passed)
+- reproduce:
+      cd "F:\Workspace\Automatic\projects\Bellows"
+      node p-bellows/test/run-all.js
+- log tail:
+```
+nfig() -> startControlServer() binds the contract default address (127.0.0.1:3210) (4.0906ms)
+? env: BELLOWS_CONTROL_PORT / BELLOWS_CONTROL_TOKEN override hard defaults; file values still win over env (1.0248ms)
+? response shape matrix: every reachable status code (200/200/401/404/405/500/501) is directly asserted for I1-I5 (22.5456ms)
+? adversarial paths: route variants and unknown methods are rejected as valid JSON without harming the server (12.3615ms)
+? adversarial: a dot-segment path normalizes to /api/status and matches the contract shape (no filesystem access) (3.0838ms)
+? adversarial: HEAD /api/health -> 405, headers-only assertion (HTTP forbids a HEAD response body) (3.3518ms)
+? adversarial: an ~8KB request path draws a 4xx (exact code left to the Node parser layer) and the server keeps running (6.3713ms)
+? adversarial: duplicate Authorization headers do not throw -- Node keeps the first value, a mismatch still yields 401 (2.361ms)
+? adversarial: a multi-KB Bearer token does not throw -- 401, not 500 (2.0075ms)
+? adversarial: GET /api/status with a request body is still 200 and has no side effects (the body is never read) (2.4722ms)
+? adversarial: POST /api/stop with Content-Type: text/xml is still 501 (the body is never parsed) (2.1608ms)
+? resilience R1-R5: concurrency, abrupt disconnects, and malformed bytes never crash the server, leak side effects, or throw unhandled errors (26.0513ms)
+? logparse.js source does not read wall-clock time or fs (0.2094ms)
+? parseLogTail is pure and deterministic (same input -> same output) (0.4028ms)
+? 26-day silence fixture: 1 success line + 500 failure lines yields deriveState() === crit (1.0418ms)
+? log with no success line yields lastSuccessAt === null and lastUsage === null (0.0903ms)
+? old format failure line without kind= yields kind === unknown and detail === null (0.0928ms)
+? failure lines before last success line are excluded from consecutiveFailures (0.1294ms)
+? empty lines or lines without valid events return null (0.0725ms)
+? deriveState is pure and deterministic (same input twice) (0.1171ms)
+? observation.js source does not read wall-clock time or fs (0.1461ms)
+? deriveState does not mutate obs or ctx (0.1186ms)
+? recordSuccess/recordFailure do not mutate input obs (0.0907ms)
+? fields are timezone independent (0.2926ms)
+? never-success observation is not ok (0.0902ms)
+? consecutiveFailures at crit threshold is crit, even with no success history (0.0976ms)
+? stale success (>2h) is crit (0.192ms)
+? stale success (>45m, <=2h) is warn (0.1093ms)
+? fresh + near threshold is warn, fresh + headroom is ok (0.1072ms)
+? enabled=false forces idle regardless of other conditions (0.1079ms)
+? state is always one of the four enum values (0.1398ms)
+? deriveState never throws on missing/empty inputs (0.1239ms)
+? success -> failure -> failure -> success resets consecutiveFailures to 0 (0.0794ms)
+? recordFailure increments consecutiveFailures/totalFailures, keeps lastSuccessAt (0.0715ms)
+? recordSuccess sets lastSuccessAt to now, resets consecutiveFailures, keeps totalPolls counting (0.0751ms)
+? createObservation initial shape (0.0793ms)
+? recordFailure normalizes falsy/non-string kind to unknown (0.0856ms)
+? recordSuccess keeps prior lastFailure (0.0792ms)
+? no secrets leak into deriveState output, even when detail carries them (0.1456ms)
+? lastFailure field carries only kind + known hint vocabulary (0.0996ms)
+? unknown/garbage hint is dropped, not surfaced (0.0915ms)
+? fields entries have string label/value and optional valid state (0.1021ms)
+? fields include all required items (0.095ms)
+? STOP field distinguishes manual vs auto vs none (0.1315ms)
+? configSource field reflects ctx.configSource (0.1062ms)
+? lastUsage=null keeps session/weekly fields present with placeholder value (0.0983ms)
+? field order is stable across calls (0.1418ms)
+? observation.js requires no external modules (puppeteer etc.) (0.1159ms)
+? hintFrom: login path -> login-expired (0.1023ms)
+? hintFrom: target origin + non-empty body, no login -> anchor-missing (0.0723ms)
+? hintFrom: unknown when evidence is missing or inconclusive (0.0792ms)
+? hintFrom: malformed url strings do not throw and fall back to unknown (0.1539ms)
+? hintFrom: pure -- does not mutate its input, same input gives same output (0.0901ms)
+? HINTS enumerates exactly the three known hint values (0.0751ms)
+? collectDiagnostics reproduces all three hints via an injected fake page (0.2329ms)
+? collectDiagnostics never throws, even when url()/evaluate() throw or page is null (0.1983ms)
+? collectDiagnostics caps textHead at 200 chars (0.1116ms)
+? connect() failure classified as chrome-unreachable, existing message preserved (1.3001ms)
+? browser.newPage() failure classified as chrome-unreachable, message/stack preserved (0.3975ms)
+? page.goto() failure classified as nav-failed (0.4047ms)
+? waitForFunction() failure classified as anchor-timeout, with diagnostics collected before close() (0.5094ms)
+? waitForFunction() failure with unrecognizable page yields hint unknown, never login-expired by default (0.4382ms)
+? page.evaluate() extraction failure classified as invalid-extraction (0.3979ms)
+? success path returns usage and only disconnects (never closes) the browser (0.4081ms)
+? FAILURE_KINDS has exactly the 5 expected values (0.078ms)
+? HINTS matches the hint vocabulary observation.js recognizes (whitelist round-trip) (0.1685ms)
+? err.detail carries url/textHead for diagnosis, but only hint is meant to reach deriveState fields (0.1174ms)
+? scrapeUsage keeps its existing signature and is still exported (0.0635ms)
+? lib/scrape.js references the claude.ai domain exactly once (constant only) (0.0701ms)
+? lib/scrape.js does not require puppeteer at the top level (lazy load) (0.1003ms)
+? requiring lib/scrape.js does not eagerly load the puppeteer module (0.062ms)
+? require("../watch-loop.js") loads without starting the watch loop (0.0759ms)
+? watch-loop.js source guards its immediate-invocation loop with require.main === module (0.0936ms)
+? watch-loop.js wires lib/observation.js into pollOnce success/failure branches (0.1169ms)
+? scrape-failure log line surfaces kind and hint (?5 diagnostic logging requirement) (0.1297ms)
+? watch-loop.js does not re-implement frozen helpers (deriveDesired/isValidUsage/writeStopJsonAtomic/readConfig/resolveStopDir stay) (0.0777ms)
+? p-bellows/.js files do not reference the Claude CLI (0.6001ms)
+? C1: requiring watch-loop.js does not call startControlServer at module-load time (0.9958ms)
+? C1 (structural): startControlServer( call site is inside mainLoop(), not at module top level (0.1377ms)
+? C2 (structural): the startControlServer call is wrapped in try/catch, and the polling loop follows unconditionally (0.0948ms)
+? never-brick: startup failure is not swallowed silently -- "[control] listen failed" logging path exists (0.066ms)
+? live observation source (C3, structural): getSnapshot is a function (controlSnapshot) whose body references the observation module variable (0.1732ms)
+? C3 (structural): controlSnapshot() body has no fs.* calls, no scrapeUsage, and no STOP_PATH reference (0.104ms)
+? watch-loop.js does not re-judge thresholds when wiring control-server (no new 85/90/70/75 literals or state branches around the wiring) (0.1059ms)
+? Phase 2 [SPEC]: 26-day silence fixture restored on boot yields state === crit (2.7511ms)
+? Phase 2 [SPEC]: boundary verification -- real log file tail reading and chopped line handling (1.4196ms)
+? Phase 2 [SPEC]: non-existent file, 0-byte file, and corrupted binary bytes yield empty observation without throwing (1.7263ms)
+? Phase 2 [SPEC]: large file (>64KB) reads at most 64KB (65536 bytes) (38.7217ms)
+? Phase 2 [SPEC]: restored observation stringified contains no secrets (.profile, cookie, @) (1.4647ms)
+? Phase 2 [SPEC]: mainLoop structurally integrates restoreObservation at startup before polling loop (0.1206ms)
+? tests 146
+? suites 0
+? pass 146
+? fail 0
+? cancelled 0
+? skipped 0
+? todo 0
+? duration_ms 798.0443
+
+```
+
