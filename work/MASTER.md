@@ -25,6 +25,7 @@ claude.ai/settings/usage --scrape--> session_pct / weekly_pct
 ## Rounds
 - Round 1: 001, 002
 - Round 2: 003, 004
+- Round 3: 005 (engine: agy)
 
 ## Work Verify
 - Smoke: `node p-bellows/test/run-all.js`
@@ -44,6 +45,17 @@ claude.ai/settings/usage --scrape--> session_pct / weekly_pct
 
 🔒 **두 NNN 을 관통하는 조항: 측정이 죽어 있는데 `ok` 로 보이면 실패다.**
 프로세스 생존이 아니라 측정의 신선도가 판정 근거다. 그러지 않으면 3주 침묵을 새 층에 재현한다.
+
+## Round 3 이 하는 일
+
+004 를 실제로 돌려보니 판정은 맞는데 **재기동하면 이력이 통째로 사라진다.**
+2026-08-20 실측: 23일째 실패 중이었는데 재기동 직후 `state` 가 `warn` "첫 측정 대기 중" 으로 나왔다.
+다시 `crit` 이 되기까지 4폴(약 1시간)이 걸린다.
+
+- **005** — 기동 시 `bellows.log` 꼬리에서 마지막 성공 시각과 그 뒤의 실패 흐름을 복원한다
+
+🔒 **재기동 한 번이 26일치 침묵을 지우면 안 된다.** 증거는 이미 로그에 있다 — 읽지 않을 뿐이었다.
+🔒 판정 로직(`deriveState`)은 손대지 않는다. 이 라운드는 **판정에 넣을 입력을 채울 뿐**이다.
 
 ## Constraints
 

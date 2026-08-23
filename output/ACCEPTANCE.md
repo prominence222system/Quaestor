@@ -298,3 +298,14 @@
 
 - [SPEC] 감시자를 실제로 띄운 뒤 `http://127.0.0.1:3210/api/status` 를 열면 현재의 고장난 측정 상태가 `"state": "crit"` 으로 보인다. 🔒 여기서 `ok` 가 나오면 계약을 구현하면서 3주 침묵을 새 층에 재현한 것이다.
 - [SPEC] 같은 주소의 `/api/health` 는 `{"ok":true,"id":"quaestor",...}` 다 — 두 값은 다른 질문에 답한다.
+
+---
+
+# ACCEPTANCE — 005 Phase 1
+
+## Phase 1 Acceptance Criteria
+- [SPEC] `parseLogTail()` 은 순수 함수다 — 같은 입력 → 같은 출력, `Date.now()` 를 읽지 않는다
+- [SPEC] 26일 침묵 fixture: 성공 줄 하나 + 그 뒤 수백 개의 실패 줄로 된 로그를 `parseLogTail`에 넣고 얻은 결과로 `deriveState()` 를 호출했을 때 반드시 `crit` 을 반환한다
+- [SPEC] 성공 줄이 없는 로그 → `lastSuccessAt === null` (0 이나 현재시각으로 채우지 않는다)
+- [SPEC] `kind=` 가 없는 옛 형식 실패 줄 → `kind === 'unknown'`, `hint` 는 없음
+- [SPEC] 성공 줄 **이후의** 실패만 센다 — 성공 이전 실패는 `consecutiveFailures` 에 안 들어간다

@@ -60,3 +60,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File ./run-bellows.ps1
 ⚠️ `npm` 사용 금지 — `node` 를 직접 호출할 것.
 ⚠️ `node watch-loop.js` 단독 실행 금지 — Chrome 이 `--remote-debugging-port=9222` 로 떠 있어야 한다.
 ⚠️ Foreman 쪽 클라이언트(products\Foreman\work\010)는 아직 미구현이므로, 감시자를 띄워도 Foreman 화면상 변화는 없다 — 정상이다.
+
+
+===========================================
+NNN: 005-restore-observation-on-boot
+Started: 2026-08-23T07:01:13Z
+===========================================

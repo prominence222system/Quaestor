@@ -106,3 +106,9 @@ node p-bellows/test/run-all.js
   ```
   기동 후 브라우저로 `http://127.0.0.1:3210/api/health` 와 `http://127.0.0.1:3210/api/status` 를 열어
   USER_GATE 항목(현재 고장난 측정 상태가 `state: "crit"` 로 보이는지)을 사람이 직접 확인한다.
+
+
+===========================================
+NNN: 005-restore-observation-on-boot
+Started: 2026-08-23T07:01:13Z
+===========================================
