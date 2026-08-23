@@ -309,3 +309,54 @@
 - [SPEC] 성공 줄이 없는 로그 → `lastSuccessAt === null` (0 이나 현재시각으로 채우지 않는다)
 - [SPEC] `kind=` 가 없는 옛 형식 실패 줄 → `kind === 'unknown'`, `hint` 는 없음
 - [SPEC] 성공 줄 **이후의** 실패만 센다 — 성공 이전 실패는 `consecutiveFailures` 에 안 들어간다
+
+---
+
+# ACCEPTANCE — 006 Phase 1 (`git mv` · 패키지 이름 · 문자열 전수)
+
+> 🔒 이 Phase 의 합격 기준은 "새 기능"이 아니라 **"아무것도 안 달라짐"** 이다.
+
+## Phase 1 Acceptance Criteria
+
+### 이동과 이력
+- [SPEC] `p-quaestor/` 디렉토리가 존재하고 `p-bellows/` 디렉토리는 존재하지 않는다.
+- [SPEC] `git log --follow p-quaestor/watch-loop.js` 가 **이동 이전 커밋까지** 보여준다(이동 전 이 파일의 이력은 5건이며, 그보다 줄어들면 지우고 새로 만든 것이다).
+- [SPEC] 이동은 `git mv` 로 수행된다 — `git status --porcelain -M` 또는 `git diff -M --summary` 가 `p-bellows/*` → `p-quaestor/*` 를 **rename(R)** 으로 인식한다.
+- [SPEC] `p-quaestor/` 의 파일 목록이 이동 전 `p-bellows/` 와 동일하다(추가·삭제 0건). `lib/` 6개 모듈과 `test/` 6개 파일, `.gitignore`, `package.json`, `package-lock.json`, `watch-loop.js`, `watch-once.js` 가 모두 따라온다.
+
+### 무회귀 (핵심)
+- [SPEC] `node p-quaestor/test/run-all.js` 가 **exit 0**, 테스트 **146건 이상**, fail **0** 이다. 줄어들면 테스트가 사라진 것이며 실패로 본다.
+- [SPEC] 005 의 **26일 침묵 fixture 테스트가 계속 통과**한다 — `parseLogTail()` 결과로 `deriveState()` 를 부르면 `warn` 이 아니라 `crit` 이 나온다. 로그 형식 불변의 기계적 증거다.
+- [SPEC] 🔒 로그 줄 형식이 불변이다 — `session=NN% weekly=NN%` · `[poll start]` · `[poll error] scrape failed: ... kind=... hint=...` · `[start] bellows watcher. interval=NNm config=...` · `[restore] lastSuccess=... failures=... kind=...` · `[control] listening on 127.0.0.1:NNNN` 의 리터럴이 한 글자도 바뀌지 않는다. **`[start] bellows watcher` 의 `bellows` 도 그대로 둔다.**
+- [SPEC] 이 Phase 의 `.js` 변경은 **문자열 2줄뿐**이다 — `test/run-all.js` 의 실행 경로 주석과 `test/watch-loop.test.js` 의 테스트 제목. `git diff -M` 에 그 외의 `.js` 내용 변경이 나타나지 않는다(로직·주석·포맷 변경 0).
+- [SPEC] 환경변수 이름은 이 Phase 에서 **바뀌지 않는다** — `BELLOWS_*` 가 그대로 남아 있다(Phase 3 소관).
+- [SPEC] `deriveDesired()` 의 임계·히스테리시스, `STOP.json` 의 위치·이름·스키마, 수동 STOP(`source === 'manual'`) 우선 규칙, `resolveStopDir()` 의 드라이브 후보 탐색이 무변경이다.
+- [SPEC] `.prominence` 런타임 파일명 `STOP.json` · `bellows.log` · `bellows-config.json` 과 그 경로 해석 코드가 무변경이다.
+- [SPEC] 제어 서버가 무변경이다 — `127.0.0.1` 고정 바인딩, 기본 포트 3210, `id` 는 `quaestor`, `POST /api/stop` 미구현, 토큰의 `timingSafeEqual` 비교가 그대로다.
+
+### 이름 잔재
+- [SPEC] 소스 트리에서 `p-bellows` 문자열이 **0건**이다: `git grep -n "p-bellows" -- . ":(exclude)work" ":(exclude)output" ":(exclude).p-forge"` 의 결과가 비어 있다.
+  - [DERIVED] 검사 범위에서 `work/**`(수정 금지·MASTER 포함) · `output/**`(지난 라운드 기록, ACCEPTANCE 는 append-only) · `.p-forge/**`(러너 산출물) 을 제외한다. 이들은 이 NNN 이 고칠 수 없는 과거 기록이다.
+  - [SPEC] 런타임 파일명 `bellows.log` · `bellows-config.json` 은 애초에 대상이 아니다.
+- [SPEC] `run-bellows.ps1:91` 의 `$ToolDir` 와 `deploy-bellows.ps1` 의 `$srcTool`·`$dstTool` 이 `p-quaestor` 를 가리킨다.
+
+### 패키지 이름
+- [SPEC] `p-quaestor/package.json` 의 `name` 이 `prominence-quaestor` 다.
+- [SPEC] `package-lock.json` 의 루트 `name` 과 `packages[""].name` 이 **둘 다** `prominence-quaestor` 이며 `package.json` 과 정확히 같은 문자열이다.
+- [SPEC] `package.json` 의 `dependencies` 는 여전히 `puppeteer` 하나뿐이다(의존성 추가 금지). `version`·`description`·`scripts` 는 무변경이다.
+- [DERIVED] `package-lock.json` 은 손편집한다 — `npm` 을 실행하지 않는다(Windows 에서 `.cmd` shim 이라 러너에서 실패한다). `lockfileVersion: 3`, 의존성 트리, `integrity` 해시가 무변경으로 남는다.
+
+### 파일명 유지 (다른 주인의 계약면)
+- [SPEC] `run-bellows.ps1` 과 `deploy-bellows.ps1` 이 **같은 파일명으로** 저장소 루트에 존재한다. Foreman 이 이 이름을 소비하므로 여기서 바꾸면 깨진 창이 생긴다.
+- [SPEC] 폴더 `projects\Bellows` 와 git 저장소 이름이 바뀌지 않는다. forge · foundry · Foreman 의 어떤 파일도 수정되지 않는다.
+- [SPEC] `deploy-bellows.ps1` 의 Synology 소스 후보 경로(`...\products\Bellows`), `$Target` 기본값, 제외 목록(`node_modules`·`.profile`·`.git`·`.log`), 복사 스크립트 목록이 무변경이다.
+
+### 깨진 창 방지 (Phase 분할의 자기 구속)
+- [DERIVED] 폴더 이동과 **그 폴더를 가리키는 모든 문자열(ps1 포함)** 이 같은 Phase 안에서 끝난다 — Phase 1 종료 시점에 `run-bellows.ps1` 이 존재하지 않는 디렉토리를 가리키지 않는다. (work 파일의 "예상 phase" 는 ps1 을 Phase 2 로 뒀으나 그 목록은 [SPEC] 이 아니며, Acceptance 항목은 하나도 빠지지 않는다. 파일시스템 실존·PS 파싱 검증은 Phase 2 가 그대로 수행한다.)
+
+### 러너 경로 (기록 · 이 Phase 의 실패로 보지 않는 것)
+- [DERIVED] 개명 후 올바른 스모크 명령은 `node p-quaestor/test/run-all.js` 다. `work/MASTER.md` 의 `Smoke: node p-bellows/test/run-all.js` 는 낡은 줄이 되지만 MASTER.md 는 **절대 불변**이라 이 NNN 이 고칠 수 없다. TEST_RESULT.md 와 EVAL_FEEDBACK.md 의 "How to Run" 에 새 경로를 명시하고, 러너 설정 갱신은 USER_GATE 로 올린다.
+
+### USER_GATE (사람 확인 — 자동 테스트로 대체 불가)
+- [SPEC] 랜딩 후 Synology `products\Bellows\` 에 옛 `p-bellows\` 폴더가 남았는지 확인한다. sync-back 은 복사이지 삭제가 아니라 고아 폴더가 남을 수 있다. 남았으면 사람이 정리한다.
+- [SPEC] `run-bellows.ps1` 로 실제 기동해 이전과 같이 뜨는지 확인한다. 🔒 판정 기준은 **"이전과 같은 실패 서명"** 이다 — 측정은 로그인 문제로 여전히 실패할 수 있고 그것은 이 NNN 의 실패가 아니다.
