@@ -374,3 +374,89 @@ USER_GATE 로 올린다"), `p-bellows/` 를 되살리는 것은 Phase 1 [SPEC](`
 이번 라운드에서 추가로 고칠 구현 버그는 발견되지 않았다. Phase 1~3 의 모든 [SPEC]/[DERIVED]
 기준은 위 재실행으로 재확인됐다.
 (puppeteer)가 이미 리포에 존재해 별도 설치 불필요.
+
+## 재검증 라운드 2 — QA 독립 재실행 (2026-08-23, iter-6 이후)
+
+직전 `fix` 커밋(`b5879c4`)은 `output/EVAL_FEEDBACK.md`·`output/SMOKE_RESULT.md` 만 갱신했고
+소스 변경이 없었다(`git show b5879c4 --stat` 확인). 이번 QA 라운드는 이전 TEST_RESULT.md 의
+서술을 신뢰하지 않고 **처음부터 독립 재실행**했다.
+
+### Current Phase
+
+`output/PROGRESS.md` 기준 Phase 1·2·3 전부 `DONE`. 마지막(최신) Phase 는 **Phase 3**
+(환경변수 `QUAESTOR_*` 우선 + `BELLOWS_*` 폴백)이며, 이 라운드는 Phase 3 acceptance 전량과
+Phase 1·2 무회귀를 함께 재검증했다.
+
+### 전체 테스트 재실행
+
+```
+node p-quaestor/test/run-all.js
+tests 176
+pass 176
+fail 0
+cancelled 0
+skipped 0
+todo 0
+duration_ms 793.3741
+```
+exit code 0. Phase 1(146) 대비 +30(`env.test.js`) 순증분, 무회귀.
+
+### Acceptance 기준 대조 (독립 재확인)
+
+| 기준 | 명령/방법 | 결과 |
+|---|---|---|
+| [SPEC] `p-quaestor/` 존재, git 추적 대상에 `p-bellows` 없음 | `ls -d p-quaestor p-bellows`, `git ls-files p-bellows/ \| wc -l` | `p-quaestor` EXISTS · `p-bellows` untracked-empty(0 files) — 아래 "새로 확인한 사실" 참고 |
+| [SPEC] `git mv` 이력 보존 | `git log --oneline --follow -- p-quaestor/watch-loop.js \| wc -l` | **7 커밋** (006 이전 이력까지 이어짐) |
+| [SPEC] `p-bellows` 문자열 0건 | `git grep -n "p-bellows" -- . ":(exclude)work" ":(exclude)output" ":(exclude).p-forge"` | **0건** |
+| [SPEC] 패키지 이름 일치 | `package.json`/`package-lock.json` 의 `name` 3곳 열람 | 전부 `prominence-quaestor` |
+| [SPEC] 파일명 유지 | `ls run-bellows.ps1 deploy-bellows.ps1` | 둘 다 존재 |
+| [SPEC] PS 5.1 파싱 0 errors | `[System.Management.Automation.Language.Parser]::ParseFile()` (두 파일) | `run-bellows.ps1 errors=0`, `deploy-bellows.ps1 errors=0` |
+| [SPEC]/[DERIVED] `deploy-bellows.ps1 -DryRun` exit 0 | 직접 실행 | `EXIT=0`, Step 2 정상 출력, Step 1 은 Synology 원본이 아직 `p-bellows` 라 조용히 건너뜀(Phase 1 이월 사항, 재확인) |
+| [SPEC] env 우선순위 3케이스 · 9개 접미사 · truthiness 아닌 `undefined` 판정 등 Phase 3 전 조항 | 전체 스위트 내 `env.test.js` 36건(`config:` 계열 + 진리표 6종 + 구조단언 3종) | 전부 PASS (176건에 포함, 개별 재구현 없이 실행 결과로 재확인) |
+| [SPEC] 로그 줄 형식 불변 | `watch-loop.js` 소스 `[start] bellows watcher. interval=...` 라인 확인 | 문자 단위 그대로 |
+| [SPEC] 004/005 기존 테스트 무수정 통과 | 176건 스위트 실행 로그 | `control-server.test.js`·`logparse.test.js`·`observation.test.js`·`watch-loop.test.js` 전 항목 PASS, 26일 침묵 fixture `crit` 유지 |
+| [SPEC] `run-bellows.ps1`/`deploy-bellows.ps1` Phase 무수정 | `git status --porcelain -- run-bellows.ps1 deploy-bellows.ps1` | 빈 출력 |
+
+### 새로 확인한 사실 — 빈 `p-bellows/` 의 정확한 상태
+
+Phase 1 TEST_RESULT.md 가 이미 이월 사항으로 예고했던 빈 `p-bellows/` 를 이번 라운드에서
+직접 확인했다:
+- `ls -la p-bellows/` → 항목 0개(완전히 빈 디렉토리)
+- `git ls-files p-bellows/` → 0건(git 추적 대상 아님 — 저장소 관점에서는 존재하지 않는 것과 동일)
+- `rmdir p-bellows` 시도 → `Device or resource busy` (여전히 잠김)
+- 잠근 프로세스: **PID 4260**, `node.exe`, StartTime 2026-08-19 — `run-bellows.ps1` 이 띄운
+  감시자로 CWD 가 옛 `p-bellows` 라 Windows 가 rename·rmdir 을 거부하는 구조(Phase 1 문서화된 원인)
+
+**판정**: git 추적(`git grep`·`git ls-files`·`git log`)과 소스 파일 내용을 기준으로 하는 모든
+[SPEC] 은 만족한다. 물리 디스크에 남은 빈 껍데기는 저장소 밖 OS 상태이며, 살아 있는 차단기
+프로세스를 승인 없이 종료하는 것은 이 작업 권한 밖이다(MASTER.md 의 안전장치 존중 원칙과
+동일선상). 이 QA 라운드도 그 프로세스를 종료하지 않았다 — Phase 1 이 이미 정한 USER_GATE
+항목("감시자 재기동 후 `rmdir p-bellows`")을 그대로 유지한다.
+
+### 버그 수정 내역
+
+없음. 재실행으로 발견된 구현 결함이 없다 — 이전 3개 라운드(test/eval/fix)가 이미 코드 기준
+PASS 였고 소스는 무변경이었다.
+
+### 이전 Phase 연동 검증
+
+- Phase 1(이동·이름·문자열 0건): 재확인 — 여전히 성립
+- Phase 2(PS 파싱·DryRun·경로 실존): 재확인 — 여전히 성립
+- Phase 3(env 우선순위·의미 불변): 재확인 — 여전히 성립
+- 004(`control-server.js`)·005(로그 복원) 기존 테스트: 176건 스위트에 포함되어 무회귀
+
+### ⚠️ Smoke Override 충돌 — 코드로 고칠 수 없음 (재확인, 변경 없음)
+
+`work/MASTER.md ## Work Verify` 의 `Smoke: node p-bellows/test/run-all.js` 는 개명 전 경로를
+가리키는 **낡은 선언**이다. 006 자체가 `p-bellows` → `p-quaestor` 개명이 목적이므로, 개명이
+성공한 상태에서 이 선언 명령은 **정의상 항상 실패**한다(`MODULE_NOT_FOUND`). 고치는 방법이
+Phase 1 [SPEC](`p-bellows/ 문자열 0건`, 옛 경로 미존재)과 forge 규칙(`work/` 수정 금지,
+`MASTER.md` 절대 불변)에 동시에 막혀 있다 — 이 QA 라운드도 이 결론을 바꿀 수단이 없어
+그대로 인수인계한다. 코드·테스트 관점에서는 **결함이 없다**.
+
+## How to Run (갱신 없음)
+
+```
+node p-quaestor/test/run-all.js
+powershell -NoProfile -ExecutionPolicy Bypass -File ./deploy-bellows.ps1 -DryRun
+```
