@@ -135,3 +135,80 @@ untracked 인 `.profile/` 도 함께 옮겼다. 남은 것은 **내용물이 0�
 ```
 node p-quaestor/test/run-all.js
 ```
+
+## Phase 2 — 경계 검증: PS 파싱 · DryRun · 참조 경로 실존 (2026-08-23)
+
+### 결과: PASS
+
+🔒 `output/ACCEPTANCE.md` 에 "006 Phase 2" 절이 없어(파일이 006 Phase 1 에서 끝남) work 파일
+(`work/006-rename-internals-to-quaestor.md`)의 아래 두 [SPEC] 조항과 `PROGRESS.md` 의 Phase 2
+제목("PS 5.1 파싱 0 errors · `deploy-bellows.ps1 -DryRun` · `run-bellows.ps1` 참조 경로의
+파일시스템 실존 확인")을 기준으로 검증했다. `.js` 는 이 Phase 에서 **한 줄도 수정하지 않았다**
+(`git status --porcelain -M` 이 `output/` 외 변경 0건 — 검증만으로 전부 이미 통과했다).
+
+| 기준 (출처) | 결과 | 근거 |
+|---|---|---|
+| [SPEC] `run-bellows.ps1` · `deploy-bellows.ps1` 이 PS 5.1 파싱 **0 errors** | PASS | `[System.Management.Automation.Language.Parser]::ParseFile()` 로 두 파일 각각 파싱 → `errors.Count === 0` (둘 다) |
+| [SPEC] 🔒 경계 검증 — `run-bellows.ps1` 이 참조하는 디렉토리·파일이 **파일시스템에 실제로 존재**하는지 확인 | PASS | 아래 "참조 경로 실존 표" 참고 — 4/4 EXISTS, 실제 `-Setup` 실행으로 재확인 |
+| [DERIVED] `deploy-bellows.ps1 -DryRun` 이 종료 코드 0 으로 끝난다 | PASS | 실행 결과 `EXIT=0`, Step 2(스크립트 복사)까지 정상 출력 |
+
+### 참조 경로 실존 표 (`run-bellows.ps1`)
+
+| 참조 (라인) | 실제 경로 | 상태 |
+|---|---|---|
+| `$ToolDir` (91행) | `p-quaestor/` | EXISTS |
+| node_modules 가드 (93행) | `p-quaestor/node_modules/` | EXISTS |
+| `-Once` 분기의 `node watch-once.js` (137행) | `p-quaestor/watch-once.js` | EXISTS |
+| else 분기의 `node watch-loop.js` (141행) | `p-quaestor/watch-loop.js` | EXISTS |
+
+Chrome 실행 파일 후보(`Find-ChromeExe`)·Chrome 프로필 디렉토리는 **선택적**(없으면 함수가
+`$null`/경고로 우아하게 처리, `Ensure-BellowsChrome` 이 `New-Item` 으로 생성)이라 이 기준의
+"참조하는 디렉토리·파일"에 해당하지 않는다(사전 존재를 요구하지 않음).
+
+**실측 실행**: `run-bellows.ps1 -Setup` 을 실제로 돌려 `EXIT=0` 및 Setup Guide 전문 출력을
+확인했다 — `$ToolDir` 해석과 `Push-Location` 이 문자열이 아니라 **실제 파일시스템 경로**에서
+동작함을 mock 없이 증명한다.
+
+### `deploy-bellows.ps1 -DryRun` 실행 로그
+
+```
+Deploy Bellows
+  Source: F:\SynologyDrive\Obsidian\Automatic\1. Project\products\Bellows
+  Dest:   F:\Workspace\Automatic\projects\Bellows
+  (dry run)
+
+Step 2: copy run/deploy scripts
+  - copy: run-bellows.ps1
+  - copy: deploy-bellows.ps1
+
+Deploy Bellows complete.
+EXIT=0
+```
+
+⚠️ **Phase 1 TEST_RESULT.md 의 예고대로** "Step 1: copy p-quaestor" 가 조용히 건너뛰어졌다
+(Synology 원본이 아직 `p-bellows` 라 `Test-Path $srcTool` 이 false). 이는 이 Phase 의 결함이
+아니라 이미 문서화된 이월 사항(Synology sync-back 이 사람 몫)의 재확인이다. `deploy-bellows.ps1`
+자체의 코드는 무변경이고 종료 코드는 정상적으로 0 이다.
+
+### 무회귀 확인
+
+- `node p-quaestor/test/run-all.js` → **exit 0 · tests 146 · pass 146 · fail 0** (재실행, Phase 1 과 동일)
+- `git grep -n "p-bellows" -- . ":(exclude)work" ":(exclude)output" ":(exclude).p-forge"` → **0건** (재확인)
+- `git status --porcelain -M` → `output/` 외 변경 없음 — Phase 2 는 `.js`·`.ps1` 소스를 **손대지 않았다**
+
+### 이전 Phase 연동 검증
+
+- Phase 1 의 이동·이름·문자열 기준 전부 유지(테스트 146 개 무회귀, 파일명 유지, PS 파싱 0 errors 재확인)
+- 005 26일 침묵 fixture 계속 `crit` 통과(146개 스위트에 포함되어 있음)
+
+### 미해결 이월 사항 (Phase 1 에서 이미 문서화, 재확인만 함)
+
+- 빈 `p-bellows/` 디렉토리, Synology `p-bellows` 잔존, `MASTER.md` 낡은 smoke 경로 — 전부 Phase 1
+  TEST_RESULT.md 의 USER_GATE 항목과 동일하며 이 Phase 가 새로 만든 문제가 아니다.
+
+## How to Run (갱신 없음 — Phase 1 과 동일)
+
+```
+node p-quaestor/test/run-all.js
+powershell -NoProfile -ExecutionPolicy Bypass -File ./deploy-bellows.ps1 -DryRun
+```
