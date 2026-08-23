@@ -6,9 +6,10 @@ const { readConfig } = require('./lib/config');
 const { createObservation, recordSuccess, recordFailure } = require('./lib/observation');
 const { startControlServer } = require('./lib/control-server');
 const { parseLogTail } = require('./lib/logparse');
+const { envRaw } = require('./lib/env');
 
-const PROFILE_DIR  = path.resolve(process.env.BELLOWS_PROFILE_DIR || './.profile');
-const INTERVAL_MIN = parseInt(process.env.BELLOWS_INTERVAL_MIN || '15', 10);
+const PROFILE_DIR  = path.resolve(envRaw('PROFILE_DIR') || './.profile');
+const INTERVAL_MIN = parseInt(envRaw('INTERVAL_MIN') || '15', 10);
 
 function resolveStopDir() {
   const candidates = [

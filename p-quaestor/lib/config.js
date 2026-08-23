@@ -1,5 +1,6 @@
 'use strict';
 const fs = require('fs');
+const { envRaw } = require('./env');
 
 // Hardcoded defaults -- used as final fallback
 const HARD_DEFAULTS = {
@@ -17,15 +18,15 @@ const HARD_DEFAULTS = {
   }
 };
 
-function envInt(name, fallback) {
-  const raw = process.env[name];
+function envInt(suffix, fallback) {
+  const raw = envRaw(suffix);
   if (raw == null || raw === '') return fallback;
   const n = parseInt(raw, 10);
   return isNaN(n) ? fallback : n;
 }
 
-function envToken(name, fallback) {
-  const raw = process.env[name];
+function envToken(suffix, fallback) {
+  const raw = envRaw(suffix);
   if (raw == null) return fallback;
   const trimmed = raw.trim();
   return trimmed === '' ? null : trimmed;
@@ -35,15 +36,15 @@ function envDefaults() {
   return {
     enabled: HARD_DEFAULTS.enabled,
     thresholds: {
-      weekly_stop:     envInt('BELLOWS_WEEKLY_STOP',     HARD_DEFAULTS.thresholds.weekly_stop),
-      weekly_release:  envInt('BELLOWS_WEEKLY_RELEASE',  HARD_DEFAULTS.thresholds.weekly_release),
-      session_stop:    envInt('BELLOWS_SESSION_STOP',    HARD_DEFAULTS.thresholds.session_stop),
-      session_release: envInt('BELLOWS_SESSION_RELEASE', HARD_DEFAULTS.thresholds.session_release)
+      weekly_stop:     envInt('WEEKLY_STOP',     HARD_DEFAULTS.thresholds.weekly_stop),
+      weekly_release:  envInt('WEEKLY_RELEASE',  HARD_DEFAULTS.thresholds.weekly_release),
+      session_stop:    envInt('SESSION_STOP',    HARD_DEFAULTS.thresholds.session_stop),
+      session_release: envInt('SESSION_RELEASE', HARD_DEFAULTS.thresholds.session_release)
     },
     expires_at: HARD_DEFAULTS.expires_at,
     control: {
-      port:      envInt('BELLOWS_CONTROL_PORT', HARD_DEFAULTS.control.port),
-      authToken: envToken('BELLOWS_CONTROL_TOKEN', HARD_DEFAULTS.control.authToken)
+      port:      envInt('CONTROL_PORT', HARD_DEFAULTS.control.port),
+      authToken: envToken('CONTROL_TOKEN', HARD_DEFAULTS.control.authToken)
     }
   };
 }

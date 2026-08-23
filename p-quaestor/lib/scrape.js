@@ -1,7 +1,8 @@
 'use strict';
 const { extractUsage } = require('./extract');
+const { envRaw } = require('./env');
 
-const DEFAULT_DEBUG_URL = process.env.BELLOWS_CHROME_DEBUG_URL || 'http://127.0.0.1:9222';
+const DEFAULT_DEBUG_URL = envRaw('CHROME_DEBUG_URL') || 'http://127.0.0.1:9222';
 
 // Domain URL -- the one place this file references the target site.
 const ORIGIN       = 'https://claude.ai';

@@ -1,8 +1,9 @@
 'use strict';
 const path = require('path');
 const { scrapeUsage } = require('./lib/scrape');
+const { envRaw } = require('./lib/env');
 
-const PROFILE_DIR = path.resolve(process.env.BELLOWS_PROFILE_DIR || './.profile');
+const PROFILE_DIR = path.resolve(envRaw('PROFILE_DIR') || './.profile');
 
 (async () => {
   try {
