@@ -1,6 +1,5 @@
 ## Verdict
-PASS
-
+FIX
 ## Verdict Criteria (current work file only)
 - NEXT: a phase REMAINS WITHIN the current work file (not for other work files)
 - FIX: Current Phase has bugs or missing features
@@ -82,3 +81,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File ./deploy-bellows.ps1 -DryRun
   작업(다른 주인)에서 판단
 - `work/MASTER.md` 의 `Smoke: node p-bellows/test/run-all.js` 는 낡은 줄이 됐다. MASTER.md 는
   불변이라 이 NNN 이 못 고친다 — 러너 설정 갱신은 사람 몫
+
+
+## Verdict
+FIX
+
+## Smoke Override
+Smoke verification failed. Forced to FIX.
+reason:
+  EXECUTED_FAIL `node p-bellows/test/run-all.js` exit 1
