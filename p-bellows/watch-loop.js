@@ -5,6 +5,7 @@ const { scrapeUsage } = require('./lib/scrape');
 const { readConfig } = require('./lib/config');
 const { createObservation, recordSuccess, recordFailure } = require('./lib/observation');
 const { startControlServer } = require('./lib/control-server');
+const { parseLogTail } = require('./lib/logparse');
 
 const PROFILE_DIR  = path.resolve(process.env.BELLOWS_PROFILE_DIR || './.profile');
 const INTERVAL_MIN = parseInt(process.env.BELLOWS_INTERVAL_MIN || '15', 10);
@@ -185,7 +186,72 @@ function controlSnapshot() {
   };
 }
 
+function readLogTailLines(logPath, maxBytes) {
+  const limit = typeof maxBytes === 'number' ? maxBytes : 65536;
+  if (!logPath || !fs.existsSync(logPath)) return null;
+  let fd = null;
+  try {
+    const stats = fs.statSync(logPath);
+    if (!stats || stats.size === 0) return null;
+    const readSize = Math.min(stats.size, limit);
+    const position = stats.size - readSize;
+    const buf = Buffer.alloc(readSize);
+    fd = fs.openSync(logPath, 'r');
+    const bytesRead = fs.readSync(fd, buf, 0, readSize, position);
+    fs.closeSync(fd);
+    fd = null;
+    if (bytesRead === 0) return null;
+
+    const content = buf.toString('utf8', 0, bytesRead);
+    const lines = content.split(/\r?\n/);
+    if (position > 0 && lines.length > 0) {
+      lines.shift();
+    }
+    return lines;
+  } catch (e) {
+    if (fd !== null) {
+      try { fs.closeSync(fd); } catch (_) {}
+    }
+    return null;
+  }
+}
+
+function restoreObservation(logPath) {
+  try {
+    const lines = readLogTailLines(logPath, 65536);
+    if (!lines || lines.length === 0) return createObservation();
+    const parsed = parseLogTail(lines);
+    if (!parsed) return createObservation();
+
+    const obs = Object.assign(createObservation(), {
+      lastSuccessAt:       parsed.lastSuccessAt,
+      lastUsage:           parsed.lastUsage,
+      consecutiveFailures: parsed.consecutiveFailures,
+      lastFailure:         parsed.lastFailure,
+      totalPolls:          parsed.consecutiveFailures + (parsed.lastSuccessAt !== null ? 1 : 0),
+      totalFailures:       parsed.consecutiveFailures
+    });
+
+    const lastSuccessIso = parsed.lastSuccessAt ? new Date(parsed.lastSuccessAt).toISOString() : 'null';
+    const failureKind = parsed.lastFailure ? parsed.lastFailure.kind : 'unknown';
+    log('[restore] lastSuccess=' + lastSuccessIso + ' failures=' + parsed.consecutiveFailures + ' kind=' + failureKind);
+
+    return obs;
+  } catch (e) {
+    return createObservation();
+  }
+}
+
 async function mainLoop() {
+  try {
+    const restored = restoreObservation(LOG_PATH);
+    if (restored) {
+      observation = restored;
+    }
+  } catch (restoreErr) {
+    // never-brick: quiet fallback to default observation
+  }
+
   log('[start] bellows watcher. interval=' + INTERVAL_MIN + 'm config=' + CONFIG_PATH);
 
   // Control HTTP surface is a bonus, not the product -- the watch loop
@@ -219,3 +285,8 @@ async function mainLoop() {
 if (require.main === module) {
   mainLoop();
 }
+
+module.exports = {
+  readLogTailLines,
+  restoreObservation
+};

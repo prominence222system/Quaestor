@@ -15,6 +15,8 @@ const path = require('node:path');
 // observation-wiring/logging requirements structurally against source.
 
 const WATCH_LOOP_PATH = path.join(__dirname, '..', 'watch-loop.js');
+const { restoreObservation, readLogTailLines } = require(WATCH_LOOP_PATH);
+const { deriveState } = require('../lib/observation');
 const SRC = fs.readFileSync(WATCH_LOOP_PATH, 'utf8');
 
 test('require("../watch-loop.js") loads without starting the watch loop', () => {
@@ -152,3 +154,135 @@ test('watch-loop.js does not re-judge thresholds when wiring control-server (no 
   const block = mainLoopMatch[0];
   assert.ok(!/\bstate\s*===\s*['"](ok|warn|crit)['"]/.test(block), 'mainLoop() must not re-implement state judgement');
 });
+
+// ---- Phase 2: boot restoration & boundary tests ---------------------
+
+test('Phase 2 [SPEC]: 26-day silence fixture restored on boot yields state === crit', () => {
+  const tmpDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'bellows-test-'));
+  const tmpLog = path.join(tmpDir, 'bellows.log');
+
+  const lines = [
+    '2026-07-28T11:58:12.472Z session=24% weekly=24%'
+  ];
+  const baseTime = Date.parse('2026-07-28T12:13:00.000Z');
+  for (let i = 0; i < 500; i++) {
+    const ts = new Date(baseTime + i * 15 * 60 * 1000).toISOString();
+    lines.push(`${ts} [poll error] scrape failed: timeout kind=nav-failed`);
+  }
+  fs.writeFileSync(tmpLog, lines.join('\n') + '\n', 'utf8');
+
+  try {
+    const obs = restoreObservation(tmpLog);
+    assert.ok(obs !== null, 'restored observation should not be null');
+    assert.strictEqual(obs.lastSuccessAt, Date.parse('2026-07-28T11:58:12.472Z'));
+    assert.strictEqual(obs.consecutiveFailures, 500);
+
+    const now = Date.parse('2026-08-23T12:00:00.000Z'); // ~26 days later
+    const ctx = { enabled: true, configSource: 'default' };
+    const res = deriveState(obs, ctx, now);
+
+    assert.strictEqual(res.state, 'crit', 'deriveState() must return crit for 26-day silence fixture');
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('Phase 2 [SPEC]: boundary verification -- real log file tail reading and chopped line handling', () => {
+  const tmpDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'bellows-test-'));
+  const tmpLog = path.join(tmpDir, 'bellows.log');
+
+  const content = '2026-07-28T10:00:00.000Z [poll error] scrape failed: partial line cut off before this\n' +
+                  '2026-07-28T11:58:12.472Z session=30% weekly=40%\n' +
+                  '2026-07-28T12:15:00.000Z [poll error] scrape failed: timeout kind=anchor-missing hint=login-expired\n';
+
+  fs.writeFileSync(tmpLog, content, 'utf8');
+
+  try {
+    const lines = readLogTailLines(tmpLog, 150);
+    assert.ok(Array.isArray(lines), 'readLogTailLines must return an array');
+    // First line should be chopped off because position > 0
+    assert.ok(!lines[0].includes('partial line cut off'), 'first chopped line must be discarded when position > 0');
+
+    const obs = restoreObservation(tmpLog);
+    assert.strictEqual(obs.lastSuccessAt, Date.parse('2026-07-28T11:58:12.472Z'));
+    assert.strictEqual(obs.consecutiveFailures, 1);
+    assert.strictEqual(obs.lastFailure.kind, 'anchor-missing');
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('Phase 2 [SPEC]: non-existent file, 0-byte file, and corrupted binary bytes yield empty observation without throwing', () => {
+  const tmpDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'bellows-test-'));
+  const nonExistentPath = path.join(tmpDir, 'does-not-exist.log');
+  const zeroBytePath = path.join(tmpDir, 'zero.log');
+  const corruptPath = path.join(tmpDir, 'corrupt.log');
+
+  fs.writeFileSync(zeroBytePath, '');
+  fs.writeFileSync(corruptPath, Buffer.from([0xFF, 0xFE, 0x00, 0x12, 0x89, 0xAA, 0xBB]));
+
+  try {
+    assert.doesNotThrow(() => {
+      const obs1 = restoreObservation(nonExistentPath);
+      assert.strictEqual(obs1.lastSuccessAt, null);
+      assert.strictEqual(obs1.consecutiveFailures, 0);
+
+      const obs2 = restoreObservation(zeroBytePath);
+      assert.strictEqual(obs2.lastSuccessAt, null);
+      assert.strictEqual(obs2.consecutiveFailures, 0);
+
+      const obs3 = restoreObservation(corruptPath);
+      assert.strictEqual(obs3.lastSuccessAt, null);
+      assert.strictEqual(obs3.consecutiveFailures, 0);
+    });
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('Phase 2 [SPEC]: large file (>64KB) reads at most 64KB (65536 bytes)', () => {
+  const tmpDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'bellows-test-'));
+  const tmpLog = path.join(tmpDir, 'large.log');
+
+  const chunk = '2026-07-28T12:00:00.000Z [poll error] scrape failed: timeout kind=nav-failed\n';
+  let largeContent = '';
+  while (Buffer.byteLength(largeContent, 'utf8') < 100000) {
+    largeContent += chunk;
+  }
+  fs.writeFileSync(tmpLog, largeContent, 'utf8');
+
+  try {
+    const lines = readLogTailLines(tmpLog, 65536);
+    assert.ok(lines !== null);
+    const reconstructedText = lines.join('\n');
+    assert.ok(Buffer.byteLength(reconstructedText, 'utf8') <= 65536, 'read bytes must be <= 65536');
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('Phase 2 [SPEC]: restored observation stringified contains no secrets (.profile, cookie, @)', () => {
+  const tmpDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'bellows-test-'));
+  const tmpLog = path.join(tmpDir, 'bellows.log');
+
+  const lines = [
+    '2026-07-28T11:58:12.472Z session=24% weekly=24%',
+    '2026-07-28T12:13:00.000Z [poll error] scrape failed: timeout kind=nav-failed'
+  ];
+  fs.writeFileSync(tmpLog, lines.join('\n') + '\n', 'utf8');
+
+  try {
+    const obs = restoreObservation(tmpLog);
+    const jsonStr = JSON.stringify(obs);
+    assert.strictEqual(jsonStr.includes('.profile'), false, 'must not include .profile');
+    assert.strictEqual(jsonStr.includes('cookie'), false, 'must not include cookie');
+    assert.strictEqual(jsonStr.includes('@'), false, 'must not include @');
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('Phase 2 [SPEC]: mainLoop structurally integrates restoreObservation at startup before polling loop', () => {
+  assert.ok(/restoreObservation\s*\(/.test(SRC), 'mainLoop must invoke restoreObservation');
+});
+
