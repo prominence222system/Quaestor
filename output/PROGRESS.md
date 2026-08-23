@@ -3,7 +3,7 @@
 |-------|---------|--------|
 | 1 | `git mv p-bellows p-quaestor` + 패키지 이름(`prominence-quaestor`) + 저장소 내 `p-bellows` 문자열 전수 갱신(ps1 경로 참조 포함) | DONE |
 | 2 | 경계 검증 — PS 5.1 파싱 0 errors · `deploy-bellows.ps1 -DryRun` · `run-bellows.ps1` 참조 경로의 파일시스템 실존 확인 | DONE |
-| 3 | 환경변수 `QUAESTOR_*` 우선 + `BELLOWS_*` 폴백(의미 불변) + hermetic 3케이스 검증 | CURRENT |
+| 3 | 환경변수 `QUAESTOR_*` 우선 + `BELLOWS_*` 폴백(의미 불변) + hermetic 3케이스 검증 | DONE |
 
 ## Phase 1 완료 기록 (2026-08-23)
 
@@ -33,3 +33,13 @@ Windows 가 최상위 디렉토리의 rename·삭제를 거부한다(`Device or 
 - 참조 경로 실존: `$ToolDir`·`watch-once.js`·`watch-loop.js`·`node_modules` 4/4 **EXISTS**
 - `node p-quaestor/test/run-all.js` 재실행 → exit 0 · tests 146 · pass 146 · fail 0 (무회귀)
 - `.js`/`.ps1` 소스 변경 **0건** — `git status --porcelain -M` 이 `output/` 외 변경 없음을 보여줌
+
+## Phase 3 완료 기록 (2026-08-23)
+
+- `p-quaestor/lib/env.js`(신규, 의존 없는 순수 조회) + `lib/config.js`·`watch-loop.js`·`watch-once.js`·
+  `lib/scrape.js` 배선 — `QUAESTOR_*` 우선, 없으면 `BELLOWS_*` 폴백, `undefined` 여부로 판정(truthiness 아님)
+- `node p-quaestor/test/run-all.js` → **exit 0 · tests 176 · pass 176 · fail 0** ([SPEC] 146 이상 충족, +30 순증분)
+- 004 기존 `BELLOWS_CONTROL_PORT`/`TOKEN` 테스트, 005 26일 침묵 fixture 전부 무수정 통과
+- 로그 줄 형식(`[start] bellows watcher` 포함) · `deriveDesired()`/`STOP.json`/제어서버 무변경 실증
+- `run-bellows.ps1`·`deploy-bellows.ps1` 이 Phase 무수정(`$env:BELLOWS_INTERVAL_MIN` 포함), PS 5.1 파싱 0 errors
+- 소스 트리 `p-bellows` 문자열 계속 0건, `p-quaestor`의 `.js`에 `claude` 매칭 0건(테스트 자체의 어써션 문자열 제외)

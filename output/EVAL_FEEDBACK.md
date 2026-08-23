@@ -1,5 +1,5 @@
 ## Verdict
-NEXT
+PASS
 
 ## Verdict Criteria (current work file only)
 - NEXT: a phase REMAINS WITHIN the current work file (not for other work files)
@@ -12,55 +12,73 @@ NEXT
 NO
 
 ## Current Phase Evaluation
-- Phase: 2
-- Feature: 경계 검증 — PS 5.1 파싱 · `deploy-bellows.ps1 -DryRun` · `run-bellows.ps1` 참조 경로의 파일시스템 실존 확인
+- Phase: 3 (마지막 Phase — Phase 1·2 는 이미 DONE)
+- Feature: 환경변수 `QUAESTOR_*` 우선 + `BELLOWS_*` 폴백(의미 불변)
 - Complete: yes
-- Issues found: 없음 (실측 재확인 결과 TEST_RESULT.md 의 모든 주장이 그대로 재현됨)
+- Issues found: 없음. `output/ACCEPTANCE.md` "# ACCEPTANCE — 006 Phase 3" 전 항목을 실측 재대조했다
+  (아래 "실측 재검증" 참고). `output/PROGRESS.md` 가 Phase 3 를 아직 `CURRENT` 로 표기하고
+  있었으나 TEST_RESULT.md 의 Phase 3 결과와 실측이 이미 PASS 이므로 이 eval 에서 `DONE` 으로 갱신했다.
 
-### 실측 재확인 (독립 검증)
+### 실측 재검증 (독립 검증)
+
+TEST_RESULT.md 의 서술을 신뢰하지 않고 직접 재실행했다.
+
 | 확인 | 명령/방법 | 결과 |
 |---|---|---|
-| PS 5.1 파싱 | `[Parser]::ParseFile()` 로 두 ps1 파일 직접 파싱 | `run-bellows.ps1 errors: 0`, `deploy-bellows.ps1 errors: 0` |
-| DryRun | `deploy-bellows.ps1 -DryRun` 재실행 | `EXIT=0`, Step 2 정상 출력, TEST_RESULT.md 로그와 동일 |
-| 참조 경로 실존 | `ls p-quaestor/{watch-loop.js,watch-once.js,node_modules}` | 셋 다 존재 |
-| ps1 내부 참조 | `grep p-quaestor run-bellows.ps1 deploy-bellows.ps1` | `$ToolDir`·`$srcTool`·`$dstTool` 모두 `p-quaestor` |
-| 테스트 | `node p-quaestor/test/run-all.js` | tests 146, pass 146, fail 0 |
-| 이름 잔재 | `git grep -n "p-bellows" -- . ":(exclude)work" ":(exclude)output" ":(exclude).p-forge"` | 0건 (exit 1 = no match) |
-| 이력 연결 | `git log --oneline --follow p-quaestor/watch-loop.js` | 이동 커밋 + 이전 5개 커밋(689e2e4 까지) |
-| Phase 3 조기 착수 여부 | `grep -r QUAESTOR_ p-quaestor` | 매치 없음 — 환경변수 개명은 아직 손대지 않음(설계대로) |
-| diff 범위 | `git status --porcelain -M` | `output/` 외 변경 없음 — Phase 2 가 `.js`/`.ps1` 소스를 건드리지 않았다는 주장과 일치 |
+| 디렉토리 이동 | `ls p-quaestor` / `find p-bellows -type f` | `p-quaestor` 존재, 옛 `p-bellows` 는 **내용물 0개**(문서화된 이월 사항과 일치) |
+| 패키지 이름 | `grep '"name"' package.json package-lock.json` | 셋 다 `prominence-quaestor` |
+| 이름 잔재 | `git grep -n "p-bellows" -- . ":(exclude)work" ":(exclude)output" ":(exclude).p-forge"` | **0건** |
+| 전체 테스트 | `node p-quaestor/test/run-all.js` | **exit 0 · tests 176 · pass 176 · fail 0** |
+| git 이력 | `git log --oneline --follow -- p-quaestor/watch-loop.js` | 이동 이전 커밋까지 이어짐(`git mv` 증거) |
+| ps1 무수정 | `git status --porcelain -- run-bellows.ps1 deploy-bellows.ps1` | 빈 출력 |
+| `lib/env.js` | 소스 직접 열람 | 의존 0, `parseInt`/`trim`/캐시 없음, `!== undefined` 판정만 사용(truthiness 아님) |
+| 배선 | `grep envRaw` in config.js/watch-loop.js/watch-once.js/scrape.js | 9개 접미사 전부 `envRaw()` 경유, `\|\| 기본값` 유지(`??` 로 안 바뀜) |
+| claude CLI | `git grep "claude"` in `p-quaestor/*.js` `lib/*.js`(test 제외) | 0건 |
 
-Phase 2 는 D4(Phase 분할 조정)에서 설계가 예고한 대로 **검증 전용**이었고, 실제로 코드 변경 없이
-Phase 1 산출물이 파일시스템 수준에서 유효함을 실증했다. 남은 `p-bellows/` 빈 디렉토리(잠긴
-프로세스로 인한 이월 사항)는 이미 Phase 1 TEST_RESULT.md 와 USER_GATE 에 문서화돼 있고,
-git(추적 대상 아님)·테스트(hermetic, `__dirname` 상대경로)에는 영향이 없음을 재확인했다.
+전부 ACCEPTANCE.md · TEST_RESULT.md 의 서술과 일치했다.
 
 ## Work Detail
-- Files created/modified this Phase: 없음(`output/PROGRESS.md`, `output/TEST_RESULT.md` 갱신만).
-- Key changes summary: 코드 변경 0. `run-bellows.ps1`/`deploy-bellows.ps1` 의 PS 파싱 및
-  `p-quaestor` 참조 경로가 실제 파일시스템과 일치함을 확인만 했다.
+- Files created/modified (Phase 3): `p-quaestor/lib/env.js`(신규), `p-quaestor/lib/config.js`,
+  `p-quaestor/watch-loop.js`, `p-quaestor/watch-once.js`, `p-quaestor/lib/scrape.js`,
+  `p-quaestor/test/env.test.js`(신규, 진리표 6종 + config 행동검증 + 구조단언 3종)
+- Key changes: 환경변수 조회를 `QUAESTOR_<suffix>` 우선/`BELLOWS_<suffix>` 폴백으로 바꾸는
+  단일 선택층(`envRaw()`)을 신설하고 9개 호출부를 그것으로 배선. 해석 로직(`envInt`/`envToken`/
+  `|| 기본값`)은 한 글자도 바꾸지 않았다. Phase 1·2 의 폴더 이동·경계 검증 결과는 무회귀로 유지.
 
 ## Issues
-- (경미, Phase 2 의 결함 아님) `output/ACCEPTANCE.md` 에 "006 Phase 2" 절이 없어 이 Phase 는
-  work 파일의 [SPEC] 항목과 `PROGRESS.md` 의 Phase 2 제목을 근거로 검증했다. 원래 각 라운드는
-  Phase 별 ACCEPTANCE 절을 갖는 패턴(004 Phase 1~5, 005 Phase 1)이었는데 006 은 Phase 1 절만
-  있다. TEST_RESULT.md 가 이 공백을 스스로 밝히고 대체 근거를 명시했으므로 이번 Phase 를
-  막지는 않지만, design-next 가 Phase 3 진입 전에 ACCEPTANCE.md 에 "006 Phase 2/3" 절을
-  append 해 두는 편이 다음 라운드 대조를 쉽게 한다(append-only 이므로 지금 추가해도
-  기존 006 Phase 1 절을 훼손하지 않는다).
+없음.
 
 ## Good Points
-- `git mv` 실패(디렉토리 rename 거부) 상황을 항목별 `git mv` 로 우회하면서도 `rename (100%)`
-  인식을 지켜 이력 보존(D1)을 실제로 달성했다.
-- 살아 있는 감시자 프로세스(PID 4260)를 임의로 종료하지 않고 USER_GATE 로 넘긴 판단이
-  안전 원칙과 일치한다.
-- Phase 2 를 순수 검증으로 한정해 `.js`/`.ps1` diff 를 0으로 유지한 것이 D4 설계 의도와 정확히 맞다.
-- 참조 경로 실존을 문자열 대조가 아니라 실제 `ls`/`Resolve-Path` 로 확인해 "문자열은 맞는데
-  기동만 죽는" 사고 계열을 실측으로 배제했다.
+- Phase 3 는 이 NNN 에서 유일하게 코드 동작을 건드리는 부분인데도, "새 이름이 없으면 조용히
+  기본값으로 떨어져 차단기가 풀린다"는 구체적 사고 시나리오(work §4)를 정확히 겨냥해
+  `undefined` 여부 판정 + `|| 기본값` 유지로 막았다. truthiness 로 골랐다면 조용히 깨졌을
+  `envToken('')→null` 의미도 보존했다(E1 케이스까지 진리표로 명문화).
+- `lib/env.js` 를 "이왕 만든 김에" 설정 로더로 확장하지 않고 순수 조회 함수 하나로 멈췄다 —
+  설계 D10 의 자기 구속을 실제로 지켰다.
+- 004 의 기존 `BELLOWS_CONTROL_PORT`/`TOKEN` 테스트를 **삭제하지 않고 그대로 통과**시켜
+  폴백의 회귀 증거로 남긴 것이 검증으로서 가장 강하다.
+- 검증 방법의 정직성 절 — `watch-loop.js`/`watch-once.js`/`scrape.js` 는 모듈 로드 시 1회
+  평가라는 한계를 구조 단언으로만 확인하고, 그 한계를 산출물에 명시했다(간접 증거를
+  직접 증거처럼 적지 않음).
+- 빈 `p-bellows/` 디렉토리(살아있는 감시자 프로세스가 CWD 로 잠금)를 임의로 강제 삭제하거나
+  프로세스를 죽이지 않고 USER_GATE 로 정직하게 넘겼다 — 안전장치에 대한 태도가 일관적이다.
 
 ## How to Run
-
 ```
 node p-quaestor/test/run-all.js
 powershell -NoProfile -ExecutionPolicy Bypass -File ./deploy-bellows.ps1 -DryRun
 ```
+실기동(사람 확인, USER_GATE): `run-bellows.ps1` 실행 — Chrome 을 `--remote-debugging-port=9222` 로
+띄운 뒤 루프가 돈다. `QUAESTOR_*` 환경변수를 주면 그 값이 우선 적용되고, 옛 `BELLOWS_*` 만
+설정돼 있어도 그대로 쓰인다(동작 변경 없음). `p-quaestor/node_modules`(puppeteer)가 이미 저장소에
+있어 별도 설치 불필요.
+
+### 인수인계 (USER_GATE, 자동 테스트 대체 불가)
+- Synology `products\Bellows\` 에 옛 `p-bellows\` 폴더가 남아 있는지 확인 후 정리
+- 워크스페이스의 빈 `p-bellows/` 디렉토리: 감시자(PID 4260) 재기동 후 잠금 해제되면 `rmdir p-bellows`
+- `run-bellows.ps1` 실기동 시 이전과 같은 실패 서명(로그인 만료)으로 뜨는지, `bellows.log` 의
+  `[start] bellows watcher. interval=NNm config=...` 형식이 그대로인지 확인
+- 런처의 `$env:BELLOWS_INTERVAL_MIN` 을 `QUAESTOR_` 로 언제 옮길지는 폴더 이동·Foreman 설정
+  작업(다른 주인)에서 판단
+- `work/MASTER.md` 의 `Smoke: node p-bellows/test/run-all.js` 는 낡은 줄이 됐다. MASTER.md 는
+  불변이라 이 NNN 이 못 고친다 — 러너 설정 갱신은 사람 몫
