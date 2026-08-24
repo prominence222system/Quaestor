@@ -498,3 +498,32 @@ Started: 2026-08-24T06:26:00Z
 node p-quaestor/test/run-all.js
 ```
 
+## Phase 2 — `control-server.js` `/api/status` 엔드포인트 응답 확장 및 검증
+
+### 결과: PASS
+
+| 기준 | 결과 | 근거 테스트 |
+|---|---|---|
+| [SPEC] `/api/status` 응답의 기존 `fields`, `summary`, `state` 속성의 값이 변경 전과 완전히 동일해야 한다. | PASS | `Phase 2 [SPEC]: /api/status response contains unchanged fields, summary, and state` |
+| [SPEC] `/api/status` 응답 최상단에 `allowance` 객체와 `usage` 객체가 추가되어야 한다. | PASS | `Phase 2 [SPEC]: /api/status response top-level contains allowance and usage objects` |
+| [SPEC] HTTP GET `/api/status` 요청으로 반환되는 `usage.session_pct`의 값은 문자열을 파싱한 것이 아닌 처음부터 JSON 직렬화 시 `number` 타입이어야 한다. | PASS | `Phase 2 [SPEC]: HTTP GET /api/status usage.session_pct is number type upon JSON deserialization` |
+| [SPEC] `JSON.stringify(response.usage)`의 결과에는 `session_reset`과 `weekly_reset`의 값을 제외하고 어떤 형태의 한글 문자열도 포함되지 않아야 한다(키 이름 포함). | PASS | `Phase 2 [SPEC]: JSON.stringify(response.usage) contains no Korean strings except session_reset and weekly_reset values` |
+| [SPEC] `stale` 여부 및 측정 이력 유무가 API 응답에 명확히 반영되며, 26일 침묵과 같은 장기 측정 실패 시 `allowed` 속성은 `null`을 반환해야 한다. | PASS | `Phase 2 [SPEC]: long-term measurement failure (26-day silence / no history) sets allowed to null in /api/status response` |
+| [DERIVED] 응답 객체에는 토큰, 프로필 경로, 쿠키, 계정 정보 등 민감한 정보가 노출되지 않아야 한다. | PASS | `secrets never leak: 200/401/404/405/501/500 bodies never contain the token, .profile, cookie, or the raw Authorization header` |
+
+### 테스트 실행 결과
+- `node p-quaestor/test/run-all.js`: **tests 191, pass 191, fail 0**, exit code 0.
+
+### 버그 수정 및 조정 내역
+- `p-quaestor/test/control-server.test.js`에 Phase 2 Acceptance Criteria 6종 전건을 정밀하게 검증하는 전용 단위/통합 테스트를 추가함.
+- `GET /api/status` 호출 시 HTTP 통신을 거친 JSON 직렬화/역직렬화 결과를 검증하여 `usage.session_pct`가 `number` 타입으로 정상 전달되며, 한글 키나 한글 라벨 없이 ASCII 키로 구성됨을 확인함.
+
+### 이전 Phase 연동 검증
+- 001~006 및 007 Phase 1 기존 단위 및 통합 테스트 전건 pass (191개 전체 통과, 회귀 없음).
+
+### How to Run
+```
+node p-quaestor/test/run-all.js
+```
+
+

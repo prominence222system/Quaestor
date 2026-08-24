@@ -171,6 +171,92 @@ test('GET /api/status -- 200, state matches deriveState() exactly, no re-judgeme
   }
 });
 
+// ---- Phase 2 Acceptance Criteria Tests -------------------------------------
+
+test('Phase 2 [SPEC]: /api/status response contains unchanged fields, summary, and state', async () => {
+  const snap = okSnapshot();
+  const expectedState = deriveState(snap.observation, snap.ctx, Date.now());
+  const r = await startControlServer({ port: 0, getSnapshot: () => snap });
+  try {
+    const res = await getJson(r.port, '/api/status');
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.state, expectedState.state);
+    assert.strictEqual(res.body.summary, expectedState.summary);
+    assert.deepStrictEqual(res.body.fields, expectedState.fields);
+  } finally {
+    await r.close();
+  }
+});
+
+test('Phase 2 [SPEC]: /api/status response top-level contains allowance and usage objects', async () => {
+  const snap = okSnapshot();
+  const r = await startControlServer({ port: 0, getSnapshot: () => snap });
+  try {
+    const res = await getJson(r.port, '/api/status');
+    assert.strictEqual(res.status, 200);
+    assert.ok(typeof res.body.allowance === 'object' && res.body.allowance !== null, 'allowance must be present at top level');
+    assert.ok(typeof res.body.usage === 'object' && res.body.usage !== null, 'usage must be present at top level');
+  } finally {
+    await r.close();
+  }
+});
+
+test('Phase 2 [SPEC]: HTTP GET /api/status usage.session_pct is number type upon JSON deserialization', async () => {
+  const snap = okSnapshot();
+  const r = await startControlServer({ port: 0, getSnapshot: () => snap });
+  try {
+    const res = await getJson(r.port, '/api/status');
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(typeof res.body.usage.session_pct, 'number');
+    assert.strictEqual(typeof res.body.usage.weekly_pct, 'number');
+  } finally {
+    await r.close();
+  }
+});
+
+test('Phase 2 [SPEC]: JSON.stringify(response.usage) contains no Korean strings except session_reset and weekly_reset values', async () => {
+  const obs = recordSuccess(createObservation(), {
+    session_pct: 24,
+    weekly_pct: 24,
+    session_reset: '1시간 25분 후 재설정',
+    weekly_reset: '(월) 오후 1:00에 재설정'
+  }, Date.now());
+  const snap = { observation: obs, ctx: { enabled: true } };
+  const r = await startControlServer({ port: 0, getSnapshot: () => snap });
+  try {
+    const res = await getJson(r.port, '/api/status');
+    assert.strictEqual(res.status, 200);
+    const usageObj = Object.assign({}, res.body.usage);
+    delete usageObj.session_reset;
+    delete usageObj.weekly_reset;
+    const jsonStr = JSON.stringify(usageObj);
+    const hangulRegex = /[\u3131-\u318E\uAC00-\uD7A3]/;
+    assert.ok(!hangulRegex.test(jsonStr), 'JSON.stringify(usage) without reset values must contain no Korean');
+    for (const key of Object.keys(res.body.usage)) {
+      assert.ok(/^[\x00-\x7F]+$/.test(key), 'Key ' + key + ' must be ASCII');
+    }
+  } finally {
+    await r.close();
+  }
+});
+
+test('Phase 2 [SPEC]: long-term measurement failure (26-day silence / no history) sets allowed to null in /api/status response', async () => {
+  const obs = createObservation();
+  const snap = { observation: obs, ctx: { enabled: true } };
+  const r = await startControlServer({ port: 0, getSnapshot: () => snap });
+  try {
+    const res = await getJson(r.port, '/api/status');
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.allowance.allowed, null);
+    assert.strictEqual(res.body.allowance.reason, 'unmeasurable');
+    assert.strictEqual(res.body.allowance.confidence, 'unknown');
+    assert.strictEqual(res.body.usage.session_pct, null);
+    assert.strictEqual(res.body.usage.stale, true);
+  } finally {
+    await r.close();
+  }
+});
+
 test('GET /api/status has no side effects: getSnapshot observation is unchanged across two GETs', async () => {
   const snap = okSnapshot();
   const before = JSON.stringify(snap.observation);
