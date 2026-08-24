@@ -26,9 +26,11 @@ claude.ai/settings/usage --scrape--> session_pct / weekly_pct
 - Round 1: 001, 002
 - Round 2: 003, 004
 - Round 3: 005 (engine: agy)
+- Round 4: 006 (engine: claude)
+- Round 5: 007 (engine: agy)
 
 ## Work Verify
-- Smoke: `node p-bellows/test/run-all.js`
+- Smoke: `node p-quaestor/test/run-all.js`
 - Timeout: 300
 
 ⚠️ **`npm` 을 쓰지 말 것.** Windows 에서 `npm` 은 `.cmd` shim 이라 이 러너에서 실행되지 않고,
@@ -56,6 +58,31 @@ claude.ai/settings/usage --scrape--> session_pct / weekly_pct
 
 🔒 **재기동 한 번이 26일치 침묵을 지우면 안 된다.** 증거는 이미 로그에 있다 — 읽지 않을 뿐이었다.
 🔒 판정 로직(`deriveState`)은 손대지 않는다. 이 라운드는 **판정에 넣을 입력을 채울 뿐**이다.
+
+## Round 4 가 하는 일
+
+제품 이름이 **Quaestor** 로 확정됐는데(2026-08-19) 저장소 내부는 아직 전부 옛 이름이다.
+
+- **006** — `p-bellows/` -> `p-quaestor/`, 패키지 이름, 내부 경로 참조. **폴더 이동은 없다**
+
+🔒 **동작 변경 0 이 합격 기준이다.** 이름만 바꾸는 작업이고, 실행 결과가 한 글자라도
+달라지면 실패다. 005 의 26일 fixture 테스트 통과가 로그 형식 불변의 기계적 증거다.
+
+🔒 `run-bellows.ps1` **파일명은 그대로 둔다** — Foreman 이 소비하므로 폴더 이동 작업과
+같은 시점에 바꿔야 깨져 있는 창이 안 생긴다. 소유권 분할은
+`_system-briefs\RENAME_BELLOWS_TO_QUAESTOR.md` 참조.
+
+## Round 5 가 하는 일
+
+🔒 **이 제품의 목적은 "지금 토큰을 써도 되는지, 얼마나 남았는지" 를 알려주는 것이다.**
+그런데 004 가 만든 `/api/status` 는 "측정이 건강한가" 를 답한다 — 감시자 자신의 건강검진이다.
+사용량은 응답 안에 있지만 `fields` 의 **한국어 라벨 + 문자열**(`"24%"`)뿐이라 기계가 쓸 수 없다.
+
+- **007** — `allowance`(써도 되나) + `usage`(숫자·남은 여유)를 **추가**한다
+
+🔒 **`fields`·`summary`·`state` 는 불변** — 기존 소비자(Foreman) 무영향, 추가만 하는 하위호환 변경.
+🔒 **측정할 수 없으면 `allowed` 는 `null`** — `true` 도 `false` 도 아니다. 무지를 허가로도
+금지로도 승격시키지 않고, 소비자가 자기 정책을 갖게 한다.
 
 ## Constraints
 
@@ -89,13 +116,13 @@ Chrome 을 `--remote-debugging-port=9222` + 전용 프로필로 띄운 뒤 루�
 
 ```
 Synology (스펙·산출물, scanPath):
-  1. Project\products\Bellows\
+  1. Project\products\Quaestor\
     ├─ work\           (이 스펙)   ├─ PROJECT_INTENT.md   ├─ CONTINUATION.md
     ├─ deploy.json     ├─ run-bellows.ps1   ├─ deploy-bellows.ps1
-    └─ p-bellows\  package.json · watch-loop.js · watch-once.js · lib\{config,scrape,extract}.js
+    └─ p-quaestor\ package.json · watch-loop.js · watch-once.js · lib\{config,scrape,extract,observation,control-server,logparse,env}.js
 
 Workspace (빌드·git):
-  F:\Workspace\Automatic\projects\Bellows\      (repo: Prominence-Bellows)
+  F:\Workspace\Automatic\projects\Quaestor\      (repo: Quaestor)
 
 런타임 산출물 — 🔒 저장소 밖:
   <Drive>:\SynologyDrive\Obsidian\Automatic\.prominence\{STOP.json, bellows.log, bellows-config.json}

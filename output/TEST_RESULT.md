@@ -460,3 +460,9 @@ Phase 1 [SPEC](`p-bellows/ 문자열 0건`, 옛 경로 미존재)과 forge 규�
 node p-quaestor/test/run-all.js
 powershell -NoProfile -ExecutionPolicy Bypass -File ./deploy-bellows.ps1 -DryRun
 ```
+
+
+===========================================
+NNN: 007-usage-allowance-api
+Started: 2026-08-24T06:26:00Z
+===========================================

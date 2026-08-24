@@ -73,3 +73,17 @@ Chrome 을 `--remote-debugging-port=9222` 로 띄운 뒤 폴링 루프가 돈다
 - `work/MASTER.md` 의 `Smoke: node p-bellows/test/run-all.js` 는 개명 후 낡은 선언이다(MASTER.md 불변이라
   이 NNN 이 고칠 수 없음) — 러너/스모크 설정을 사람이 `node p-quaestor/test/run-all.js` 로 갱신해야 한다
 - 런처의 `$env:BELLOWS_INTERVAL_MIN` 을 `QUAESTOR_` 로 옮기는 것은 폴더 이동·Foreman 설정 작업(다른 주인)의 몫
+
+
+## Fix Loop Diagnosis
+[fix-diag] attempts=4 identical=3/4 escalated=yes escalation-helped=no
+
+
+## Fix Loop Verdict
+[fix-verdict] nnn=006-rename-internals-to-quaestor wheels=6 trail=START -> FIX x2 -> NEXT -> FIX x2 outcome=DEFER why=not-finalize verdict=PASS/verdict-pass gate=RED commits=YES finalize=HOLD respect=on progress=EVAL_LAST
+
+
+===========================================
+NNN: 007-usage-allowance-api
+Started: 2026-08-24T06:26:00Z
+===========================================
