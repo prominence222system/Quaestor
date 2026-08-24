@@ -49,3 +49,29 @@ Quaestor는 Claude 사용량을 주기적으로 스크레이핑하여 한도에 
   - `stopInfo`가 존재하고 자동 차단일 때: `{ allowed: false, reason: stopInfo.reason, confidence: 'measured' }`
   - `stopInfo`가 없고 측정이 신선할 때(`!isStale`): `{ allowed: true, reason: 'under-threshold', confidence: 'measured' }`
   - `stopInfo`가 없고 측정이 지연되었을 때(`isStale`): `{ allowed: true, reason: 'under-threshold', confidence: 'stale' }`
+
+---
+
+## Phase 2 상세 설계: `control-server.js` `/api/status` 엔드포인트 응답 확장
+
+이 단계에서는 Phase 1에서 구현한 `observation.js`의 `deriveUsage()` 및 `deriveAllowance()` 함수를 `control-server.js`에 통합하여 `/api/status` API의 응답 구조를 확장합니다.
+
+### 1. 구현할 구체적 기능/컴포넌트
+- `lib/control-server.js`의 `/api/status` 라우트 핸들러 수정.
+- 메모리에 캐싱되어 있는 최신 관측 상태(observation), 에러 상태, 차단(STOP) 상태 등을 읽어옵니다.
+- `observation.js`의 `deriveState()`, `deriveUsage()`, `deriveAllowance()`를 호출하여 필요한 데이터를 수집합니다.
+- 기존 응답 객체의 `state`, `summary`, `fields` 속성을 **전혀 변경하지 않고** 유지합니다.
+- 새로운 속성 `allowance`와 `usage`를 응답 객체 최상단에 추가합니다.
+
+### 2. 이전 Phase와의 통합 (Integration)
+- Phase 1에서 작성된 `deriveUsage()`와 `deriveAllowance()` 함수를 `require('./observation.js')`를 통해 가져와 호출합니다.
+- `deriveUsage()`에 필요한 현재 적용 중인 임계값(`thresholds`) 정보와 현재 시간(`Date.now()`)을 전달합니다.
+- 차단 파일(`STOP.json`)의 내용 유무와 신선도(`stale`) 여부를 파악하여 `deriveAllowance()`에 인자로 넘겨줍니다.
+
+### 3. 데이터 흐름 (Data Flow)
+1. 외부 클라이언트가 HTTP GET `/api/status`를 요청합니다.
+2. `control-server.js`는 `ctx` (또는 전역 상태 관리 객체)에서 최근 관측된 스크레이핑 데이터(`obs`), 환경 설정(`thresholds`), 차단 정보(`stopInfo`)를 읽습니다.
+3. `deriveState()`를 통해 현재 화면에 표시되는 계기판 상태(`stale` 여부 포함)를 확인합니다.
+4. `deriveUsage()`를 호출하여 기계가 읽을 수 있는 숫자 형태의 사용량(`usage`) 데이터를 생성합니다.
+5. `deriveAllowance()`를 호출하여 현재 토큰 사용 허가 여부(`allowance`) 데이터를 생성합니다.
+6. 기존 JSON 구조에 `allowance`와 `usage`를 추가한 확장된 JSON 응답을 HTTP 200 OK와 함께 클라이언트에 반환합니다.
