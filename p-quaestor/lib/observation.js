@@ -245,10 +245,85 @@ function deriveState(obs, ctx, now) {
   return { state: state, summary: summary, fields: fields };
 }
 
+function deriveUsage(obs, thresholds, nowMs) {
+  const o = normalizeObs(obs);
+  const t = normalizeThresholds(thresholds);
+  const now = typeof nowMs === 'number' ? nowMs : null;
+
+  const hasObs = o.lastSuccessAt !== null;
+  const usage = o.lastUsage || {};
+
+  const sessionPct = (hasObs && typeof usage.session_pct === 'number') ? usage.session_pct : null;
+  const weeklyPct = (hasObs && typeof usage.weekly_pct === 'number') ? usage.weekly_pct : null;
+
+  const sessionHeadroom = sessionPct !== null ? Math.max(0, t.session_stop - sessionPct) : null;
+  const weeklyHeadroom = weeklyPct !== null ? Math.max(0, t.weekly_stop - weeklyPct) : null;
+
+  const sessionReset = (hasObs && typeof usage.session_reset === 'string') ? usage.session_reset : null;
+  const weeklyReset = (hasObs && typeof usage.weekly_reset === 'string') ? usage.weekly_reset : null;
+
+  const measuredAt = hasObs ? new Date(o.lastSuccessAt).toISOString() : null;
+  const ageSec = (hasObs && now !== null) ? Math.max(0, Math.floor((now - o.lastSuccessAt) / 1000)) : null;
+
+  const successAgeMs = (hasObs && now !== null) ? (now - o.lastSuccessAt) : null;
+  const stale = !hasObs || (successAgeMs === null) || (successAgeMs > STALE_WARN_MS) || (o.consecutiveFailures >= FAIL_CRIT_COUNT);
+
+  return {
+    session_pct: sessionPct,
+    weekly_pct: weeklyPct,
+    session_headroom: sessionHeadroom,
+    weekly_headroom: weeklyHeadroom,
+    session_reset: sessionReset,
+    weekly_reset: weeklyReset,
+    measured_at: measuredAt,
+    age_sec: ageSec,
+    stale: stale,
+    thresholds: t
+  };
+}
+
+function deriveAllowance(stopInfo, isStale, hasObservation) {
+  const hasObs = Boolean(hasObservation);
+
+  if (stopInfo) {
+    const isManual = stopInfo.source === 'manual';
+    return {
+      allowed: false,
+      reason: isManual ? 'manual-stop' : (stopInfo.reason || 'stop-active'),
+      confidence: 'measured'
+    };
+  }
+
+  if (!hasObs) {
+    return {
+      allowed: null,
+      reason: 'unmeasurable',
+      confidence: 'unknown'
+    };
+  }
+
+  if (isStale) {
+    return {
+      allowed: true,
+      reason: 'under-threshold',
+      confidence: 'stale'
+    };
+  }
+
+  return {
+    allowed: true,
+    reason: 'under-threshold',
+    confidence: 'measured'
+  };
+}
+
 module.exports = {
   createObservation,
   recordSuccess,
   recordFailure,
   deriveState,
+  deriveUsage,
+  deriveAllowance,
   DEFAULT_THRESHOLDS
 };
+

@@ -8,7 +8,9 @@ const {
   createObservation,
   recordSuccess,
   recordFailure,
-  deriveState
+  deriveState,
+  deriveUsage,
+  deriveAllowance
 } = require('../lib/observation');
 
 const SRC_PATH = path.join(__dirname, '..', 'lib', 'observation.js');
@@ -283,3 +285,86 @@ test('field order is stable across calls', () => {
 test('observation.js requires no external modules (puppeteer etc.)', () => {
   assert.ok(!/require\(\s*['"]puppeteer['"]\s*\)/.test(SRC));
 });
+
+test('deriveUsage returns numbers for session_pct and weekly_pct when observation exists', () => {
+  const obs = recordSuccess(createObservation(), { session_pct: 24, weekly_pct: 24, session_reset: '1시간 25분 후 재설정' }, NOW);
+  const u = deriveUsage(obs, { weekly_stop: 85, session_stop: 90 }, NOW);
+  assert.strictEqual(typeof u.session_pct, 'number');
+  assert.strictEqual(typeof u.weekly_pct, 'number');
+  assert.strictEqual(u.session_pct, 24);
+  assert.strictEqual(u.weekly_pct, 24);
+  assert.strictEqual(u.session_headroom, 66);
+  assert.strictEqual(u.weekly_headroom, 61);
+  assert.strictEqual(u.session_reset, '1시간 25분 후 재설정');
+  assert.strictEqual(u.stale, false);
+});
+
+test('deriveUsage returns null (not 0) for percentages when no observation history exists', () => {
+  const obs = createObservation();
+  const u = deriveUsage(obs, {}, NOW);
+  assert.strictEqual(u.session_pct, null);
+  assert.strictEqual(u.weekly_pct, null);
+  assert.strictEqual(u.session_headroom, null);
+  assert.strictEqual(u.weekly_headroom, null);
+  assert.strictEqual(u.measured_at, null);
+  assert.strictEqual(u.age_sec, null);
+  assert.strictEqual(u.stale, true);
+});
+
+test('deriveUsage headroom is 0 (not negative) when usage exceeds stop threshold', () => {
+  const obs = recordSuccess(createObservation(), { session_pct: 95, weekly_pct: 90 }, NOW);
+  const u = deriveUsage(obs, { weekly_stop: 85, session_stop: 90 }, NOW);
+  assert.strictEqual(u.session_headroom, 0);
+  assert.strictEqual(u.weekly_headroom, 0);
+});
+
+test('deriveUsage includes passed thresholds', () => {
+  const obs = createObservation();
+  const thresholds = { weekly_stop: 85, weekly_release: 70, session_stop: 90, session_release: 75 };
+  const u = deriveUsage(obs, thresholds, NOW);
+  assert.deepStrictEqual(u.thresholds, thresholds);
+});
+
+test('deriveAllowance returns allowed: null and confidence: unknown when no observation history exists', () => {
+  const a = deriveAllowance(null, true, false);
+  assert.strictEqual(a.allowed, null);
+  assert.strictEqual(a.reason, 'unmeasurable');
+  assert.strictEqual(a.confidence, 'unknown');
+});
+
+test('deriveAllowance returns allowed: false and reason: manual-stop for manual STOP', () => {
+  const stopInfo = { source: 'manual', reason: 'user requested' };
+  const a = deriveAllowance(stopInfo, false, true);
+  assert.strictEqual(a.allowed, false);
+  assert.strictEqual(a.reason, 'manual-stop');
+  assert.strictEqual(a.confidence, 'measured');
+});
+
+test('deriveAllowance returns allowed: false and original reason for auto STOP', () => {
+  const stopInfo = { source: 'auto', reason: 'weekly_threshold' };
+  const a = deriveAllowance(stopInfo, false, true);
+  assert.strictEqual(a.allowed, false);
+  assert.strictEqual(a.reason, 'weekly_threshold');
+  assert.strictEqual(a.confidence, 'measured');
+});
+
+test('deriveAllowance returns allowed: true with confidence measured or stale when no STOP exists', () => {
+  const fresh = deriveAllowance(null, false, true);
+  assert.strictEqual(fresh.allowed, true);
+  assert.strictEqual(fresh.reason, 'under-threshold');
+  assert.strictEqual(fresh.confidence, 'measured');
+
+  const stale = deriveAllowance(null, true, true);
+  assert.strictEqual(stale.allowed, true);
+  assert.strictEqual(stale.reason, 'under-threshold');
+  assert.strictEqual(stale.confidence, 'stale');
+});
+
+test('deriveUsage and deriveAllowance are pure functions without side effects', () => {
+  const obs = recordSuccess(createObservation(), { session_pct: 10, weekly_pct: 20 }, NOW);
+  const beforeObs = JSON.stringify(obs);
+  deriveUsage(obs, {}, NOW);
+  deriveAllowance(null, false, true);
+  assert.strictEqual(JSON.stringify(obs), beforeObs);
+});
+
