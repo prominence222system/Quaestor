@@ -368,3 +368,24 @@ test('deriveUsage and deriveAllowance are pure functions without side effects', 
   assert.strictEqual(JSON.stringify(obs), beforeObs);
 });
 
+test('stale in deriveUsage is consistent with deriveState criteria', () => {
+  const obsFresh = recordSuccess(createObservation(), { session_pct: 10, weekly_pct: 20 }, NOW);
+  const uFresh = deriveUsage(obsFresh, {}, NOW + 5 * MIN);
+  const stFresh = deriveState(obsFresh, {}, NOW + 5 * MIN);
+  assert.strictEqual(uFresh.stale, false);
+  assert.strictEqual(stFresh.state, 'ok');
+
+  const obsStaleWarn = recordSuccess(createObservation(), { session_pct: 10, weekly_pct: 20 }, NOW);
+  const uStaleWarn = deriveUsage(obsStaleWarn, {}, NOW + 50 * MIN);
+  const stStaleWarn = deriveState(obsStaleWarn, {}, NOW + 50 * MIN);
+  assert.strictEqual(uStaleWarn.stale, true);
+  assert.strictEqual(stStaleWarn.state, 'warn');
+
+  const obsStaleCrit = recordSuccess(createObservation(), { session_pct: 10, weekly_pct: 20 }, NOW);
+  const uStaleCrit = deriveUsage(obsStaleCrit, {}, NOW + 3 * HOUR);
+  const stStaleCrit = deriveState(obsStaleCrit, {}, NOW + 3 * HOUR);
+  assert.strictEqual(uStaleCrit.stale, true);
+  assert.strictEqual(stStaleCrit.state, 'crit');
+});
+
+

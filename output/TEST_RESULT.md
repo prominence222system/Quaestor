@@ -466,3 +466,35 @@ powershell -NoProfile -ExecutionPolicy Bypass -File ./deploy-bellows.ps1 -DryRun
 NNN: 007-usage-allowance-api
 Started: 2026-08-24T06:26:00Z
 ===========================================
+
+## Phase 1 — `observation.js` 데이터 가공 함수 (`deriveUsage`, `deriveAllowance`) 구현
+
+### 결과: PASS
+
+| 기준 | 결과 | 근거 테스트 |
+|---|---|---|
+| [SPEC] `deriveUsage` 반환 객체의 모든 퍼센트 값(`session_pct`, `weekly_pct`)은 문자열이 아닌 `number` 타입이어야 한다. | PASS | `deriveUsage returns numbers for session_pct and weekly_pct when observation exists` |
+| [SPEC] 측정 이력이 없는 경우 `deriveUsage`의 `session_pct` 및 `weekly_pct`는 `0`이 아닌 `null`이어야 한다. | PASS | `deriveUsage returns null (not 0) for percentages when no observation history exists` |
+| [SPEC] 측정 이력이 없는 경우 `deriveAllowance`의 `allowed` 판정값은 `true`나 `false`가 아닌 `null`이어야 한다. | PASS | `deriveAllowance returns allowed: null and confidence: unknown when no observation history exists` |
+| [SPEC] 측정 이력이 없는 경우 `deriveAllowance`의 `confidence`는 `'unknown'`이어야 한다. | PASS | `deriveAllowance returns allowed: null and confidence: unknown when no observation history exists` |
+| [SPEC] `deriveUsage`의 `headroom` 계산 결과는 현재 사용량이 stop 선을 넘었을 때 음수가 아닌 `0`이어야 한다. | PASS | `deriveUsage headroom is 0 (not negative) when usage exceeds stop threshold` |
+| [SPEC] 수동 STOP 활성화 시 `deriveAllowance`는 `allowed: false`와 `reason: 'manual-stop'`을 반환해야 한다. | PASS | `deriveAllowance returns allowed: false and reason: manual-stop for manual STOP` |
+| [SPEC] 자동 STOP 활성화 시 `deriveAllowance`는 `allowed: false`와 `reason` 필드에 해당 STOP의 원인을 그대로 포함해야 한다. | PASS | `deriveAllowance returns allowed: false and original reason for auto STOP` |
+| [SPEC] 신선도 판정(`stale`) 결과는 기존 `deriveState()`의 판정 기준과 모순되지 않아야 한다. | PASS | `stale in deriveUsage is consistent with deriveState criteria` |
+| [SPEC] `deriveUsage`는 전달받은 `thresholds` 객체를 그대로 반환 객체에 포함해야 한다. | PASS | `deriveUsage includes passed thresholds` |
+| [DERIVED] `deriveUsage`와 `deriveAllowance`는 사이드 이펙트가 없는 순수 함수로 설계하여, 기존의 판정 로직 상태를 오염시키지 않아야 한다. | PASS | `deriveUsage and deriveAllowance are pure functions without side effects` |
+
+### 테스트 실행 결과
+- `node p-quaestor/test/run-all.js`: tests 186, pass 186, fail 0.
+
+### 버그 수정 및 조정 내역
+- `p-quaestor/test/observation.test.js`에 `deriveUsage`의 `stale` 판정이 기존 `deriveState()` 기준과 일치함을 검증하는 전용 단위 테스트(`stale in deriveUsage is consistent with deriveState criteria`)를 추가함.
+
+### 이전 Phase 연동 검증
+- 001~006 기존 단위 및 통합 테스트 전건 pass (186개 전체 통과, 회귀 없음).
+
+### How to Run
+```
+node p-quaestor/test/run-all.js
+```
+
