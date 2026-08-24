@@ -45,3 +45,7 @@ node p-quaestor/test/run-all.js
 # 배포 스크립트 드라이런 검증
 powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy-bellows.ps1 -DryRun
 ```
+
+
+## Fix Loop Diagnosis
+[fix-diag] attempts=1 identical=1/1 escalated=yes escalation-helped=yes
