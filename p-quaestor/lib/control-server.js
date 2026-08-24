@@ -21,7 +21,7 @@
 
 const http = require('node:http');
 const crypto = require('node:crypto');
-const { deriveState } = require('./observation');
+const { deriveState, deriveUsage, deriveAllowance } = require('./observation');
 
 const HOST = '127.0.0.1';       // [SPEC] fixed. not configurable via opts.
 const DEFAULT_PORT = 3210;
@@ -92,7 +92,7 @@ function handleHealth(res, ctx) {
   });
 }
 
-// GET /api/status -- a thin projection of deriveState(). No judgement here.
+// GET /api/status -- a thin projection of deriveState(), deriveUsage(), and deriveAllowance(). No judgement here.
 function handleStatus(res, ctx) {
   let snap;
   try {
@@ -105,15 +105,23 @@ function handleStatus(res, ctx) {
     sendJson(res, 500, { ok: false, error: 'status unavailable' });
     return;
   }
-  let st;
+  let st, usage, allowance;
   try {
-    st = deriveState(snap.observation, snap.ctx, Date.now());
+    const nowMs = Date.now();
+    st = deriveState(snap.observation, snap.ctx, nowMs);
+    const thresholds = snap.ctx ? snap.ctx.thresholds : null;
+    const stopInfo = snap.ctx ? snap.ctx.stop : null;
+    const hasObs = Boolean(snap.observation && typeof snap.observation.lastSuccessAt === 'number');
+    usage = deriveUsage(snap.observation, thresholds, nowMs);
+    allowance = deriveAllowance(stopInfo, usage.stale, hasObs);
   } catch (e) {
     sendJson(res, 500, { ok: false, error: 'status unavailable' });
     return;
   }
   sendJson(res, 200, {
     ok: true,
+    allowance: allowance,
+    usage: usage,
     summary: st.summary,
     state: st.state,
     fields: st.fields,
