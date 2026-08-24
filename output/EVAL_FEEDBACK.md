@@ -1,6 +1,5 @@
 ## Verdict
-PASS
-
+FIX
 ## Verdict Criteria (current work file only)
 - NEXT: a phase REMAINS WITHIN the current work file (not for other work files)
 - FIX: Current Phase has bugs or missing features
@@ -40,3 +39,13 @@ NO
 ```
 node p-quaestor/test/run-all.js
 ```
+
+
+## Verdict
+FIX
+
+## Smoke Override
+Smoke verification failed. Forced to FIX.
+reason:
+  EXECUTED_FAIL `node p-quaestor/test/run-all.js` exit -1073740791
+  other smoke failure(s): 1 (see output/SMOKE_RESULT.md ## File Checks)

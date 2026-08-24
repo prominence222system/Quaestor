@@ -1,9 +1,11 @@
 # SMOKE_RESULT
 
-Generated: 2026-08-24 15:29:53
+Generated: 2026-08-24 15:33:19
 
 ## File Checks
 - FAIL: deploy-bellows.ps1: entry-point -DryRun did not start (startup-failure signature: ErrorRecordCategoryInfo)
+- FAIL: declared smoke failed: node p-quaestor/test/run-all.js (exit -1073740791)
+- FAIL: declared smoke not verified: declared smoke: 1 declared / 0 executed-pass
 
 ## Key Files
 - All key files present
@@ -28,34 +30,25 @@ Bellows source not found in Synology
 ```
 
 ## Declared Smoke (MASTER.md ## Work Verify)
-- EXECUTED_PASS: `node p-quaestor/test/run-all.js` (cwd: F:\Workspace\Automatic\projects\Quaestor, exit 0, 0.9s)
+- EXECUTED_FAIL: `node p-quaestor/test/run-all.js` (cwd: F:\Workspace\Automatic\projects\Quaestor, exit -1073740791, 0.5s)
 ```
-ule (0.0834ms)
-✔ watch-loop.js wires lib/observation.js into pollOnce success/failure branches (0.1114ms)
-✔ scrape-failure log line surfaces kind and hint (§5 diagnostic logging requirement) (0.1235ms)
-✔ watch-loop.js does not re-implement frozen helpers (deriveDesired/isValidUsage/writeStopJsonAtomic/readConfig/resolveStopDir stay) (0.0893ms)
-✔ p-quaestor/.js files do not reference the Claude CLI (0.3904ms)
-✔ C1: requiring watch-loop.js does not call startControlServer at module-load time (0.8662ms)
-✔ C1 (structural): startControlServer( call site is inside mainLoop(), not at module top level (0.1244ms)
-✔ C2 (structural): the startControlServer call is wrapped in try/catch, and the polling loop follows unconditionally (0.0946ms)
-✔ never-brick: startup failure is not swallowed silently -- "[control] listen failed" logging path exists (0.0639ms)
-✔ live observation source (C3, structural): getSnapshot is a function (controlSnapshot) whose body references the observation module variable (0.1395ms)
-✔ C3 (structural): controlSnapshot() body has no fs.* calls, no scrapeUsage, and no STOP_PATH reference (0.0979ms)
-✔ watch-loop.js does not re-judge thresholds when wiring control-server (no new 85/90/70/75 literals or state branches around the wiring) (0.1031ms)
-✔ Phase 2 [SPEC]: 26-day silence fixture restored on boot yields state === crit (4.4302ms)
-✔ Phase 2 [SPEC]: boundary verification -- real log file tail reading and chopped line handling (1.5138ms)
-✔ Phase 2 [SPEC]: non-existent file, 0-byte file, and corrupted binary bytes yield empty observation without throwing (1.7274ms)
-✔ Phase 2 [SPEC]: large file (>64KB) reads at most 64KB (65536 bytes) (36.7205ms)
-✔ Phase 2 [SPEC]: restored observation stringified contains no secrets (.profile, cookie, @) (1.4272ms)
-✔ Phase 2 [SPEC]: mainLoop structurally integrates restoreObservation at startup before polling loop (0.1247ms)
-ℹ tests 186
-ℹ suites 0
-ℹ pass 186
-ℹ fail 0
-ℹ cancelled 0
-ℹ skipped 0
-ℹ todo 0
-ℹ duration_ms 779.8071
+ config: expired config or parse-error config resets control to defaults (auth off) (1.5249ms)
+✔ config: existing fields (enabled/thresholds/expires_at) are unaffected by the control block addition (0.7264ms)
+✔ live closure: reassigning the observation variable changes the next /api/status response (no capture-at-startup) (3.601ms)
+✔ never-brick simulation: startup on an occupied port resolves started:false and the caller keeps running (no exception escapes) (1.1195ms)
+✔ first poll before any success: empty observation + unset ctx yields state !== ok (no green light before measurement) (2.5328ms)
+✔ ctx.stop and ctx.configSource propagate into /api/status fields (STOP field + 설정 출처 field) (2.1173ms)
+✔ assembly path: readConfig() -> startControlServer() binds the contract default address (127.0.0.1:3210) (3.6508ms)
+✔ env: BELLOWS_CONTROL_PORT / BELLOWS_CONTROL_TOKEN override hard defaults; file values still win over env (1.0819ms)
+✔ response shape matrix: every reachable status code (200/200/401/404/405/500/501) is directly asserted for I1-I5 (26.0476ms)
+✔ adversarial paths: route variants and unknown methods are rejected as valid JSON without harming the server (8.0404ms)
+✔ adversarial: a dot-segment path normalizes to /api/status and matches the contract shape (no filesystem access) (2.4198ms)
+✔ adversarial: HEAD /api/health -> 405, headers-only assertion (HTTP forbids a HEAD response body) (2.6922ms)
+✔ adversarial: an ~8KB request path draws a 4xx (exact code left to the Node parser layer) and the server keeps running (5.1946ms)
+✔ adversarial: duplicate Authorization headers do not throw -- Node keeps the first value, a mismatch still yields 401 (2.3503ms)
+✔ adversarial: a multi-KB Bearer token does not throw -- 401, not 500 (2.2302ms)
+✔ adversarial: GET /api/status with a request body is still 200 and has no side effects (the body is never read) (2.6777ms)
+✔ adversarial: POST /api/stop with Content-Type: text/xml is still 501 (the body is never parsed) (2.1586ms)
 
 ```
 
@@ -64,7 +57,7 @@ ule (0.0834ms)
 - WARN: WORK_VERIFY.md UNEXPECTED_BOM (generated artifact must not carry a BOM)
 
 ## Targets
-- Execution-class targets: 1
+- Execution-class targets: 0
 - Static-class targets: 4
 
 ## Verdict

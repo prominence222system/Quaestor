@@ -33,11 +33,7 @@ function okSnapshot() {
 }
 
 async function getJson(port, pathname, opts) {
-  const res = await fetch('http://127.0.0.1:' + port + pathname, opts || {});
-  const text = await res.text();
-  let body = null;
-  try { body = JSON.parse(text); } catch (e) { /* leave null */ }
-  return { status: res.status, headers: res.headers, body, text };
+  return httpRequest(port, pathname, opts);
 }
 
 // ---- binding / startup contract --------------------------------------
@@ -952,7 +948,9 @@ function httpRequest(port, pathname, opts) {
       res.on('end', () => {
         let body = null;
         try { body = JSON.parse(data); } catch (e) { /* leave null */ }
-        resolve({ status: res.statusCode, headers: res.headers, body, text: data });
+        const headers = res.headers;
+        headers.get = (name) => headers[name.toLowerCase()] || null;
+        resolve({ status: res.statusCode, headers: headers, body, text: data });
       });
     });
     req.on('error', reject);

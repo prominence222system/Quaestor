@@ -1,4 +1,4 @@
-﻿## 2026-08-19T06:25:34Z  round=Round 2  completed=004-control-http-contract.md  verdict=VERIFIED
+## 2026-08-19T06:25:34Z  round=Round 2  completed=004-control-http-contract.md  verdict=VERIFIED
 - project: Bellows
 - project_dir: F:\Workspace\Automatic\projects\Bellows
 - head: 89a91d20cc895361fe71c47a61968c84977c024c

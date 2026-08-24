@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 param(
-    [string]$Target = 'F:\Workspace\Automatic\projects\Bellows',
+    [string]$Target = 'F:\Workspace\Automatic\projects\Quaestor',
     [switch]$DryRun,
     [switch]$Force
 )
@@ -8,12 +8,12 @@ $ErrorActionPreference = 'Stop'
 
 # Find Synology source
 $candidates = @(
-  'D:\SynologyDrive\Obsidian\Automatic\1. Project\products\Bellows',
-  'F:\SynologyDrive\Obsidian\Automatic\1. Project\products\Bellows'
+  'D:\SynologyDrive\Obsidian\Automatic\1. Project\products\Quaestor',
+  'F:\SynologyDrive\Obsidian\Automatic\1. Project\products\Quaestor'
 )
 $SrcRoot = $null
 foreach ($c in $candidates) { if (Test-Path $c) { $SrcRoot = $c; break } }
-if (-not $SrcRoot) { throw 'Bellows source not found in Synology' }
+if (-not $SrcRoot) { $SrcRoot = $PSScriptRoot }
 
 Write-Host ""
 Write-Host "Deploy Bellows" -ForegroundColor Cyan
