@@ -2,32 +2,41 @@
 PASS
 
 ## Verdict Criteria (current work file only)
-- PASS: 008의 모든 Phase(1,2)가 DONE이고 테스트가 통과하여 forge가 다음 work file로 진행
+- PASS: 009의 모든 Phase(1,2)가 DONE이고 테스트가 통과하여 forge가 작업 완료
 
 ## Current Phase Evaluation
 - Phase: 2 (마지막 Phase)
-- Feature: 불변식·경계값·우선순위 전수 테스트 + 실포트 직렬화 왕복 + 007 무회귀 확인
+- Feature: 파싱 오류 확인, 실제 파일시스템 경로 존재 검증(경계 검증) 및 통합 테스트(run-all.js) 무회귀 확인
 - Complete: yes
-- Issues found: 없음. `output/PROGRESS.md`가 Phase 2를 PENDING으로 표기하고 있었으나 TEST_RESULT.md·실제 코드·실행 결과 모두 Phase 2가 완료되었음을 확인함(문서 동기화 지연으로 판단, 본 평가에서 갱신).
+- Issues found: 없음
 
 ## Work Detail
-- `p-quaestor/lib/observation.js`: `deriveAllowance(stopInfo, usage, hasObservation)`로 시그니처 변경, `usage.session_headroom`/`weekly_headroom`을 근거로 3번 판정(`over-threshold`) 추가. `deriveState`/`deriveUsage`는 무변경.
-- `p-quaestor/lib/control-server.js`: `deriveAllowance(stopInfo, usage.stale, hasObs)` → `deriveAllowance(stopInfo, usage, hasObs)` 1줄만 변경.
-- `p-quaestor/test/observation.test.js`, `p-quaestor/test/control-server.test.js`: 008 신규 테스트 12건(red-first 1건 포함 총 13건) 추가.
-- `node p-quaestor/test/run-all.js` 재실행 결과 **204 tests, 204 pass, 0 fail** (본 평가 시점에서 직접 재확인).
+- `run-bellows.ps1` -> `run-quaestor.ps1`, `deploy-bellows.ps1` -> `deploy-quaestor.ps1`로 `git mv` 실행하여 git 이력을 보존함.
+- 런처 파일 내부 참조, 콘솔 출력 접두어(`[quaestor]`, `[quaestor-chrome]`), 환경변수명(`$env:QUAESTOR_INTERVAL_MIN`), 및 `-Setup` 안내의 Chrome 프로필 경로(`%LOCALAPPDATA%\Google\Chrome\BellowsProfile`)를 성공적으로 갱신함.
+- 신규 테스트 수용 기준을 검증하는 `p-quaestor/test/launcher-rename.test.js` 8건의 테스트를 작성하고 `node p-quaestor/test/run-all.js` 스위트에 통합함.
+- PowerShell 5.1 구문 파싱 0 에러 및 총 212건 테스트(선행 204건 + 신규 8건) 전건 PASS를 확인함.
 
 ## Issues
-- 없음 (경미: `output/PROGRESS.md` 문서가 실제 완료 상태를 뒤늦게 반영하고 있었음. 본 평가에서 DONE으로 갱신함)
+- 없음
 
 ## Good Points
-- Red-first 절차를 준수: 007 시점 코드로 되돌려 10건 FAIL을 실제로 재현한 뒤 복원해 204건 PASS로 되돌리는 과정을 TEST_RESULT.md에 증적으로 남김.
-- `output/ACCEPTANCE.md`의 모든 [SPEC]/[DERIVED] 항목이 테스트로 커버되고 근거 테스트명이 1:1로 명시됨. 누락 없음.
-- 핵심 불변식(`allowed===true ⇒ 두 headroom>0`)을 재판정이 아니라 `deriveUsage()`가 이미 계산한 `headroom`을 그대로 읽는 방식으로 구현하여, 판정과 숫자가 같은 계산의 산물이 되도록 구조적으로 보증함.
-- `deriveDesired()`/STOP 쓰기/`deriveState`/`deriveUsage`의 diff가 0줄임을 `git diff`로 기계적으로 확인.
-- 실포트(`fetch`/`http.request` → `JSON.parse`) 직렬화 왕복 테스트로 이 버그가 실제로 잡혔던 것과 동일한 방식으로 재검증함.
+- `git mv`로 이동을 수행하여 `git log --follow run-quaestor.ps1`으로 이동 전 커밋 이력을 손실 없이 추적 가능함을 기계적으로 검증함.
+- 오도되던 `-Setup` 안내 메시지의 `C:\BellowsChrome` 경로를 실제로 사용하는 기본값(`%LOCALAPPDATA%\Google\Chrome\BellowsProfile`)으로 바로잡음.
+- `.prominence\bellows.log` 줄 형식 및 런타임 파일 경로 해석을 변경하지 않아 005의 기동 시 이력 복원 기능(`lib/logparse.js`)이 호환성을 유지함.
+- 런처가 참조하는 실 경로(`p-quaestor`, `watch-loop.js`, `watch-once.js` 등)의 존재를 파일시스템 레벨에서 경계 검증함.
 
+## How to Run
 
-===========================================
-NNN: 009-rename-launcher-scripts
-Started: 2026-08-25T08:01:14Z
-===========================================
+```bash
+# 1. 전체 단위 및 통합 테스트 실행 (212건 통과 확인)
+node p-quaestor/test/run-all.js
+
+# 2. Quaestor Setup 가이드 출력 확인
+powershell -NoProfile -ExecutionPolicy Bypass -File .\run-quaestor.ps1 -Setup
+
+# 3. Quaestor 1회 측정 실행
+powershell -NoProfile -ExecutionPolicy Bypass -File .\run-quaestor.ps1 -Once
+
+# 4. Quaestor 배포 드라이런 검증
+powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy-quaestor.ps1 -DryRun
+```
