@@ -113,7 +113,7 @@ function handleStatus(res, ctx) {
     const stopInfo = snap.ctx ? snap.ctx.stop : null;
     const hasObs = Boolean(snap.observation && typeof snap.observation.lastSuccessAt === 'number');
     usage = deriveUsage(snap.observation, thresholds, nowMs);
-    allowance = deriveAllowance(stopInfo, usage.stale, hasObs);
+    allowance = deriveAllowance(stopInfo, usage, hasObs);
   } catch (e) {
     sendJson(res, 500, { ok: false, error: 'status unavailable' });
     return;

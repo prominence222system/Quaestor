@@ -326,7 +326,8 @@ test('deriveUsage includes passed thresholds', () => {
 });
 
 test('deriveAllowance returns allowed: null and confidence: unknown when no observation history exists', () => {
-  const a = deriveAllowance(null, true, false);
+  const usage = { session_headroom: null, weekly_headroom: null, stale: true };
+  const a = deriveAllowance(null, usage, false);
   assert.strictEqual(a.allowed, null);
   assert.strictEqual(a.reason, 'unmeasurable');
   assert.strictEqual(a.confidence, 'unknown');
@@ -334,7 +335,8 @@ test('deriveAllowance returns allowed: null and confidence: unknown when no obse
 
 test('deriveAllowance returns allowed: false and reason: manual-stop for manual STOP', () => {
   const stopInfo = { source: 'manual', reason: 'user requested' };
-  const a = deriveAllowance(stopInfo, false, true);
+  const usage = { session_headroom: 5, weekly_headroom: 5, stale: false };
+  const a = deriveAllowance(stopInfo, usage, true);
   assert.strictEqual(a.allowed, false);
   assert.strictEqual(a.reason, 'manual-stop');
   assert.strictEqual(a.confidence, 'measured');
@@ -342,19 +344,20 @@ test('deriveAllowance returns allowed: false and reason: manual-stop for manual 
 
 test('deriveAllowance returns allowed: false and original reason for auto STOP', () => {
   const stopInfo = { source: 'auto', reason: 'weekly_threshold' };
-  const a = deriveAllowance(stopInfo, false, true);
+  const usage = { session_headroom: 5, weekly_headroom: 5, stale: false };
+  const a = deriveAllowance(stopInfo, usage, true);
   assert.strictEqual(a.allowed, false);
   assert.strictEqual(a.reason, 'weekly_threshold');
   assert.strictEqual(a.confidence, 'measured');
 });
 
 test('deriveAllowance returns allowed: true with confidence measured or stale when no STOP exists', () => {
-  const fresh = deriveAllowance(null, false, true);
+  const fresh = deriveAllowance(null, { session_headroom: 5, weekly_headroom: 5, stale: false }, true);
   assert.strictEqual(fresh.allowed, true);
   assert.strictEqual(fresh.reason, 'under-threshold');
   assert.strictEqual(fresh.confidence, 'measured');
 
-  const stale = deriveAllowance(null, true, true);
+  const stale = deriveAllowance(null, { session_headroom: 5, weekly_headroom: 5, stale: true }, true);
   assert.strictEqual(stale.allowed, true);
   assert.strictEqual(stale.reason, 'under-threshold');
   assert.strictEqual(stale.confidence, 'stale');
@@ -364,8 +367,18 @@ test('deriveUsage and deriveAllowance are pure functions without side effects', 
   const obs = recordSuccess(createObservation(), { session_pct: 10, weekly_pct: 20 }, NOW);
   const beforeObs = JSON.stringify(obs);
   deriveUsage(obs, {}, NOW);
-  deriveAllowance(null, false, true);
+  deriveAllowance(null, { session_headroom: 5, weekly_headroom: 5, stale: false }, true);
   assert.strictEqual(JSON.stringify(obs), beforeObs);
+});
+
+test('[008 red-first] session 97 / weekly 99 over stop 90/85, no STOP, fresh -> allowed false, reason over-threshold', () => {
+  const obs = recordSuccess(createObservation(), { session_pct: 97, weekly_pct: 99 }, NOW);
+  const thresholds = { session_stop: 90, weekly_stop: 85 };
+  const usage = deriveUsage(obs, thresholds, NOW);
+  const a = deriveAllowance(null, usage, true);
+  assert.strictEqual(a.allowed, false);
+  assert.strictEqual(a.reason, 'over-threshold');
+  assert.strictEqual(a.confidence, 'measured');
 });
 
 test('stale in deriveUsage is consistent with deriveState criteria', () => {

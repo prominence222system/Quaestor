@@ -282,9 +282,23 @@ function deriveUsage(obs, thresholds, nowMs) {
   };
 }
 
-function deriveAllowance(stopInfo, isStale, hasObservation) {
-  const hasObs = Boolean(hasObservation);
+function deriveAllowance(stopInfo, usage, hasObservation) {
+  const u = usage || {};
+  const sh = u.session_headroom;
+  const wh = u.weekly_headroom;
+  const measurable =
+    Boolean(hasObservation) && typeof sh === 'number' && typeof wh === 'number';
 
+  // 1. unmeasurable -- do not promote ignorance to either permission or denial
+  if (!measurable) {
+    return {
+      allowed: null,
+      reason: 'unmeasurable',
+      confidence: 'unknown'
+    };
+  }
+
+  // 2. STOP already active -- an existing decision (manual or auto) takes priority
   if (stopInfo) {
     const isManual = stopInfo.source === 'manual';
     return {
@@ -294,26 +308,20 @@ function deriveAllowance(stopInfo, isStale, hasObservation) {
     };
   }
 
-  if (!hasObs) {
+  // 3. already-computed headroom is 0 -- do not allow (safety line)
+  if (sh <= 0 || wh <= 0) {
     return {
-      allowed: null,
-      reason: 'unmeasurable',
-      confidence: 'unknown'
+      allowed: false,
+      reason: 'over-threshold',
+      confidence: 'measured'
     };
   }
 
-  if (isStale) {
-    return {
-      allowed: true,
-      reason: 'under-threshold',
-      confidence: 'stale'
-    };
-  }
-
+  // 4. headroom on both sides -- the only branch that returns true
   return {
     allowed: true,
     reason: 'under-threshold',
-    confidence: 'measured'
+    confidence: u.stale ? 'stale' : 'measured'
   };
 }
 
