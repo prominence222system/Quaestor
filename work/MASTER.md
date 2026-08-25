@@ -29,6 +29,7 @@ claude.ai/settings/usage --scrape--> session_pct / weekly_pct
 - Round 4: 006 (engine: claude)
 - Round 5: 007 (engine: agy)
 - Round 6: 008 (engine: claude)
+- Round 7: 009 (engine: agy)
 
 ## Work Verify
 - Smoke: `node p-quaestor/test/run-all.js`
@@ -95,6 +96,20 @@ claude.ai/settings/usage --scrape--> session_pct / weekly_pct
 🔒 **재판정이 아니다.** `deriveDesired()`(차단기)는 한 글자도 안 건드린다. 이미 계산한
 `headroom` 이 0 이면 허가하지 않는다는 안전선을 하나 더 두는 것뿐이다.
 🔒 **불변식**: `allowed === true` 이면 두 `headroom` 이 모두 0 보다 크다. 이 한 줄을 테스트로 고정한다.
+
+## Round 7 이 하는 일
+
+개명의 마지막 조각이다. 006 이 저장소 내부를 바꿨고 폴더·저장소도 옮겼는데
+**런처 두 개만 옛 이름으로 남아 있다.**
+
+- **009** — `run-bellows.ps1` -> `run-quaestor.ps1`, `deploy-bellows.ps1` -> `deploy-quaestor.ps1`
+
+006 이 이 둘을 남긴 이유(Foreman 이 파일명을 소비함)는 해소됐다 — Foreman 에 `supervised[]`
+등록부가 랜딩해 **파일명이 설정값**(`start.args`)이 됐고, 🔒 **Foreman 은 이 개명을 기다리고 있다.**
+
+🔒 **동작 변경 0 이 합격 기준이다.** 이름만 바뀐다.
+🔒 **`.prominence` 의 로그·설정 파일명과 로그 줄 형식은 불변** — 005 의 복원이 그걸 읽는다.
+콘솔 출력 접두어(`[bellows-chrome]`)와 로그 파일 줄(`[start] bellows watcher`)을 혼동하지 말 것.
 
 ## Constraints
 

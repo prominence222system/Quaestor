@@ -357,3 +357,124 @@ nfig() -> startControlServer() binds the contract default address (127.0.0.1:321
 
 ```
 
+## 2026-08-25T00:33:53Z  round=Round 6  completed=008-allowance-respects-measured-usage.md  verdict=VERIFIED
+- project: Quaestor
+- project_dir: F:\Workspace\Automatic\projects\Quaestor
+- head: ed40c8ecbdc951a22e9a4b00a7426d0c55efd344
+- worktree: UNCHANGED
+- duration: 1s
+- checks: 1 declared / 1 ran / 1 passed
+- NOTE: report only. This is NOT a verdict and does NOT change project state.
+
+### [1/1] SMOKE 1/1 -- PASS (exit 0)
+- command: node p-quaestor/test/run-all.js
+- workdir: F:\Workspace\Automatic\projects\Quaestor
+- failure point: none (passed)
+- reproduce:
+      cd "F:\Workspace\Automatic\projects\Quaestor"
+      node p-quaestor/test/run-all.js
+- log tail:
+```
+nd === unknown and detail === null (0.0859ms)
+? failure lines before last success line are excluded from consecutiveFailures (0.1392ms)
+? empty lines or lines without valid events return null (0.0708ms)
+? deriveState is pure and deterministic (same input twice) (0.1163ms)
+? observation.js source does not read wall-clock time or fs (0.1381ms)
+? deriveState does not mutate obs or ctx (0.1001ms)
+? recordSuccess/recordFailure do not mutate input obs (0.0838ms)
+? fields are timezone independent (0.2608ms)
+? never-success observation is not ok (0.0796ms)
+? consecutiveFailures at crit threshold is crit, even with no success history (0.0788ms)
+? stale success (>2h) is crit (0.1777ms)
+? stale success (>45m, <=2h) is warn (0.0809ms)
+? fresh + near threshold is warn, fresh + headroom is ok (0.0948ms)
+? enabled=false forces idle regardless of other conditions (0.0847ms)
+? state is always one of the four enum values (0.1014ms)
+? deriveState never throws on missing/empty inputs (0.1169ms)
+? success -> failure -> failure -> success resets consecutiveFailures to 0 (0.0768ms)
+? recordFailure increments consecutiveFailures/totalFailures, keeps lastSuccessAt (0.0688ms)
+? recordSuccess sets lastSuccessAt to now, resets consecutiveFailures, keeps totalPolls counting (0.0682ms)
+? createObservation initial shape (0.0627ms)
+? recordFailure normalizes falsy/non-string kind to unknown (0.0652ms)
+? recordSuccess keeps prior lastFailure (0.0662ms)
+? no secrets leak into deriveState output, even when detail carries them (0.1015ms)
+? lastFailure field carries only kind + known hint vocabulary (0.0865ms)
+? unknown/garbage hint is dropped, not surfaced (0.0809ms)
+? fields entries have string label/value and optional valid state (0.0941ms)
+? fields include all required items (0.0816ms)
+? STOP field distinguishes manual vs auto vs none (0.1113ms)
+? configSource field reflects ctx.configSource (0.0937ms)
+? lastUsage=null keeps session/weekly fields present with placeholder value (0.0867ms)
+? field order is stable across calls (0.1042ms)
+? observation.js requires no external modules (puppeteer etc.) (0.09ms)
+? deriveUsage returns numbers for session_pct and weekly_pct when observation exists (0.0937ms)
+? deriveUsage returns null (not 0) for percentages when no observation history exists (0.0682ms)
+? deriveUsage headroom is 0 (not negative) when usage exceeds stop threshold (0.0696ms)
+? deriveUsage includes passed thresholds (0.0754ms)
+? deriveAllowance returns allowed: null and confidence: unknown when no observation history exists (0.0715ms)
+? deriveAllowance returns allowed: false and reason: manual-stop for manual STOP (0.0835ms)
+? deriveAllowance returns allowed: false and original reason for auto STOP (0.0713ms)
+? deriveAllowance returns allowed: true with confidence measured or stale when no STOP exists (0.0705ms)
+? deriveUsage and deriveAllowance are pure functions without side effects (0.0796ms)
+? [008 red-first] session 97 / weekly 99 over stop 90/85, no STOP, fresh -> allowed false, reason over-threshold (0.0774ms)
+? [008] boundary: pct === stop is over-threshold (>=), for session and weekly independently (0.0966ms)
+? [008] boundary: pct === stop - 1 on both sides is allowed under-threshold (0.0735ms)
+? [008] one side only exceeds -> false, in both directions (session-only, weekly-only) (0.079ms)
+? [008] STOP active outranks threshold breach: manual-stop and auto original reason both survive over-threshold usage (0.0799ms)
+? [008] unmeasurable outranks STOP: no observation history + STOP present -> still allowed:null/unmeasurable (0.0626ms)
+? [008] single-sided measurement (one headroom missing) cannot assert both positive -> unmeasurable (0.0611ms)
+? [008] invariant + anti-false-assertion swept over a pct grid: allowed===true => both headrooms > 0; reason===under-threshold => both pct < stop (1.2239ms)
+? stale in deriveUsage is consistent with deriveState criteria (0.1258ms)
+? hintFrom: login path -> login-expired (0.1044ms)
+? hintFrom: target origin + non-empty body, no login -> anchor-missing (0.098ms)
+? hintFrom: unknown when evidence is missing or inconclusive (0.084ms)
+? hintFrom: malformed url strings do not throw and fall back to unknown (0.0803ms)
+? hintFrom: pure -- does not mutate its input, same input gives same output (0.0736ms)
+? HINTS enumerates exactly the three known hint values (0.0664ms)
+? collectDiagnostics reproduces all three hints via an injected fake page (0.2293ms)
+? collectDiagnostics never throws, even when url()/evaluate() throw or page is null (0.212ms)
+? collectDiagnostics caps textHead at 200 chars (0.116ms)
+? connect() failure classified as chrome-unreachable, existing message preserved (1.1065ms)
+? browser.newPage() failure classified as chrome-unreachable, message/stack preserved (1.2173ms)
+? page.goto() failure classified as nav-failed (0.4216ms)
+? waitForFunction() failure classified as anchor-timeout, with diagnostics collected before close() (0.5694ms)
+? waitForFunction() failure with unrecognizable page yields hint unknown, never login-expired by default (0.6379ms)
+? page.evaluate() extraction failure classified as invalid-extraction (0.5695ms)
+? success path returns usage and only disconnects (never closes) the browser (0.5706ms)
+? FAILURE_KINDS has exactly the 5 expected values (0.1031ms)
+? HINTS matches the hint vocabulary observation.js recognizes (whitelist round-trip) (0.2761ms)
+? err.detail carries url/textHead for diagnosis, but only hint is meant to reach deriveState fields (0.164ms)
+? scrapeUsage keeps its existing signature and is still exported (0.0872ms)
+? lib/scrape.js references the claude.ai domain exactly once (constant only) (0.1162ms)
+? lib/scrape.js does not require puppeteer at the top level (lazy load) (0.1484ms)
+? requiring lib/scrape.js does not eagerly load the puppeteer module (0.0854ms)
+? require("../watch-loop.js") loads without starting the watch loop (0.0977ms)
+? watch-loop.js source guards its immediate-invocation loop with require.main === module (0.1234ms)
+? watch-loop.js wires lib/observation.js into pollOnce success/failure branches (0.1538ms)
+? scrape-failure log line surfaces kind and hint (?5 diagnostic logging requirement) (0.1323ms)
+? watch-loop.js does not re-implement frozen helpers (deriveDesired/isValidUsage/writeStopJsonAtomic/readConfig/resolveStopDir stay) (0.0807ms)
+? p-quaestor/.js files do not reference the Claude CLI (0.4506ms)
+? C1: requiring watch-loop.js does not call startControlServer at module-load time (0.8607ms)
+? C1 (structural): startControlServer( call site is inside mainLoop(), not at module top level (0.1365ms)
+? C2 (structural): the startControlServer call is wrapped in try/catch, and the polling loop follows unconditionally (0.0934ms)
+? never-brick: startup failure is not swallowed silently -- "[control] listen failed" logging path exists (0.0771ms)
+? live observation source (C3, structural): getSnapshot is a function (controlSnapshot) whose body references the observation module variable (0.1493ms)
+? C3 (structural): controlSnapshot() body has no fs.* calls, no scrapeUsage, and no STOP_PATH reference (0.0948ms)
+? watch-loop.js does not re-judge thresholds when wiring control-server (no new 85/90/70/75 literals or state branches around the wiring) (0.1019ms)
+? Phase 2 [SPEC]: 26-day silence fixture restored on boot yields state === crit (2.6128ms)
+? Phase 2 [SPEC]: boundary verification -- real log file tail reading and chopped line handling (1.5001ms)
+? Phase 2 [SPEC]: non-existent file, 0-byte file, and corrupted binary bytes yield empty observation without throwing (1.7252ms)
+? Phase 2 [SPEC]: large file (>64KB) reads at most 64KB (65536 bytes) (38.1568ms)
+? Phase 2 [SPEC]: restored observation stringified contains no secrets (.profile, cookie, @) (1.7221ms)
+? Phase 2 [SPEC]: mainLoop structurally integrates restoreObservation at startup before polling loop (0.1659ms)
+? tests 204
+? suites 0
+? pass 204
+? fail 0
+? cancelled 0
+? skipped 0
+? todo 0
+? duration_ms 800.0334
+
+```
+

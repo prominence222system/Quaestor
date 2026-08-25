@@ -243,3 +243,9 @@ startControlServer({
 # 다른 터미널에서: curl http://127.0.0.1:3210/api/status
 # -> allowance.allowed === false, allowance.reason === 'over-threshold' 확인
 ```
+
+
+===========================================
+NNN: 009-rename-launcher-scripts
+Started: 2026-08-25T08:01:14Z
+===========================================

@@ -25,3 +25,9 @@ PASS
 - 핵심 불변식(`allowed===true ⇒ 두 headroom>0`)을 재판정이 아니라 `deriveUsage()`가 이미 계산한 `headroom`을 그대로 읽는 방식으로 구현하여, 판정과 숫자가 같은 계산의 산물이 되도록 구조적으로 보증함.
 - `deriveDesired()`/STOP 쓰기/`deriveState`/`deriveUsage`의 diff가 0줄임을 `git diff`로 기계적으로 확인.
 - 실포트(`fetch`/`http.request` → `JSON.parse`) 직렬화 왕복 테스트로 이 버그가 실제로 잡혔던 것과 동일한 방식으로 재검증함.
+
+
+===========================================
+NNN: 009-rename-launcher-scripts
+Started: 2026-08-25T08:01:14Z
+===========================================
