@@ -16,7 +16,7 @@ foreach ($c in $candidates) { if (Test-Path $c) { $SrcRoot = $c; break } }
 if (-not $SrcRoot) { $SrcRoot = $PSScriptRoot }
 
 Write-Host ""
-Write-Host "Deploy Bellows" -ForegroundColor Cyan
+Write-Host "Deploy Quaestor" -ForegroundColor Cyan
 Write-Host ("  Source: {0}" -f $SrcRoot)
 Write-Host ("  Dest:   {0}" -f $Target)
 if ($DryRun) { Write-Host "  (dry run)" -ForegroundColor Yellow }
@@ -106,7 +106,7 @@ if (Test-Path $srcTool) {
 # Step 2: copy run/deploy scripts with mtime guard
 Write-Host ""
 Write-Host "Step 2: copy run/deploy scripts" -ForegroundColor Cyan
-foreach ($script in @('run-bellows.ps1', 'deploy-bellows.ps1')) {
+foreach ($script in @('run-quaestor.ps1', 'deploy-quaestor.ps1')) {
     $src = Join-Path $SrcRoot $script
     $dst = Join-Path $Target  $script
     if (Test-Path $src) {
@@ -119,4 +119,4 @@ foreach ($script in @('run-bellows.ps1', 'deploy-bellows.ps1')) {
 }
 
 Write-Host ""
-Write-Host "Deploy Bellows complete." -ForegroundColor Green
+Write-Host "Deploy Quaestor complete." -ForegroundColor Green
