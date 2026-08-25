@@ -75,3 +75,9 @@ node p-quaestor/test/run-all.js
 # 배포 드라이런 검증 (PowerShell)
 powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy-bellows.ps1 -DryRun
 ```
+
+
+===========================================
+NNN: 008-allowance-respects-measured-usage
+Started: 2026-08-25T00:22:42Z
+===========================================

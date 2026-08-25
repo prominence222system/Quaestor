@@ -28,6 +28,7 @@ claude.ai/settings/usage --scrape--> session_pct / weekly_pct
 - Round 3: 005 (engine: agy)
 - Round 4: 006 (engine: claude)
 - Round 5: 007 (engine: agy)
+- Round 6: 008 (engine: claude)
 
 ## Work Verify
 - Smoke: `node p-quaestor/test/run-all.js`
@@ -83,6 +84,17 @@ claude.ai/settings/usage --scrape--> session_pct / weekly_pct
 🔒 **`fields`·`summary`·`state` 는 불변** — 기존 소비자(Foreman) 무영향, 추가만 하는 하위호환 변경.
 🔒 **측정할 수 없으면 `allowed` 는 `null`** — `true` 도 `false` 도 아니다. 무지를 허가로도
 금지로도 승격시키지 않고, 소비자가 자기 정책을 갖게 한다.
+
+## Round 6 이 하는 일
+
+007 을 실제로 띄워보니 **주간 99% 인데 `allowed: true`** 였고 `reason` 이 `under-threshold` 였다.
+`headroom` 은 0 으로 맞게 냈으면서 판정만 틀렸다.
+
+- **008** — `allowed` 가 STOP.json 존재 여부뿐 아니라 **측정치도 본다**
+
+🔒 **재판정이 아니다.** `deriveDesired()`(차단기)는 한 글자도 안 건드린다. 이미 계산한
+`headroom` 이 0 이면 허가하지 않는다는 안전선을 하나 더 두는 것뿐이다.
+🔒 **불변식**: `allowed === true` 이면 두 `headroom` 이 모두 0 보다 크다. 이 한 줄을 테스트로 고정한다.
 
 ## Constraints
 

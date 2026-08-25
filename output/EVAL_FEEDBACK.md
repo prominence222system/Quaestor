@@ -49,3 +49,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy-bellows.ps1 -DryRun
 
 ## Fix Loop Diagnosis
 [fix-diag] attempts=1 identical=1/1 escalated=yes escalation-helped=yes
+
+
+===========================================
+NNN: 008-allowance-respects-measured-usage
+Started: 2026-08-25T00:22:42Z
+===========================================
