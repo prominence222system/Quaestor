@@ -2,56 +2,26 @@
 PASS
 
 ## Verdict Criteria (current work file only)
-- NEXT: a phase REMAINS WITHIN the current work file (not for other work files)
-- FIX: Current Phase has bugs or missing features
-- REDESIGN: Fundamental design issues require architecture change
-- INTEGRATE: ALL phases of the current work file are DONE, need an integration test
-- PASS: the current work file is complete (all its phases DONE, tests pass); forge advances to the next work file
-
-## Redesign Needed
-NO
+- PASS: 008의 모든 Phase(1,2)가 DONE이고 테스트가 통과하여 forge가 다음 work file로 진행
 
 ## Current Phase Evaluation
-- Phase: 3
-- Feature: 단위 테스트, 통합 검증 및 실포트 직렬화 테스트 작성
+- Phase: 2 (마지막 Phase)
+- Feature: 불변식·경계값·우선순위 전수 테스트 + 실포트 직렬화 왕복 + 007 무회귀 확인
 - Complete: yes
-- Issues found: 없음
+- Issues found: 없음. `output/PROGRESS.md`가 Phase 2를 PENDING으로 표기하고 있었으나 TEST_RESULT.md·실제 코드·실행 결과 모두 Phase 2가 완료되었음을 확인함(문서 동기화 지연으로 판단, 본 평가에서 갱신).
 
 ## Work Detail
-- Files created/modified
-  - `p-quaestor/lib/observation.js` (`deriveUsage`, `deriveAllowance` 순수 함수 구현)
-  - `p-quaestor/lib/control-server.js` (`/api/status` 엔드포인트 응답 확장)
-  - `p-quaestor/test/observation.test.js` (`deriveUsage`, `deriveAllowance` 단위 테스트)
-  - `p-quaestor/test/control-server.test.js` (`/api/status` 수치 직렬화/한글 미포함/26일 침묵 테스트)
-  - `p-quaestor/test/run-all.js` (전체 테스트 스위트 191건 연동)
-- Key changes summary
-  - 기존 소비자(Foreman) 무영향을 위해 `fields`, `summary`, `state`를 100% 동일하게 유지하고 최상단에 `usage` 및 `allowance` 객체를 추가함.
-  - 관측 이력이 없거나 26일 이상 측정이 중단된 장기 실패 시 `allowed`를 `null`로 반환하여 기계적 왜곡 방지.
+- `p-quaestor/lib/observation.js`: `deriveAllowance(stopInfo, usage, hasObservation)`로 시그니처 변경, `usage.session_headroom`/`weekly_headroom`을 근거로 3번 판정(`over-threshold`) 추가. `deriveState`/`deriveUsage`는 무변경.
+- `p-quaestor/lib/control-server.js`: `deriveAllowance(stopInfo, usage.stale, hasObs)` → `deriveAllowance(stopInfo, usage, hasObs)` 1줄만 변경.
+- `p-quaestor/test/observation.test.js`, `p-quaestor/test/control-server.test.js`: 008 신규 테스트 12건(red-first 1건 포함 총 13건) 추가.
+- `node p-quaestor/test/run-all.js` 재실행 결과 **204 tests, 204 pass, 0 fail** (본 평가 시점에서 직접 재확인).
 
 ## Issues
-- 없음
+- 없음 (경미: `output/PROGRESS.md` 문서가 실제 완료 상태를 뒤늦게 반영하고 있었음. 본 평가에서 DONE으로 갱신함)
 
 ## Good Points
-- 기존 `/api/status` 응답의 하위 호환성(`fields`, `summary`, `state`)을 완전하게 보존.
-- 191개 전체 단위/통합 테스트 스위트 무회귀 통과.
-- `deploy-bellows.ps1 -DryRun` 정상 동작 확인.
-
-## How to Run
-
-```bash
-# 전체 단위 및 통합 테스트 실행
-node p-quaestor/test/run-all.js
-
-# 배포 스크립트 드라이런 검증
-powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy-bellows.ps1 -DryRun
-```
-
-
-## Fix Loop Diagnosis
-[fix-diag] attempts=1 identical=1/1 escalated=yes escalation-helped=yes
-
-
-===========================================
-NNN: 008-allowance-respects-measured-usage
-Started: 2026-08-25T00:22:42Z
-===========================================
+- Red-first 절차를 준수: 007 시점 코드로 되돌려 10건 FAIL을 실제로 재현한 뒤 복원해 204건 PASS로 되돌리는 과정을 TEST_RESULT.md에 증적으로 남김.
+- `output/ACCEPTANCE.md`의 모든 [SPEC]/[DERIVED] 항목이 테스트로 커버되고 근거 테스트명이 1:1로 명시됨. 누락 없음.
+- 핵심 불변식(`allowed===true ⇒ 두 headroom>0`)을 재판정이 아니라 `deriveUsage()`가 이미 계산한 `headroom`을 그대로 읽는 방식으로 구현하여, 판정과 숫자가 같은 계산의 산물이 되도록 구조적으로 보증함.
+- `deriveDesired()`/STOP 쓰기/`deriveState`/`deriveUsage`의 diff가 0줄임을 `git diff`로 기계적으로 확인.
+- 실포트(`fetch`/`http.request` → `JSON.parse`) 직렬화 왕복 테스트로 이 버그가 실제로 잡혔던 것과 동일한 방식으로 재검증함.
