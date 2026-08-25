@@ -253,6 +253,98 @@ test('Phase 2 [SPEC]: long-term measurement failure (26-day silence / no history
   }
 });
 
+// ---- 008: allowance respects measured usage (real port, serialized) ------
+
+test('[008 red-first] real port -- session 97 / weekly 99 over stop 90/85, no STOP, fresh -> allowed:false, reason:over-threshold (JSON round-trip)', async () => {
+  const obs = recordSuccess(createObservation(), { session_pct: 97, weekly_pct: 99 }, Date.now());
+  const snap = { observation: obs, ctx: { enabled: true, thresholds: { session_stop: 90, weekly_stop: 85 }, stop: null, configSource: 'default' } };
+  const r = await startControlServer({ port: 0, getSnapshot: () => snap });
+  try {
+    const res = await getJson(r.port, '/api/status');
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.allowance.allowed, false);
+    assert.strictEqual(res.body.allowance.reason, 'over-threshold');
+    assert.strictEqual(res.body.usage.session_headroom, 0);
+    assert.strictEqual(res.body.usage.weekly_headroom, 0);
+  } finally {
+    await r.close();
+  }
+});
+
+test('[008] real port -- invariant swept over a pct grid: allowed:true implies both headrooms > 0, and reason:under-threshold implies both pct below stop', async () => {
+  const thresholds = { session_stop: 90, weekly_stop: 85 };
+  for (let s = 0; s <= 100; s += 20) {
+    for (let w = 0; w <= 100; w += 20) {
+      const obs = recordSuccess(createObservation(), { session_pct: s, weekly_pct: w }, Date.now());
+      const snap = { observation: obs, ctx: { enabled: true, thresholds, stop: null, configSource: 'default' } };
+      const r = await startControlServer({ port: 0, getSnapshot: () => snap });
+      try {
+        const res = await getJson(r.port, '/api/status');
+        if (res.body.allowance.allowed === true) {
+          assert.ok(res.body.usage.session_headroom > 0, 's=' + s + ' w=' + w);
+          assert.ok(res.body.usage.weekly_headroom > 0, 's=' + s + ' w=' + w);
+        }
+        if (res.body.allowance.reason === 'under-threshold') {
+          assert.ok(s < thresholds.session_stop, 's=' + s);
+          assert.ok(w < thresholds.weekly_stop, 'w=' + w);
+        }
+      } finally {
+        await r.close();
+      }
+    }
+  }
+});
+
+test('[008] real port -- enabled:false + threshold exceeded + no STOP -> allowed:false (numbers still tell the truth even when watching is off)', async () => {
+  const obs = recordSuccess(createObservation(), { session_pct: 97, weekly_pct: 99 }, Date.now());
+  const snap = { observation: obs, ctx: { enabled: false, thresholds: { session_stop: 90, weekly_stop: 85 }, stop: null, configSource: 'default' } };
+  const r = await startControlServer({ port: 0, getSnapshot: () => snap });
+  try {
+    const res = await getJson(r.port, '/api/status');
+    assert.strictEqual(res.body.allowance.allowed, false);
+    assert.strictEqual(res.body.allowance.reason, 'over-threshold');
+  } finally {
+    await r.close();
+  }
+});
+
+test('[008] real port -- STOP active outranks threshold breach (manual-stop, then auto original reason)', async () => {
+  const thresholds = { session_stop: 90, weekly_stop: 85 };
+  const obs = recordSuccess(createObservation(), { session_pct: 97, weekly_pct: 99 }, Date.now());
+
+  const manualSnap = { observation: obs, ctx: { enabled: true, thresholds, stop: { source: 'manual', reason: 'vacation' }, configSource: 'default' } };
+  const r1 = await startControlServer({ port: 0, getSnapshot: () => manualSnap });
+  try {
+    const res = await getJson(r1.port, '/api/status');
+    assert.strictEqual(res.body.allowance.allowed, false);
+    assert.strictEqual(res.body.allowance.reason, 'manual-stop');
+  } finally {
+    await r1.close();
+  }
+
+  const autoSnap = { observation: obs, ctx: { enabled: true, thresholds, stop: { source: 'auto', reason: 'weekly_threshold' }, configSource: 'default' } };
+  const r2 = await startControlServer({ port: 0, getSnapshot: () => autoSnap });
+  try {
+    const res = await getJson(r2.port, '/api/status');
+    assert.strictEqual(res.body.allowance.allowed, false);
+    assert.strictEqual(res.body.allowance.reason, 'weekly_threshold');
+  } finally {
+    await r2.close();
+  }
+});
+
+test('[008] real port -- allowance key set stays exactly {allowed, confidence, reason} and top-level /api/status keys are unchanged from 007', async () => {
+  const snap = okSnapshot();
+  const r = await startControlServer({ port: 0, getSnapshot: () => snap });
+  try {
+    const res = await getJson(r.port, '/api/status');
+    assert.deepStrictEqual(Object.keys(res.body.allowance).sort(), ['allowed', 'confidence', 'reason']);
+    assert.deepStrictEqual(Object.keys(res.body).sort(), ['allowance', 'fields', 'ok', 'state', 'summary', 'updatedAt', 'usage']);
+  } finally {
+    await r.close();
+  }
+});
+
 test('GET /api/status has no side effects: getSnapshot observation is unchanged across two GETs', async () => {
   const snap = okSnapshot();
   const before = JSON.stringify(snap.observation);

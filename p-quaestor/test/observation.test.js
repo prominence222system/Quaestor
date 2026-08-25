@@ -381,6 +381,91 @@ test('[008 red-first] session 97 / weekly 99 over stop 90/85, no STOP, fresh -> 
   assert.strictEqual(a.confidence, 'measured');
 });
 
+test('[008] boundary: pct === stop is over-threshold (>=), for session and weekly independently', () => {
+  const thresholds = { session_stop: 90, weekly_stop: 85 };
+  const sessionAtStop = deriveUsage(recordSuccess(createObservation(), { session_pct: 90, weekly_pct: 10 }, NOW), thresholds, NOW);
+  const a1 = deriveAllowance(null, sessionAtStop, true);
+  assert.strictEqual(a1.allowed, false);
+  assert.strictEqual(a1.reason, 'over-threshold');
+
+  const weeklyAtStop = deriveUsage(recordSuccess(createObservation(), { session_pct: 10, weekly_pct: 85 }, NOW), thresholds, NOW);
+  const a2 = deriveAllowance(null, weeklyAtStop, true);
+  assert.strictEqual(a2.allowed, false);
+  assert.strictEqual(a2.reason, 'over-threshold');
+});
+
+test('[008] boundary: pct === stop - 1 on both sides is allowed under-threshold', () => {
+  const thresholds = { session_stop: 90, weekly_stop: 85 };
+  const obs = recordSuccess(createObservation(), { session_pct: 89, weekly_pct: 84 }, NOW);
+  const usage = deriveUsage(obs, thresholds, NOW);
+  const a = deriveAllowance(null, usage, true);
+  assert.strictEqual(a.allowed, true);
+  assert.strictEqual(a.reason, 'under-threshold');
+});
+
+test('[008] one side only exceeds -> false, in both directions (session-only, weekly-only)', () => {
+  const thresholds = { session_stop: 90, weekly_stop: 85 };
+  const sessionOnly = deriveUsage(recordSuccess(createObservation(), { session_pct: 95, weekly_pct: 10 }, NOW), thresholds, NOW);
+  const a1 = deriveAllowance(null, sessionOnly, true);
+  assert.strictEqual(a1.allowed, false);
+  assert.strictEqual(a1.reason, 'over-threshold');
+
+  const weeklyOnly = deriveUsage(recordSuccess(createObservation(), { session_pct: 10, weekly_pct: 90 }, NOW), thresholds, NOW);
+  const a2 = deriveAllowance(null, weeklyOnly, true);
+  assert.strictEqual(a2.allowed, false);
+  assert.strictEqual(a2.reason, 'over-threshold');
+});
+
+test('[008] STOP active outranks threshold breach: manual-stop and auto original reason both survive over-threshold usage', () => {
+  const thresholds = { session_stop: 90, weekly_stop: 85 };
+  const obs = recordSuccess(createObservation(), { session_pct: 97, weekly_pct: 99 }, NOW);
+  const usage = deriveUsage(obs, thresholds, NOW);
+
+  const manual = deriveAllowance({ source: 'manual', reason: 'user requested' }, usage, true);
+  assert.strictEqual(manual.allowed, false);
+  assert.strictEqual(manual.reason, 'manual-stop');
+
+  const auto = deriveAllowance({ source: 'auto', reason: 'weekly_threshold' }, usage, true);
+  assert.strictEqual(auto.allowed, false);
+  assert.strictEqual(auto.reason, 'weekly_threshold');
+  assert.notStrictEqual(auto.reason, 'over-threshold');
+});
+
+test('[008] unmeasurable outranks STOP: no observation history + STOP present -> still allowed:null/unmeasurable', () => {
+  const usage = { session_headroom: null, weekly_headroom: null, stale: true };
+  const a = deriveAllowance({ source: 'manual', reason: 'vacation' }, usage, false);
+  assert.strictEqual(a.allowed, null);
+  assert.strictEqual(a.reason, 'unmeasurable');
+  assert.strictEqual(a.confidence, 'unknown');
+});
+
+test('[008] single-sided measurement (one headroom missing) cannot assert both positive -> unmeasurable', () => {
+  const usage = { session_headroom: 10, weekly_headroom: null, stale: false };
+  const a = deriveAllowance(null, usage, true);
+  assert.strictEqual(a.allowed, null);
+  assert.strictEqual(a.reason, 'unmeasurable');
+  assert.strictEqual(a.confidence, 'unknown');
+});
+
+test('[008] invariant + anti-false-assertion swept over a pct grid: allowed===true => both headrooms > 0; reason===under-threshold => both pct < stop', () => {
+  const thresholds = { session_stop: 90, weekly_stop: 85 };
+  for (let s = 0; s <= 100; s += 5) {
+    for (let w = 0; w <= 100; w += 5) {
+      const obs = recordSuccess(createObservation(), { session_pct: s, weekly_pct: w }, NOW);
+      const usage = deriveUsage(obs, thresholds, NOW);
+      const a = deriveAllowance(null, usage, true);
+      if (a.allowed === true) {
+        assert.ok(usage.session_headroom > 0, 's=' + s + ' w=' + w);
+        assert.ok(usage.weekly_headroom > 0, 's=' + s + ' w=' + w);
+      }
+      if (a.reason === 'under-threshold') {
+        assert.ok(s < thresholds.session_stop, 's=' + s + ' should be < session_stop');
+        assert.ok(w < thresholds.weekly_stop, 'w=' + w + ' should be < weekly_stop');
+      }
+    }
+  }
+});
+
 test('stale in deriveUsage is consistent with deriveState criteria', () => {
   const obsFresh = recordSuccess(createObservation(), { session_pct: 10, weekly_pct: 20 }, NOW);
   const uFresh = deriveUsage(obsFresh, {}, NOW + 5 * MIN);
