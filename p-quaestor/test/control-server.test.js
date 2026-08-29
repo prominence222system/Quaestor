@@ -1297,6 +1297,219 @@ function sendRawAndWaitClose(port, raw) {
   });
 }
 
+// ---- 010 Phase 2: GET / status page route --------------------------------
+//
+// buildStatusPayload(ctx) is the single judgement point shared by
+// GET /api/status (JSON) and GET / (HTML) -- see output/DESIGN.md 2.2.
+// All probes here use a real port (port: 0) and the actual fetched HTML
+// string, per the work file's "boundary verification" requirement --
+// checking status-page.js's template function output alone would not
+// prove routing or headers.
+
+const EXTERNAL_URL_010 = /(src|href)\s*=\s*["']https?:\/\/|@import\s+["']?https?:\/\/|fetch\(\s*["']https?:\/\//i;
+
+function firstPollSnapshot() {
+  // No success ever recorded -- deriveAllowance -> allowed: null,
+  // deriveUsage -> session_pct: null, stale: true. Mirrors the product's
+  // own 3-week-silent-measurement history (see MASTER.md Round 2).
+  const obs = createObservation();
+  return { observation: obs, ctx: { enabled: true, configSource: 'default' } };
+}
+
+function oldMeasurementSnapshot() {
+  // A real success recorded 26 days ago -- numbers exist but are stale
+  // (successAgeMs far past STALE_CRIT_MS). Same fixture shape used in
+  // status-page.test.js's stalePayload().
+  const twentySixDaysAgo = Date.now() - 26 * 86400 * 1000;
+  const obs = recordSuccess(createObservation(), { session_pct: 40, weekly_pct: 60 }, twentySixDaysAgo);
+  return { observation: obs, ctx: { enabled: true, configSource: 'default' } };
+}
+
+test('[SPEC] GET / -- real port round trip returns 200 and Content-Type text/html; charset=utf-8', async () => {
+  const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });
+  try {
+    const res = await fetch('http://127.0.0.1:' + r.port + '/');
+    assert.strictEqual(res.status, 200);
+    assert.ok((res.headers.get('content-type') || '').includes('text/html; charset=utf-8'));
+    const html = await res.text();
+    assert.ok(html.startsWith('<!doctype html>'));
+  } finally {
+    await r.close();
+  }
+});
+
+test('[SPEC] GET / with an allowed:null snapshot -- fetched HTML has no positive phrase, shows "모름", and never carries the green class token', async () => {
+  const r = await startControlServer({ port: 0, getSnapshot: firstPollSnapshot });
+  try {
+    const res = await fetch('http://127.0.0.1:' + r.port + '/');
+    assert.strictEqual(res.status, 200);
+    const html = await res.text();
+    assert.ok(!html.includes('사용 가능'), 'positive phrase must not appear for allowed:null');
+    assert.ok(html.includes('모름'), '"unknown" label must appear for allowed:null');
+    assert.ok(!/\bst-allowed\b/.test(html), 'green class token must never appear for allowed:null');
+  } finally {
+    await r.close();
+  }
+});
+
+test('[SPEC] GET / with a session_pct:null snapshot -- fetched HTML shows no bare 0% and reads "측정 없음" instead', async () => {
+  const r = await startControlServer({ port: 0, getSnapshot: firstPollSnapshot });
+  try {
+    const res = await fetch('http://127.0.0.1:' + r.port + '/');
+    const html = await res.text();
+    assert.ok(!/(?<!\d)0%(?!\d)/.test(html), 'bare 0% must not appear when session_pct is null');
+    assert.ok(html.includes('측정 없음'));
+  } finally {
+    await r.close();
+  }
+});
+
+test('[SPEC] GET / with a 26-day-old measurement -- fetched HTML shows elapsed time and a different state class than a fresh snapshot', async () => {
+  const staleR = await startControlServer({ port: 0, getSnapshot: oldMeasurementSnapshot });
+  const freshR = await startControlServer({ port: 0, getSnapshot: okSnapshot });
+  try {
+    const staleHtml = await (await fetch('http://127.0.0.1:' + staleR.port + '/')).text();
+    const freshHtml = await (await fetch('http://127.0.0.1:' + freshR.port + '/')).text();
+    assert.ok(staleHtml.includes('일 전'), 'elapsed time (26 days) must be shown');
+    assert.ok(/\bst-stale\b/.test(staleHtml));
+    assert.ok(!/\bst-stale\b/.test(freshHtml));
+  } finally {
+    await staleR.close();
+    await freshR.close();
+  }
+});
+
+test('[SPEC] GET / -- fetched HTML has zero http(s):// resource references; the only network target is relative /api/status', async () => {
+  const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });
+  try {
+    const html = await (await fetch('http://127.0.0.1:' + r.port + '/')).text();
+    assert.ok(!EXTERNAL_URL_010.test(html), html);
+    assert.ok(!html.includes('http://'));
+    assert.ok(!html.includes('https://'));
+    assert.ok(html.includes('fetch("/api/status"'));
+  } finally {
+    await r.close();
+  }
+});
+
+test('[SPEC] regression: GET /api/health and GET /api/status are byte-identical to their pre-010 shape (aside from the wall-clock timestamps)', async () => {
+  const snap = okSnapshot();
+  const expected = deriveState(snap.observation, snap.ctx, Date.now());
+  const r = await startControlServer({ port: 0, getSnapshot: () => snap });
+  try {
+    const health = await getJson(r.port, '/api/health');
+    assert.strictEqual(health.status, 200);
+    assert.deepStrictEqual(Object.keys(health.body).sort(), ['id', 'ok', 'startedAt', 'version']);
+
+    const status = await getJson(r.port, '/api/status');
+    assert.strictEqual(status.status, 200);
+    assert.deepStrictEqual(Object.keys(status.body).sort(), ['allowance', 'fields', 'ok', 'state', 'summary', 'updatedAt', 'usage']);
+    assert.strictEqual(status.body.state, expected.state);
+    assert.strictEqual(status.body.summary, expected.summary);
+    assert.deepStrictEqual(status.body.fields, expected.fields);
+    assert.ok((status.headers.get('content-type') || '').includes('application/json'));
+    assert.strictEqual(status.headers.get('cache-control'), 'no-store');
+  } finally {
+    await r.close();
+  }
+});
+
+test('[SPEC] GET /api/does-not-exist still returns JSON 404, not HTML, after the GET / route was added', async () => {
+  const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });
+  try {
+    const res = await getJson(r.port, '/api/does-not-exist');
+    assert.strictEqual(res.status, 404);
+    assert.strictEqual(res.body.ok, false);
+    assert.ok(!res.text.includes('<html'));
+  } finally {
+    await r.close();
+  }
+});
+
+test('[SPEC] no path assembly -- GET /../../etc/hosts never exposes a file; it normalizes and falls through to JSON 404', async () => {
+  const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });
+  try {
+    const res = await httpRequest(r.port, '/../../etc/hosts');
+    assert.strictEqual(res.status, 404);
+    assert.strictEqual(res.body.ok, false);
+    assert.ok(!res.text.includes('<html'));
+  } finally {
+    await r.close();
+  }
+});
+
+test('[SPEC] no path assembly -- a dot-segment path resolving onto /api/status still matches the API route, not the filesystem', async () => {
+  const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });
+  try {
+    const res = await getJson(r.port, '/../api/status');
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.ok, true);
+  } finally {
+    await r.close();
+  }
+});
+
+test('[SPEC] auth: token set -- GET / is 401, same as the API (no screen-only exception)', async () => {
+  const TOKEN010 = 'phase2-010-status-page-token';
+  const r = await startControlServer({ port: 0, authToken: TOKEN010, getSnapshot: okSnapshot });
+  try {
+    const noHeader = await fetch('http://127.0.0.1:' + r.port + '/');
+    assert.strictEqual(noHeader.status, 401);
+    const withHeader = await fetch('http://127.0.0.1:' + r.port + '/', { headers: { Authorization: 'Bearer ' + TOKEN010 } });
+    assert.strictEqual(withHeader.status, 200);
+  } finally {
+    await r.close();
+  }
+});
+
+test('[SPEC] no secrets anywhere: GET / HTML never contains the auth token, .profile, or cookie', async () => {
+  const TOKEN010B = 'phase2-010-secret-abc';
+  let obs = recordFailure(createObservation(), 'anchor-timeout', { hint: 'login-expired' }, Date.now());
+  const snap = { observation: obs, ctx: { enabled: true, stop: { source: 'manual', reason: 'testing' }, configSource: 'file' } };
+  const r = await startControlServer({ port: 0, authToken: TOKEN010B, getSnapshot: () => snap });
+  try {
+    const html = await (await fetch('http://127.0.0.1:' + r.port + '/', { headers: { Authorization: 'Bearer ' + TOKEN010B } })).text();
+    const lower = html.toLowerCase();
+    assert.ok(!lower.includes(TOKEN010B.toLowerCase()));
+    assert.ok(!lower.includes('.profile'));
+    assert.ok(!lower.includes('cookie'));
+  } finally {
+    await r.close();
+  }
+});
+
+test('POST / -> 405 ok:false (read-only page, no write route)', async () => {
+  const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });
+  try {
+    const res = await getJson(r.port, '/', { method: 'POST' });
+    assert.strictEqual(res.status, 405);
+    assert.strictEqual(res.body.ok, false);
+  } finally {
+    await r.close();
+  }
+});
+
+test('never-brick: GET / falls back to JSON 500 (not a broken HTML page) when getSnapshot throws, and the watch loop surface stays alive', async () => {
+  const r = await startControlServer({ port: 0, getSnapshot: () => { throw new Error('boom'); } });
+  try {
+    const res = await fetch('http://127.0.0.1:' + r.port + '/');
+    assert.strictEqual(res.status, 500);
+    assert.ok((res.headers.get('content-type') || '').includes('application/json'));
+    const health = await getJson(r.port, '/api/health');
+    assert.strictEqual(health.status, 200);
+  } finally {
+    await r.close();
+  }
+});
+
+test('control-server.js source: GET / and GET /api/status both call buildStatusPayload -- a single judgement point', () => {
+  assert.ok(/function buildStatusPayload\(/.test(SRC));
+  const handleIndexMatch = SRC.match(/function handleIndex\([\s\S]*?\n\}/);
+  const handleStatusMatch = SRC.match(/function handleStatus\([\s\S]*?\n\}/);
+  assert.ok(handleIndexMatch && /buildStatusPayload\(ctx\)/.test(handleIndexMatch[0]));
+  assert.ok(handleStatusMatch && /buildStatusPayload\(ctx\)/.test(handleStatusMatch[0]));
+});
+
 test('resilience R1-R5: concurrency, abrupt disconnects, and malformed bytes never crash the server, leak side effects, or throw unhandled errors', async () => {
   const uncaught = [];
   const unhandled = [];

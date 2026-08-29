@@ -22,6 +22,7 @@
 const http = require('node:http');
 const crypto = require('node:crypto');
 const { deriveState, deriveUsage, deriveAllowance } = require('./observation');
+const { renderStatusPage } = require('./status-page');
 
 const HOST = '127.0.0.1';       // [SPEC] fixed. not configurable via opts.
 const DEFAULT_PORT = 3210;
@@ -82,6 +83,14 @@ function sendJson(res, statusCode, body) {
   res.end(payload);
 }
 
+function sendHtml(res, statusCode, html) {
+  res.writeHead(statusCode, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Cache-Control': 'no-store'
+  });
+  res.end(html);
+}
+
 // GET /api/health -- observation-free by design. Only process-level facts.
 function handleHealth(res, ctx) {
   sendJson(res, 200, {
@@ -92,41 +101,62 @@ function handleHealth(res, ctx) {
   });
 }
 
-// GET /api/status -- a thin projection of deriveState(), deriveUsage(), and deriveAllowance(). No judgement here.
-function handleStatus(res, ctx) {
+// Single judgement point, shared by GET /api/status (JSON) and GET /
+// (HTML). Both start from the exact same payload object -- see
+// output/DESIGN.md 2.2. Returns { error: string } on failure instead of
+// throwing, so callers pick their own response format (JSON either way).
+function buildStatusPayload(ctx) {
   let snap;
   try {
     snap = ctx.getSnapshot();
   } catch (e) {
-    sendJson(res, 500, { ok: false, error: 'status unavailable' });
-    return;
+    return { error: 'status unavailable' };
   }
   if (!snap || typeof snap !== 'object') {
-    sendJson(res, 500, { ok: false, error: 'status unavailable' });
-    return;
+    return { error: 'status unavailable' };
   }
-  let st, usage, allowance;
   try {
     const nowMs = Date.now();
-    st = deriveState(snap.observation, snap.ctx, nowMs);
+    const st = deriveState(snap.observation, snap.ctx, nowMs);
     const thresholds = snap.ctx ? snap.ctx.thresholds : null;
     const stopInfo = snap.ctx ? snap.ctx.stop : null;
     const hasObs = Boolean(snap.observation && typeof snap.observation.lastSuccessAt === 'number');
-    usage = deriveUsage(snap.observation, thresholds, nowMs);
-    allowance = deriveAllowance(stopInfo, usage, hasObs);
+    const usage = deriveUsage(snap.observation, thresholds, nowMs);
+    const allowance = deriveAllowance(stopInfo, usage, hasObs);
+    return {
+      ok: true,
+      allowance: allowance,
+      usage: usage,
+      summary: st.summary,
+      state: st.state,
+      fields: st.fields,
+      updatedAt: new Date().toISOString()
+    };
   } catch (e) {
-    sendJson(res, 500, { ok: false, error: 'status unavailable' });
+    return { error: 'status unavailable' };
+  }
+}
+
+// GET /api/status -- a thin projection of deriveState(), deriveUsage(), and deriveAllowance(). No judgement here.
+function handleStatus(res, ctx) {
+  const payload = buildStatusPayload(ctx);
+  if (payload.error) {
+    sendJson(res, 500, { ok: false, error: payload.error });
     return;
   }
-  sendJson(res, 200, {
-    ok: true,
-    allowance: allowance,
-    usage: usage,
-    summary: st.summary,
-    state: st.state,
-    fields: st.fields,
-    updatedAt: new Date().toISOString()
-  });
+  sendJson(res, 200, payload);
+}
+
+// GET / -- the same payload as /api/status, drawn as HTML by the pure
+// renderer in ./status-page. No re-judgement here either (D1/D10).
+function handleIndex(res, ctx) {
+  const payload = buildStatusPayload(ctx);
+  if (payload.error) {
+    sendJson(res, 500, { ok: false, error: payload.error });
+    return;
+  }
+  const html = renderStatusPage(payload);
+  sendHtml(res, 200, html);
 }
 
 // POST /api/stop -- intentionally NOT implemented. See output/DESIGN.md D9
@@ -156,6 +186,11 @@ function requestListener(ctx) {
       if (!isAuthorized(ctx, req)) {
         res.setHeader('WWW-Authenticate', 'Bearer');
         sendJson(res, 401, { ok: false, error: 'unauthorized' });
+        return;
+      }
+      if (pathname === '/') {
+        if (req.method !== 'GET') { sendJson(res, 405, { ok: false, error: 'method not allowed' }); return; }
+        handleIndex(res, ctx);
         return;
       }
       if (pathname === '/api/health') {
