@@ -56,3 +56,9 @@ node p-quaestor/test/run-all.js
 # 개명된 런처 단발 실행 검증
 powershell -NoProfile -ExecutionPolicy Bypass -File .\run-quaestor.ps1 -Setup
 ```
+
+
+===========================================
+NNN: 010-status-web-page
+Started: 2026-08-29T14:22:39Z
+===========================================

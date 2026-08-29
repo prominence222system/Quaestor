@@ -30,6 +30,7 @@ claude.ai/settings/usage --scrape--> session_pct / weekly_pct
 - Round 5: 007 (engine: agy)
 - Round 6: 008 (engine: claude)
 - Round 7: 009 (engine: agy)
+- Round 8: 010 (engine: claude)
 
 ## Work Verify
 - Smoke: `node p-quaestor/test/run-all.js`
@@ -110,6 +111,20 @@ claude.ai/settings/usage --scrape--> session_pct / weekly_pct
 🔒 **동작 변경 0 이 합격 기준이다.** 이름만 바뀐다.
 🔒 **`.prominence` 의 로그·설정 파일명과 로그 줄 형식은 불변** — 005 의 복원이 그걸 읽는다.
 콘솔 출력 접두어(`[bellows-chrome]`)와 로그 파일 줄(`[start] bellows watcher`)을 혼동하지 말 것.
+
+## Round 8 이 하는 일
+
+007·008 이 사용량을 계약대로 내주게 만들었다. 이제 사람이 보는 표면을 하나 얹는다.
+
+- **010** — `GET /` 에 사용량 상태 페이지. `/api/status` 만 소비하고 그리기만 한다
+
+🔒 **이 NNN 의 핵심은 화면이 거짓말하지 않는 것이다.**
+`allowed: null` 이면 **"모름"** 으로 그린다 — 초록·"사용 가능" 금지. 프로세스가 살아 있다는
+이유로 초록불을 켰다면 28일 침묵을 아무도 몰랐다. `/api/health` 와 `/api/status` 를 나눈 것과
+같은 규율을 화면에서도 지킨다.
+🔒 `stale` 이면 낡았음이 눈에 보여야 하고, `null` 을 `0%` 로 뭉개면 안 된다
+(0% 는 "여유 만점"이라는 정반대 뜻이다).
+🔒 **외부 요청 0** — CDN·웹폰트 금지, CSS/JS 인라인. loopback 전용이고 오프라인에서도 떠야 한다.
 
 ## Constraints
 
