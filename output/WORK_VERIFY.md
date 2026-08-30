@@ -599,3 +599,112 @@ nd === unknown and detail === null (0.0859ms)
 
 ```
 
+## 2026-08-29T14:40:06Z  round=Round 8  completed=010-status-web-page.md  verdict=VERIFIED
+- project: Quaestor
+- project_dir: F:\Workspace\Automatic\projects\Quaestor
+- head: 6fe67454d38236cba7aa0ace9db965410535cd5f
+- worktree: UNCHANGED
+- duration: 2s
+- checks: 1 declared / 1 ran / 1 passed
+- NOTE: report only. This is NOT a verdict and does NOT change project state.
+
+### [1/1] SMOKE 1/1 -- PASS (exit 0)
+- command: node p-quaestor/test/run-all.js
+- workdir: F:\Workspace\Automatic\projects\Quaestor
+- failure point: none (passed)
+- reproduce:
+      cd "F:\Workspace\Automatic\projects\Quaestor"
+      node p-quaestor/test/run-all.js
+- log tail:
+```
+l-stop and auto original reason both survive over-threshold usage (0.0829ms)
+? [008] unmeasurable outranks STOP: no observation history + STOP present -> still allowed:null/unmeasurable (0.0683ms)
+? [008] single-sided measurement (one headroom missing) cannot assert both positive -> unmeasurable (0.0634ms)
+? [008] invariant + anti-false-assertion swept over a pct grid: allowed===true => both headrooms > 0; reason===under-threshold => both pct < stop (1.166ms)
+? stale in deriveUsage is consistent with deriveState criteria (0.1303ms)
+? hintFrom: login path -> login-expired (0.0986ms)
+? hintFrom: target origin + non-empty body, no login -> anchor-missing (0.0673ms)
+? hintFrom: unknown when evidence is missing or inconclusive (0.0814ms)
+? hintFrom: malformed url strings do not throw and fall back to unknown (0.0934ms)
+? hintFrom: pure -- does not mutate its input, same input gives same output (0.0779ms)
+? HINTS enumerates exactly the three known hint values (0.0681ms)
+? collectDiagnostics reproduces all three hints via an injected fake page (0.212ms)
+? collectDiagnostics never throws, even when url()/evaluate() throw or page is null (0.1808ms)
+? collectDiagnostics caps textHead at 200 chars (0.1073ms)
+? connect() failure classified as chrome-unreachable, existing message preserved (1.177ms)
+? browser.newPage() failure classified as chrome-unreachable, message/stack preserved (0.5608ms)
+? page.goto() failure classified as nav-failed (0.4377ms)
+? waitForFunction() failure classified as anchor-timeout, with diagnostics collected before close() (0.4655ms)
+? waitForFunction() failure with unrecognizable page yields hint unknown, never login-expired by default (0.4916ms)
+? page.evaluate() extraction failure classified as invalid-extraction (0.4041ms)
+? success path returns usage and only disconnects (never closes) the browser (0.381ms)
+? FAILURE_KINDS has exactly the 5 expected values (0.0777ms)
+? HINTS matches the hint vocabulary observation.js recognizes (whitelist round-trip) (0.1783ms)
+? err.detail carries url/textHead for diagnosis, but only hint is meant to reach deriveState fields (0.1231ms)
+? scrapeUsage keeps its existing signature and is still exported (0.0633ms)
+? lib/scrape.js references the claude.ai domain exactly once (constant only) (0.0913ms)
+? lib/scrape.js does not require puppeteer at the top level (lazy load) (0.1463ms)
+? requiring lib/scrape.js does not eagerly load the puppeteer module (0.0743ms)
+? [SPEC] allowed:null -> no positive phrase ("?? ??") anywhere in the HTML (0.2335ms)
+? [SPEC] allowed:null -> the "unknown" label ("??") is present (0.1223ms)
+? [SPEC] allowed !== true (false / null / missing / undefined) -> the green class token "st-allowed" never appears (0.2374ms)
+? [SPEC] allowed:true -> positive phrase and the green class token both appear (0.0911ms)
+? [SPEC] session_pct:null -> no bare "0%" in the HTML (0.1038ms)
+? [SPEC] weekly_pct / session_headroom / weekly_headroom:null -> no bare "0%"/"0%p"; "?? ??" shown instead (0.1262ms)
+? [SPEC] stale:true -> age (from age_sec) is shown and the root carries a different state class token than stale:false (0.1398ms)
+? [SPEC] stale:false -> the stale token does not appear (0.0922ms)
+? [SPEC] measured_at:null / age_sec:null -> "?? ??" shown, not a number or "0" (0.1073ms)
+? [SPEC] no http:// or https:// resource reference (src=/href=/@import/fetch() target) anywhere in the rendered HTML (0.1005ms)
+? [SPEC] the only network target referenced is the relative path /api/status (0.0742ms)
+? [SPEC] status-page.js requires no npm package (only node core / relative requires, if any) (0.1318ms)
+? [DERIVED] CSS and JS are inlined in <style>/<script>, no <link rel="stylesheet"> or external <script src> (0.1306ms)
+? [DERIVED] no @font-face / remote font declarations (0.0867ms)
+? [SPEC] renderStatusPage is pure: same input -> same output, and does not perform I/O (no fs/http/net requires, no Date.now()) (0.175ms)
+? [SPEC] malformed payload (null / undefined / non-object / missing allowance / missing usage) never throws, and always renders as "unknown" (0.2711ms)
+? [SPEC] the renderer signature takes only (payload, opts) -- no access to authToken/profile paths/cookies/accounts (0.1132ms)
+? [SPEC] rendered HTML never contains a secret (token/profile path/cookie/account) even when payload fields carry secret-shaped strings (0.133ms)
+? [SPEC] status-page.js never calls deriveState/deriveUsage/deriveAllowance and does not require ./observation (0.1243ms)
+? [SPEC] "claude" does not appear anywhere in status-page.js (0.0944ms)
+? [SPEC] HTML special characters in reason / STOP value / failure value / summary are escaped, not emitted as raw tags (0.1779ms)
+? [DERIVED] thresholds are rendered from the payload, not hardcoded (0.1097ms)
+? [DERIVED] percent values render as "<n>%" and headroom as "<n>%p ??" only when numeric (0.0694ms)
+? [DERIVED] age formatting: <60s -> "??", minutes/hours/days otherwise (0.0655ms)
+? [DERIVED] no gauge bar is rendered when a percentage value is null (0.1141ms)
+? [SPEC] inline script contains no badge label literals ("?? ??"/"???"/"??") (0.1246ms)
+? [SPEC] inline script performs no threshold comparison or allowed-branching, and its only network call is a GET to /api/status (0.2041ms)
+? [DERIVED] default poll interval is 30000ms; a custom pollMs option is reflected in the script (0.1381ms)
+? [DERIVED] script reloads only on a signature mismatch and does nothing on fetch failure (0.1324ms)
+? signature() changes when allowed/reason/pct/stale/measured_at/state changes, and is stable otherwise (0.1015ms)
+? [DERIVED] returns a complete <!doctype html> document with <html lang="ko"> (0.0979ms)
+? [DERIVED] the four state class tokens are exactly st-allowed/st-blocked/st-unknown/st-stale (0.0649ms)
+? esc() escapes all five HTML-significant characters (0.0617ms)
+? require("../watch-loop.js") loads without starting the watch loop (0.0878ms)
+? watch-loop.js source guards its immediate-invocation loop with require.main === module (0.0959ms)
+? watch-loop.js wires lib/observation.js into pollOnce success/failure branches (0.1236ms)
+? scrape-failure log line surfaces kind and hint (?5 diagnostic logging requirement) (0.1293ms)
+? watch-loop.js does not re-implement frozen helpers (deriveDesired/isValidUsage/writeStopJsonAtomic/readConfig/resolveStopDir stay) (0.0831ms)
+? p-quaestor/.js files do not reference the Claude CLI (0.4279ms)
+? C1: requiring watch-loop.js does not call startControlServer at module-load time (0.8937ms)
+? C1 (structural): startControlServer( call site is inside mainLoop(), not at module top level (0.1353ms)
+? C2 (structural): the startControlServer call is wrapped in try/catch, and the polling loop follows unconditionally (0.1184ms)
+? never-brick: startup failure is not swallowed silently -- "[control] listen failed" logging path exists (0.1012ms)
+? live observation source (C3, structural): getSnapshot is a function (controlSnapshot) whose body references the observation module variable (0.1514ms)
+? C3 (structural): controlSnapshot() body has no fs.* calls, no scrapeUsage, and no STOP_PATH reference (0.1032ms)
+? watch-loop.js does not re-judge thresholds when wiring control-server (no new 85/90/70/75 literals or state branches around the wiring) (0.1109ms)
+? Phase 2 [SPEC]: 26-day silence fixture restored on boot yields state === crit (2.722ms)
+? Phase 2 [SPEC]: boundary verification -- real log file tail reading and chopped line handling (1.6384ms)
+? Phase 2 [SPEC]: non-existent file, 0-byte file, and corrupted binary bytes yield empty observation without throwing (1.9482ms)
+? Phase 2 [SPEC]: large file (>64KB) reads at most 64KB (65536 bytes) (41.8666ms)
+? Phase 2 [SPEC]: restored observation stringified contains no secrets (.profile, cookie, @) (1.4157ms)
+? Phase 2 [SPEC]: mainLoop structurally integrates restoreObservation at startup before polling loop (0.1304ms)
+? tests 259
+? suites 0
+? pass 259
+? fail 0
+? cancelled 0
+? skipped 0
+? todo 0
+? duration_ms 1202.759
+
+```
+
