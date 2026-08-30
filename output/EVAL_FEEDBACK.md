@@ -12,36 +12,35 @@ PASS
 NO
 
 ## Current Phase Evaluation
-- Phase: 1 (final phase of 011)
-- Feature: `/api/health` 에 구현 중인 계약 버전(`contracts`) 노출
+- Phase: 1
+- Feature: `/api/health` 에 계약 버전(`contracts`) 노출
 - Complete: yes
-- Issues found: 없음
+- Issues found: none
 
 ## Work Detail
-- Files created/modified: `p-quaestor/lib/control-server.js` (수정: `CONTRACTS` 상수 선언 및 maintenance 주석 추가, `handleHealth` 및 `module.exports` 수정), `p-quaestor/test/control-server.test.js` (011 Phase 1 신규 테스트 6건 추가), `output/PROGRESS.md` (Phase 1 status: DONE 반영), `output/TEST_RESULT.md` (작성)
-- Key changes summary: `control-server.js` 상단에 `CONTRACTS` 상수를 선언하고 유지보수 주석("이 값을 바꾸는 시점 = Agora 등록 문서의 version 을 바꾸는 시점")을 적시함. `GET /api/health` 응답에 `contracts: { "supervised-v1": "1.2.0" }` 키를 추가하였으며 기존 `version: "0.1.0"` 축과 분리 노출함.
+- Files created/modified:
+  - `p-quaestor/lib/control-server.js`: `CONTRACTS` 상수 선언, 유지보수 주석 추가, `handleHealth` 응답에 `contracts` 객체 노출, `CONTRACTS` 내보내기 추가.
+  - `p-quaestor/test/control-server.test.js`: 011 Phase 1 신규 [SPEC] 테스트 6건 추가.
+- Key changes summary:
+  - `/api/health` 엔드포인트에 소프트웨어 버전(`version: "0.1.0"`)과 독립적인 계약 버전 축(`contracts: { "supervised-v1": "1.2.0" }`)을 추가 노출.
+  - Agora 버전 관측기와의 상호운용성을 확보하면서 기존 소비자인 Foreman의 하위 호환성을 100% 보존.
+  - 모든 수용 기준([SPEC])을 실포트 통신 기반 통합 테스트로 검증 완료.
 
 ## Issues
-- 없음.
+- 없음
 
 ## Good Points
-- `CONTRACTS` 상수를 코드가 아는 정보로 선언하고 유지보수 연동 주석을 명확하게 추가하여 Agora 문서 동기화 시점 가이드 반영.
-- 소프트웨어 버전(`version: "0.1.0"`)과 계약 버전(`contracts["supervised-v1"]: "1.2.0"`) 두 축을 섞지 않고 함께 내보냄.
-- `/api/status` 및 기존 필드(`ok`, `id`, `startedAt`, `version`) 무회귀 고정.
-- 실포트 + `fetch` + `JSON.parse` 경계 검증 및 비밀 비노출 테스트 완비.
-- 265/265 테스트 통과, `node` 직접 호출 규칙 준수.
+- 소프트웨어 버전축과 계약 버전축을 명확히 분리하여 Agora 관측 시 영구 `drifted` 경보 위험을 원천 차단함.
+- `CONTRACTS` 상수에 주석을 명시하여 향후 계약 문서 변경 시 함께 업데이트해야 함을 가이드함.
+- 기존의 모든 259개 단위/통합 테스트를 단 하나도 깨뜨리지 않고 무회귀 완료.
 
 ## How to Run
-
-```bash
-# 전체 단위/통합 테스트 (npm 금지 -- node 직접 호출)
-node p-quaestor/test/run-all.js
-```
-
-`GET /api/health` 응답 확인법:
-```bash
-# 컨트롤 서버 실행 후 (예: node watch-loop.js 또는 run-quaestor.ps1)
-curl http://127.0.0.1:3210/api/health
-# 출력 결과 확인:
-# {"ok":true,"id":"quaestor","version":"0.1.0","contracts":{"supervised-v1":"1.2.0"},"startedAt":"..."}
-```
+- 전체 단위 및 통합 테스트 실행 (npm 사용 금지, node 직접 실행):
+  ```bash
+  node p-quaestor/test/run-all.js
+  ```
+- 백그라운드 워치 루프 실행 후 `/api/health` 헬스 체크 엔드포인트 확인:
+  ```bash
+  powershell -ExecutionPolicy Bypass -File .\run-quaestor.ps1
+  curl http://127.0.0.1:3210/api/health
+  ```
