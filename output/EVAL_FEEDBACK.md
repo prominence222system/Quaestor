@@ -12,24 +12,24 @@ PASS
 NO
 
 ## Current Phase Evaluation
-- Phase: 2 (final phase of 010)
-- Feature: `GET /` 사용량 상태 웹 페이지 라우트 (`buildStatusPayload` 추출 + `lib/status-page.js` 소비)
+- Phase: 1 (final phase of 011)
+- Feature: `/api/health` 에 구현 중인 계약 버전(`contracts`) 노출
 - Complete: yes
-- Issues found: `output/PROGRESS.md` 의 Phase 2 상태가 `PENDING` 으로 남아 있었으나 구현·테스트는 이미 완료돼 있어 이번 평가에서 `DONE` 으로 갱신함(문서 동기화 지연, 코드 문제 아님).
+- Issues found: 없음
 
 ## Work Detail
-- Files created/modified: `p-quaestor/lib/status-page.js`(Phase 1, 신규 순수 렌더러), `p-quaestor/lib/control-server.js`(수정: `buildStatusPayload` 추출 + `GET /` 라우트), `p-quaestor/test/status-page.test.js`(신규), `p-quaestor/test/control-server.test.js`(010 Phase 2 섹션 추가), `output/PROGRESS.md`(Phase 2 DONE 반영)
-- Key changes summary: `handleStatus`(JSON)와 `handleIndex`(HTML)가 동일한 `buildStatusPayload(ctx)` 결과에서 출발하도록 단일 판정 지점을 만듦. `renderStatusPage`는 순수 함수로 `observation.js` 판정 함수를 호출하지 않고 그리기만 함. 인증 게이트는 라우팅 이전 그대로 유지되어 `GET /`도 토큰 미충족 시 401. 정적 파일 서빙·경로 조립 코드가 없어 `..` 방어 로직 자체가 불필요.
+- Files created/modified: `p-quaestor/lib/control-server.js` (수정: `CONTRACTS` 상수 선언 및 maintenance 주석 추가, `handleHealth` 및 `module.exports` 수정), `p-quaestor/test/control-server.test.js` (011 Phase 1 신규 테스트 6건 추가), `output/PROGRESS.md` (Phase 1 status: DONE 반영), `output/TEST_RESULT.md` (작성)
+- Key changes summary: `control-server.js` 상단에 `CONTRACTS` 상수를 선언하고 유지보수 주석("이 값을 바꾸는 시점 = Agora 등록 문서의 version 을 바꾸는 시점")을 적시함. `GET /api/health` 응답에 `contracts: { "supervised-v1": "1.2.0" }` 키를 추가하였으며 기존 `version: "0.1.0"` 축과 분리 노출함.
 
 ## Issues
 - 없음.
 
 ## Good Points
-- `allowed === null` → "모름", `st-allowed` 클래스 미부착을 실제 fetch 왕복 HTML 문자열로 검증(템플릿 반환값만 보지 않음) — 이 NNN 의 핵심 조항을 경계 검증 수준에서 고정.
-- `stale`/`null` 수치가 `0%`로 뭉개지지 않음을 부정 경계 정규식(`(?<!\d)0%(?!\d)`)으로 오탐 없이 검증.
-- 외부 리소스 참조 0건, `/api/health`·`/api/status` 바이트 동일성, 경로 탈출(`/../../etc/hosts`) JSON 404, 토큰 설정 시 `GET /` 401 등 모든 [SPEC] 항목이 실포트 테스트로 커버됨.
-- `output/ACCEPTANCE.md`의 Phase 1/Phase 2 전 [SPEC] 항목이 근거 테스트와 1:1로 대응되며 삭제·완화된 항목 없음.
-- 259/259 테스트 통과, `node` 직접 호출 규칙 준수, `p-quaestor/*.js` 전체에 `claude` 문자열 미포함 재확인.
+- `CONTRACTS` 상수를 코드가 아는 정보로 선언하고 유지보수 연동 주석을 명확하게 추가하여 Agora 문서 동기화 시점 가이드 반영.
+- 소프트웨어 버전(`version: "0.1.0"`)과 계약 버전(`contracts["supervised-v1"]: "1.2.0"`) 두 축을 섞지 않고 함께 내보냄.
+- `/api/status` 및 기존 필드(`ok`, `id`, `startedAt`, `version`) 무회귀 고정.
+- 실포트 + `fetch` + `JSON.parse` 경계 검증 및 비밀 비노출 테스트 완비.
+- 265/265 테스트 통과, `node` 직접 호출 규칙 준수.
 
 ## How to Run
 
@@ -38,12 +38,10 @@ NO
 node p-quaestor/test/run-all.js
 ```
 
-서버를 직접 띄워 브라우저로 확인하려면 `watch-loop.js` 를 실행해 컨트롤 서버가 뜬 뒤(기본 포트 3210),
-`http://127.0.0.1:3210/` 을 연다. 측정이 아직 없거나 낡았다면 배지가 "모름"으로, `stale` 이면
-경과 시간과 함께 낡음 표시가 붙어야 한다(초록·"사용 가능" 이 보이면 회귀).
-
-
-===========================================
-NNN: 011-health-contracts-field
-Started: 2026-08-30T07:10:39Z
-===========================================
+`GET /api/health` 응답 확인법:
+```bash
+# 컨트롤 서버 실행 후 (예: node watch-loop.js 또는 run-quaestor.ps1)
+curl http://127.0.0.1:3210/api/health
+# 출력 결과 확인:
+# {"ok":true,"id":"quaestor","version":"0.1.0","contracts":{"supervised-v1":"1.2.0"},"startedAt":"..."}
+```

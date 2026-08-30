@@ -147,6 +147,95 @@ test('GET /api/health startedAt is constant across two requests', async () => {
   }
 });
 
+// ---- 011: /api/health contracts field -------------------------------------
+
+test('[SPEC] GET /api/health over real port returns top-level contracts object with contracts["supervised-v1"] === "1.2.0"', async () => {
+  const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });
+  try {
+    const res = await fetch('http://127.0.0.1:' + r.port + '/api/health');
+    assert.strictEqual(res.status, 200);
+    const body = await res.json();
+    assert.ok(body.contracts && typeof body.contracts === 'object');
+    assert.strictEqual(body.contracts['supervised-v1'], '1.2.0');
+    assert.strictEqual(typeof body.contracts['supervised-v1'], 'string');
+  } finally {
+    await r.close();
+  }
+});
+
+test('[SPEC] contracts field values are string types, not numbers or objects', async () => {
+  const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });
+  try {
+    const res = await fetch('http://127.0.0.1:' + r.port + '/api/health');
+    const body = await res.json();
+    for (const key of Object.keys(body.contracts)) {
+      assert.strictEqual(typeof body.contracts[key], 'string');
+    }
+  } finally {
+    await r.close();
+  }
+});
+
+test('[SPEC] existing GET /api/health fields (ok, id, version, startedAt) remain present and unchanged', async () => {
+  const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });
+  try {
+    const res = await fetch('http://127.0.0.1:' + r.port + '/api/health');
+    const body = await res.json();
+    assert.strictEqual(body.ok, true);
+    assert.strictEqual(body.id, 'quaestor');
+    assert.strictEqual(body.version, '0.1.0');
+    assert.strictEqual(typeof body.startedAt, 'string');
+  } finally {
+    await r.close();
+  }
+});
+
+test('[SPEC] software version (0.1.0) and contract version (1.2.0) are distinct axes and have different values', async () => {
+  const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });
+  try {
+    const res = await fetch('http://127.0.0.1:' + r.port + '/api/health');
+    const body = await res.json();
+    assert.notStrictEqual(body.version, body.contracts['supervised-v1']);
+    assert.strictEqual(body.version, '0.1.0');
+    assert.strictEqual(body.contracts['supervised-v1'], '1.2.0');
+  } finally {
+    await r.close();
+  }
+});
+
+test('[SPEC] GET /api/status response remains completely unchanged (no regression from 011)', async () => {
+  const snap = okSnapshot();
+  const expected = deriveState(snap.observation, snap.ctx, Date.now());
+  const r = await startControlServer({ port: 0, getSnapshot: () => snap });
+  try {
+    const res = await fetch('http://127.0.0.1:' + r.port + '/api/status');
+    assert.strictEqual(res.status, 200);
+    const body = await res.json();
+    assert.deepStrictEqual(Object.keys(body).sort(), ['allowance', 'fields', 'ok', 'state', 'summary', 'updatedAt', 'usage']);
+    assert.strictEqual(body.state, expected.state);
+    assert.strictEqual(body.summary, expected.summary);
+    assert.deepStrictEqual(body.fields, expected.fields);
+  } finally {
+    await r.close();
+  }
+});
+
+test('[SPEC] GET /api/health response contains no secret tokens, profile paths, cookies, or account info', async () => {
+  const r = await startControlServer({ port: 0, getSnapshot: okSnapshot, authToken: 'super-secret-token' });
+  try {
+    const res = await fetch('http://127.0.0.1:' + r.port + '/api/health', {
+      headers: { Authorization: 'Bearer super-secret-token' }
+    });
+    const text = await res.text();
+    assert.ok(!text.includes('super-secret-token'));
+    assert.ok(!text.includes('.profile'));
+    assert.ok(!text.includes('cookie'));
+    assert.ok(!text.includes('@'));
+  } finally {
+    await r.close();
+  }
+});
+
 // ---- GET /api/status -----------------------------------------------------
 
 test('GET /api/status -- 200, state matches deriveState() exactly, no re-judgement (crit fixture)', async () => {
@@ -1399,7 +1488,7 @@ test('[SPEC] regression: GET /api/health and GET /api/status are byte-identical 
   try {
     const health = await getJson(r.port, '/api/health');
     assert.strictEqual(health.status, 200);
-    assert.deepStrictEqual(Object.keys(health.body).sort(), ['id', 'ok', 'startedAt', 'version']);
+    assert.deepStrictEqual(Object.keys(health.body).sort(), ['contracts', 'id', 'ok', 'startedAt', 'version']);
 
     const status = await getJson(r.port, '/api/status');
     assert.strictEqual(status.status, 200);

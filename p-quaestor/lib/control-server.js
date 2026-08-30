@@ -28,6 +28,13 @@ const HOST = '127.0.0.1';       // [SPEC] fixed. not configurable via opts.
 const DEFAULT_PORT = 3210;
 const SERVICE_ID = 'quaestor'; // [SPEC] product id, not the folder name "Bellows".
 
+// 이 값을 바꾸는 시점 = Agora 등록 문서(apis/Quaestor/supervised-v1.md)의 `version`을 바꾸는 시점.
+// 소프트웨어 버전(package.json의 version: "0.1.0")과 계약(인터페이스) 버전("1.2.0")은 서로 다른 축이다.
+// 두 축을 함께 내되 섞지 않는다 (Agora 022 §2/§3 규율).
+const CONTRACTS = Object.freeze({
+  'supervised-v1': '1.2.0'
+});
+
 let cachedVersion = null;
 function packageVersion() {
   if (cachedVersion === null) {
@@ -97,6 +104,7 @@ function handleHealth(res, ctx) {
     ok: true,
     id: SERVICE_ID,
     version: ctx.version,
+    contracts: CONTRACTS,
     startedAt: ctx.startedAt
   });
 }
@@ -287,4 +295,4 @@ function startControlServer(opts) {
   });
 }
 
-module.exports = { startControlServer, HOST, DEFAULT_PORT, SERVICE_ID };
+module.exports = { startControlServer, HOST, DEFAULT_PORT, SERVICE_ID, CONTRACTS };
