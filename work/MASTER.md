@@ -31,6 +31,7 @@ claude.ai/settings/usage --scrape--> session_pct / weekly_pct
 - Round 6: 008 (engine: claude)
 - Round 7: 009 (engine: agy)
 - Round 8: 010 (engine: claude)
+- Round 9: 011 (engine: agy)
 
 ## Work Verify
 - Smoke: `node p-quaestor/test/run-all.js`
@@ -125,6 +126,18 @@ claude.ai/settings/usage --scrape--> session_pct / weekly_pct
 🔒 `stale` 이면 낡았음이 눈에 보여야 하고, `null` 을 `0%` 로 뭉개면 안 된다
 (0% 는 "여유 만점"이라는 정반대 뜻이다).
 🔒 **외부 요청 0** — CDN·웹폰트 금지, CSS/JS 인라인. loopback 전용이고 오프라인에서도 떠야 한다.
+
+## Round 9 가 하는 일
+
+Agora 에 버전 관측기가 생겼다(Agora 021·022). 등록된 계약의 health 를 찔러 **구현 중인 계약 버전**을
+읽고 문서와 대조한다. Quaestor 는 아직 `not_declared` 다.
+
+- **011** — `/api/health` 에 `contracts: { "supervised-v1": "1.2.0" }` 추가
+
+🔒 **축을 틀리면 상시 오경보가 된다.** `package.json` 은 `0.1.0`(소프트웨어), 계약은 `1.2.0`(인터페이스)로
+서로 다른 축이다. 소프트웨어 버전을 계약 버전 자리에 넣으면 **영원히 drifted** 이고,
+Agora 022 가 말하듯 상시 울리는 경보는 없는 것보다 나쁘다. **둘을 함께 내되 섞지 않는다.**
+🔒 `contracts` 값은 **코드가 아는 상수**여야 한다 — 볼트 문서를 읽어 채우면 자기로 자기를 검증하는 꼴이다.
 
 ## Constraints
 
