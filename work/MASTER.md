@@ -32,6 +32,7 @@ claude.ai/settings/usage --scrape--> session_pct / weekly_pct
 - Round 7: 009 (engine: agy)
 - Round 8: 010 (engine: claude)
 - Round 9: 011 (engine: agy)
+- Round 10: 012 (engine: claude)
 
 ## Work Verify
 - Smoke: `node p-quaestor/test/run-all.js`
@@ -138,6 +139,19 @@ Agora 에 버전 관측기가 생겼다(Agora 021·022). 등록된 계약의 hea
 서로 다른 축이다. 소프트웨어 버전을 계약 버전 자리에 넣으면 **영원히 drifted** 이고,
 Agora 022 가 말하듯 상시 울리는 경보는 없는 것보다 나쁘다. **둘을 함께 내되 섞지 않는다.**
 🔒 `contracts` 값은 **코드가 아는 상수**여야 한다 — 볼트 문서를 읽어 채우면 자기로 자기를 검증하는 꼴이다.
+
+## Round 10 이 하는 일
+
+임계값은 읽기만 된다. 그 결과 정지선이 **양쪽 다 99 인 채로 넉 달**이 흘렀고
+(파일 수정일 2026-05-04, 하드 기본값은 85/90) 측정이 죽어 있던 36일 동안 아무도 몰랐다.
+
+- **012** — `PUT /api/thresholds`. Foreman 이 화면과 호출을, Quaestor 가 소유와 검증을 맡는다
+
+🔒 **방향에 따라 다르게 취급한다.** 조이기는 그대로 허용하고, **무르기는 `expires_at` 없이는 거부**한다.
+만료 장치는 이미 `config.js` 에 있다 — 5월에 그걸 썼다면 저절로 풀렸을 것이다.
+**장치가 있는데 안 쓴 것**이 그 사건의 본질이고, 이 NNN 은 그것을 구조적으로 강제한다.
+🔒 계약이 "Foreman 은 확인 없이 호출한다" 고 못박았으므로 **안전선은 서버 쪽에 둔다.**
+UI 의 확인 대화상자에 기대지 않는다.
 
 ## Constraints
 
