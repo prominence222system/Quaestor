@@ -12,37 +12,57 @@ NEXT
 NO
 
 ## Current Phase Evaluation
-- Phase: 1
-- Feature: `lib/thresholds.js` 순수 모듈 — 방향 판정(tighten/loosen) · 검증(미지 키·범위·히스테리시스·만료) · 설정 병합 · 로그 줄 생성
+- Phase: 2
+- Feature: `lib/control-server.js` 에 `PUT /api/thresholds` 배선 (토큰 게이트 · 본문 파싱 · `readConfig()` 기준선 · 원자적 파일 쓰기 · `[thresholds]` 기록 · `onConfigChange` 즉시 반영 · `contracts` 1.3.0)
 - Complete: yes
 - Issues found: 없음
 
 ## Acceptance-criteria integrity check
-`output/ACCEPTANCE.md` Phase 1 섹션의 모든 [SPEC]/[DERIVED] 항목이 `test/thresholds.test.js` 34개 테스트로 1:1 대응 확인됨:
-- 순수성(fs/http/net 미require, Date.now 미호출, `claude` 미등장) — 커버
-- 방향 판정 5종(조이기/동일/release만/역치 케이스) — 커버
-- 무르기+만료 9종(누락/미래/과거/파싱불가/생략+기존미래/생략+기존null·과거/명시null 허용·거부/에러문구) — 커버
-- 히스테리시스 4종(각 축 위반·부분요청 병합판정·등호위반) — 커버
-- 값·키 검증 6종(비정수/비숫자/범위밖/미지키/enabled·control 거부/본문형태·빈객체) — 커버
-- 부분요청 2종, 병합 5종(보존/일치/불변성/누락thresholds) — 커버
-- 로그 줄 4종(형식/parseLogTail null/금지토큰/미변경축 생략) — 커버
-- 회귀: git diff 로 `lib/thresholds.js`·`test/thresholds.test.js` 두 파일만 추가됐음을 확인, 기타 소스(`config.js`·`observation.js`·`control-server.js`·`logparse.js`·`watch-loop.js`) 미수정
+`output/ACCEPTANCE.md` Phase 2 섹션의 모든 [SPEC]/[DERIVED] 항목이 `output/TEST_RESULT.md` 표에
+근거 테스트와 함께 1:1 매핑돼 있고, 코드 직독으로 실제 구현을 재확인함:
 
-이전 iteration과 비교해 삭제·완화된 [SPEC] 항목 없음.
+- 라우팅(존재/405/getSnapshot 미호출) — 커버, `control-server.js:394` 이하 확인
+- 토큰 게이트(403 write-requires-token / 같은 상태 GET 200 / 401 이 403 보다 항상 먼저 / 올바른 Bearer 통과) — 커버,
+  `handlePutThresholds` 진입 직후 403(`:271`), 전역 `isAuthorized` 가 라우팅보다 먼저(`:369`)
+- 무르기+만료 HTTP 왕복(누락→400/미래→200/과거→400/조이기→200/거부시 파일 불변) — 커버
+- 검증 위임(히스테리시스·미지키·`validateThresholdRequest` 위임·시계 1회 주입·invalid-json·413) — 커버
+- 기준선=`readConfig().thresholds`(파일 원문 아님), `isExpired` 재구현 없음 — 커버, `:305`
+- 파일 쓰기(원자적·`enabled`/`control.*` 보존·부분요청 나머지 불변·파일없음→{}·파싱불가→500·BOM·쓰기실패→500) — 커버
+- never-brick(쓰기 실패가 폴 루프에 전파 안 함·`startControlServer` 미거부·콜백 예외에도 200) — 커버
+- 기록(`[thresholds]` 정확히 한 줄·ISO 타임스탬프에도 parseLogTail 오인 없음·기존 로그 형식 불변·거부 시 로그 없음) — 커버
+- 즉시 반영(`onConfigChange`→`refreshConfig`, 옵션 선택적, configPath 없으면 500) — 커버
+- 계약 버전(1.3.0, package.json 불변, `/api/health` getSnapshot 미호출) — 커버
+- 회귀 없음(status 응답 형태·읽기전용 페이지·501·deriveDesired 무관·토큰 비교 규율·claude 미등장·신규 의존성 없음) — 커버
+
+이전 iteration(Phase 1 PASS)과 비교해 삭제·완화된 [SPEC] 항목 없음.
 
 ## Work Detail
-- Files created/modified: `p-quaestor/lib/thresholds.js` (신규), `p-quaestor/test/thresholds.test.js` (신규)
-- Key changes summary: 요청 검증(범위/미지키/히스테리시스), 방향 판정(`*_stop` 두 축 기준), 만료 3가지 입력 처리(생략/ISO/명시적 null), `mergeIntoConfig`(다른 키 보존, 원본 비변형), `formatThresholdLog`(005 파서 오인 방지) 구현. 전부 순수 함수, `nowMs` 주입.
+- Files created/modified (Phase 2):
+  - `p-quaestor/lib/control-server.js` — `PUT /api/thresholds` 라우트, `handlePutThresholds`,
+    `readRawConfigFile`, `writeConfigAtomic`, `collectBody`(413 소켓 파괴 버그 수정 포함),
+    `CONTRACTS` → `1.3.0`, `startControlServer` 옵션에 `configPath`/`onConfigChange` 추가
+  - `p-quaestor/watch-loop.js` — `refreshConfig()` 추출(기존 3줄+로그 2줄 동일 이동),
+    `startControlServer` 호출에 `configPath`/`onConfigChange` 배선
+  - `p-quaestor/test/control-server.test.js` — `PUT /api/thresholds` 전용 신규 테스트 다수 추가
+  - `p-quaestor/lib/thresholds.js`·`config.js`·`observation.js`·`status-page.js`·`logparse.js`:
+    🔒 미수정 확인(git diff --stat)
+- Key changes summary: Phase 1 의 순수 판정 모듈을 HTTP/파일/로그/스냅샷에 배선. 판정 로직 재구현 없이
+  전부 `validateThresholdRequest`/`mergeIntoConfig`/`formatThresholdLog` 에 위임.
 
 ## Issues
 없음.
 
 ## Good Points
-- `readConfig().thresholds` 를 기준선으로 삼아 만료된 파일 값(99)을 조이기로 오판하지 않도록 설계(D2) 그대로 구현됨
-- 히스테리시스 검사를 병합 결과 기준으로 수행해 부분 요청으로도 안전선이 뚫리지 않음을 확인
-- `expires_at: null` 경로("오늘 무르고 내일 만료만 지운다" 우회)를 HARD_DEFAULTS 재검사로 차단 — 설계 의도(D7 3번째 행) 정확히 구현
-- 로그 줄이 `parseLogTail` 을 실제로 통과시켜 `null` 반환을 검증(005 회귀 방지 실측)
-- Phase 1 범위를 정확히 지킴 — HTTP/파일 I/O 없음, 다른 소스 파일 무수정 확인됨
+- 설계(D1~D12) 그대로 구현 — 특히 D2(기준선=`readConfig` 결과)와 D3(병합 대상=파일 원문)의 구분을
+  `appliedNow` vs `rawFile` 두 변수로 코드에서 명확히 분리.
+- QA 과정에서 `collectBody()` 의 실제 버그(413 응답이 `req.destroy()` 로 인한 소켓 파괴로 클라이언트에
+  도달 못하던 문제)를 발견해 최소 수정으로 고치고, TEST_RESULT.md 에 원인·근거를 명시함.
+- `node p-quaestor/test/run-all.js` 를 직접 실행해 재현: 344개 중 343 PASS. 유일한 실패
+  (`omitting opts.port uses DEFAULT_PORT (3210)`)는 `netstat` 로 포트 3210 을 점유 중인 기존 프로세스
+  (PID 6944)와의 환경 충돌임을 확인 — Phase 2 변경과 무관, 회귀 아님.
+- never-brick, 401/403 순서, 히스테리시스 불변식 등 🔒 표시된 핵심 조항이 코드와 테스트 양쪽에
+  일관되게 반영됨.
 
 ## Test result unrelated failure
-`control-server.test.js:91` 포트 3210 점유 실패는 개발 머신에서 실행 중인 별도 watch-loop 프로세스와의 충돌이며 Phase 1 변경과 무관(git status 상 `p-quaestor/` 미커밋 변경 없음). Phase 2/3 에서 재확인 필요.
+`control-server.test.js:91` 포트 3210 점유 실패는 개발 머신에서 실행 중인 별도 프로세스(PID 6944)와의
+충돌이며 Phase 2 변경과 무관(`git diff --stat` 상 해당 테스트 미변경). Phase 3 통합 검증에서 재확인 필요.
