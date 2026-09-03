@@ -1662,3 +1662,685 @@ test('resilience R1-R5: concurrency, abrupt disconnects, and malformed bytes nev
   assert.strictEqual(uncaught.length, 0, 'R4: no uncaughtException during the probes: ' + uncaught.map((e) => e && e.message));
   assert.strictEqual(unhandled.length, 0, 'R4: no unhandledRejection during the probes: ' + unhandled.map((e) => e && e.message));
 });
+
+// ---- 012 Phase 2: PUT /api/thresholds ------------------------------------
+//
+// Real-port round trips against handlePutThresholds. Judgement itself
+// (direction/hysteresis/expiry) is unit-tested in thresholds.test.js --
+// these tests verify the HTTP wiring: token gate, readConfig() baseline,
+// atomic file write + key preservation, [thresholds] logging, and the
+// onConfigChange refresh path. See output/ACCEPTANCE.md Phase 2.
+
+const { parseLogTail } = require('../lib/logparse');
+
+const TOKEN012 = '012-thresholds-secret';
+const FUTURE012 = '2099-01-01T00:00:00Z';
+const PAST012 = '2000-01-01T00:00:00Z';
+
+function tempConfigPath(name) {
+  return path.join(os.tmpdir(), 'quaestor-012-' + name + '-' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.json');
+}
+
+function writeConfigFile(p, obj) {
+  fs.writeFileSync(p, JSON.stringify(obj));
+}
+
+function readConfigFile(p) {
+  return JSON.parse(fs.readFileSync(p, 'utf8'));
+}
+
+function putThresholds(port, body, opts) {
+  const o = opts || {};
+  return httpRequest(port, '/api/thresholds', {
+    method: 'PUT',
+    headers: Object.assign({ 'Content-Type': 'application/json' }, o.headers || {}),
+    body: JSON.stringify(body)
+  });
+}
+
+// ---- routing --------------------------------------------------------------
+
+test('[SPEC] PUT /api/thresholds exists -- not a 404', async () => {
+  const p = tempConfigPath('routing');
+  writeConfigFile(p, { thresholds: { weekly_stop: 85, weekly_release: 70, session_stop: 90, session_release: 75 } });
+  const r = await startControlServer({ port: 0, authToken: TOKEN012, configPath: p, getSnapshot: okSnapshot });
+  try {
+    const res = await putThresholds(r.port, { weekly_stop: 80 }, { headers: { Authorization: 'Bearer ' + TOKEN012 } });
+    assert.notStrictEqual(res.status, 404);
+  } finally {
+    await r.close();
+    fs.unlinkSync(p);
+  }
+});
+
+test('[DERIVED] /api/thresholds with a non-PUT method -> 405', async () => {
+  const r = await startControlServer({ port: 0, authToken: TOKEN012, getSnapshot: okSnapshot });
+  try {
+    const get = await getJson(r.port, '/api/thresholds', { headers: { Authorization: 'Bearer ' + TOKEN012 } });
+    assert.strictEqual(get.status, 405);
+    const post = await getJson(r.port, '/api/thresholds', { method: 'POST', headers: { Authorization: 'Bearer ' + TOKEN012 } });
+    assert.strictEqual(post.status, 405);
+  } finally {
+    await r.close();
+  }
+});
+
+test('[DERIVED] PUT /api/thresholds does not call getSnapshot()', async () => {
+  const p = tempConfigPath('no-snapshot');
+  writeConfigFile(p, { thresholds: { weekly_stop: 85, weekly_release: 70, session_stop: 90, session_release: 75 } });
+  let calls = 0;
+  const r = await startControlServer({
+    port: 0, authToken: TOKEN012, configPath: p,
+    getSnapshot: () => { calls++; return okSnapshot(); }
+  });
+  try {
+    await putThresholds(r.port, { weekly_stop: 80 }, { headers: { Authorization: 'Bearer ' + TOKEN012 } });
+    assert.strictEqual(calls, 0);
+  } finally {
+    await r.close();
+    fs.unlinkSync(p);
+  }
+});
+
+// ---- token gate: default-deny write --------------------------------------
+
+test('[SPEC] no authToken configured -> PUT /api/thresholds is 403 write-requires-token', async () => {
+  const p = tempConfigPath('no-token');
+  writeConfigFile(p, { thresholds: { weekly_stop: 85, weekly_release: 70, session_stop: 90, session_release: 75 } });
+  const r = await startControlServer({ port: 0, configPath: p, getSnapshot: okSnapshot });
+  try {
+    const res = await putThresholds(r.port, { weekly_stop: 80 });
+    assert.strictEqual(res.status, 403);
+    assert.strictEqual(res.body.reason, 'write-requires-token');
+  } finally {
+    await r.close();
+    fs.unlinkSync(p);
+  }
+});
+
+test('[SPEC] same (no-token) state -- GET /api/status is still 200', async () => {
+  const p = tempConfigPath('no-token-read');
+  writeConfigFile(p, { thresholds: { weekly_stop: 85, weekly_release: 70, session_stop: 90, session_release: 75 } });
+  const r = await startControlServer({ port: 0, configPath: p, getSnapshot: okSnapshot });
+  try {
+    const res = await getJson(r.port, '/api/status');
+    assert.strictEqual(res.status, 200);
+  } finally {
+    await r.close();
+    fs.unlinkSync(p);
+  }
+});
+
+test('[SPEC] token configured + wrong/missing Bearer -> 401, and 401 is decided before 403', async () => {
+  const p = tempConfigPath('wrong-bearer');
+  writeConfigFile(p, { thresholds: { weekly_stop: 85, weekly_release: 70, session_stop: 90, session_release: 75 } });
+  const r = await startControlServer({ port: 0, authToken: TOKEN012, configPath: p, getSnapshot: okSnapshot });
+  try {
+    const noHeader = await putThresholds(r.port, { weekly_stop: 80 });
+    assert.strictEqual(noHeader.status, 401);
+    const wrong = await putThresholds(r.port, { weekly_stop: 80 }, { headers: { Authorization: 'Bearer wrong' } });
+    assert.strictEqual(wrong.status, 401);
+  } finally {
+    await r.close();
+    fs.unlinkSync(p);
+  }
+});
+
+test('[SPEC] token configured + correct Bearer -> proceeds past the auth gate to validation', async () => {
+  const p = tempConfigPath('correct-bearer');
+  writeConfigFile(p, { thresholds: { weekly_stop: 85, weekly_release: 70, session_stop: 90, session_release: 75 } });
+  const r = await startControlServer({ port: 0, authToken: TOKEN012, configPath: p, getSnapshot: okSnapshot });
+  try {
+    const res = await putThresholds(r.port, { weekly_stop: 80 }, { headers: { Authorization: 'Bearer ' + TOKEN012 } });
+    assert.strictEqual(res.status, 200);
+  } finally {
+    await r.close();
+    fs.unlinkSync(p);
+  }
+});
+
+// ---- loosen requires expiry, over HTTP -------------------------------------
+
+test('[SPEC] loosen without expires_at -> 400 loosen-requires-expiry (200 must never happen here)', async () => {
+  const p = tempConfigPath('loosen-no-expiry');
+  writeConfigFile(p, { thresholds: { weekly_stop: 85, weekly_release: 70, session_stop: 90, session_release: 75 } });
+  const before = readConfigFile(p);
+  const r = await startControlServer({ port: 0, authToken: TOKEN012, configPath: p, getSnapshot: okSnapshot });
+  try {
+    const res = await putThresholds(r.port, { weekly_stop: 99 }, { headers: { Authorization: 'Bearer ' + TOKEN012 } });
+    assert.strictEqual(res.status, 400);
+    assert.strictEqual(res.body.reason, 'loosen-requires-expiry');
+    assert.deepStrictEqual(readConfigFile(p), before, 'file must be untouched on rejection');
+  } finally {
+    await r.close();
+    fs.unlinkSync(p);
+  }
+});
+
+test('[SPEC] loosen with a future expires_at -> 200, direction loosen, file gets the expires_at', async () => {
+  const p = tempConfigPath('loosen-future');
+  writeConfigFile(p, { thresholds: { weekly_stop: 85, weekly_release: 70, session_stop: 90, session_release: 75 } });
+  const r = await startControlServer({ port: 0, authToken: TOKEN012, configPath: p, getSnapshot: okSnapshot });
+  try {
+    const res = await putThresholds(r.port, { weekly_stop: 99, expires_at: FUTURE012 }, { headers: { Authorization: 'Bearer ' + TOKEN012 } });
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.direction, 'loosen');
+    const onDisk = readConfigFile(p);
+    assert.strictEqual(onDisk.thresholds.weekly_stop, 99);
+    assert.strictEqual(onDisk.expires_at, FUTURE012);
+  } finally {
+    await r.close();
+    fs.unlinkSync(p);
+  }
+});
+
+test('[SPEC] loosen with a past expires_at -> 400', async () => {
+  const p = tempConfigPath('loosen-past');
+  writeConfigFile(p, { thresholds: { weekly_stop: 85, weekly_release: 70, session_stop: 90, session_release: 75 } });
+  const r = await startControlServer({ port: 0, authToken: TOKEN012, configPath: p, getSnapshot: okSnapshot });
+  try {
+    const res = await putThresholds(r.port, { weekly_stop: 99, expires_at: PAST012 }, { headers: { Authorization: 'Bearer ' + TOKEN012 } });
+    assert.strictEqual(res.status, 400);
+  } finally {
+    await r.close();
+    fs.unlinkSync(p);
+  }
+});
+
+test('[SPEC] tighten (99->85, token set) -> 200, direction tighten, file reflects new thresholds', async () => {
+  const p = tempConfigPath('tighten');
+  writeConfigFile(p, { thresholds: { weekly_stop: 99, weekly_release: 70, session_stop: 99, session_release: 75 } });
+  const r = await startControlServer({ port: 0, authToken: TOKEN012, configPath: p, getSnapshot: okSnapshot });
+  try {
+    const res = await putThresholds(r.port, { weekly_stop: 85, session_stop: 90 }, { headers: { Authorization: 'Bearer ' + TOKEN012 } });
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.direction, 'tighten');
+    const onDisk = readConfigFile(p);
+    assert.strictEqual(onDisk.thresholds.weekly_stop, 85);
+    assert.strictEqual(onDisk.thresholds.session_stop, 90);
+  } finally {
+    await r.close();
+    fs.unlinkSync(p);
+  }
+});
+
+test('[DERIVED] rejected (4xx) PUTs never modify the config file -- validation happens before write', async () => {
+  const p = tempConfigPath('reject-no-write');
+  writeConfigFile(p, { thresholds: { weekly_stop: 85, weekly_release: 70, session_stop: 90, session_release: 75 }, enabled: true });
+  const before = fs.statSync(p).mtimeMs;
+  const beforeContent = readConfigFile(p);
+  const r = await startControlServer({ port: 0, authToken: TOKEN012, configPath: p, getSnapshot: okSnapshot });
+  try {
+    await putThresholds(r.port, { weekly_stop: 60 }, { headers: { Authorization: 'Bearer ' + TOKEN012 } }); // hysteresis violation
+    await putThresholds(r.port, { foo: 1 }, { headers: { Authorization: 'Bearer ' + TOKEN012 } }); // unknown-key
+    assert.deepStrictEqual(readConfigFile(p), beforeContent);
+  } finally {
+    await r.close();
+    fs.unlinkSync(p);
+  }
+});
+
+// ---- validation delegated to ./thresholds ----------------------------------
+
+test('[SPEC] hysteresis violation over HTTP -> 400', async () => {
+  const p = tempConfigPath('hysteresis');
+  writeConfigFile(p, { thresholds: { weekly_stop: 85, weekly_release: 70, session_stop: 90, session_release: 75 } });
+  const r = await startControlServer({ port: 0, authToken: TOKEN012, configPath: p, getSnapshot: okSnapshot });
+  try {
+    const res = await putThresholds(r.port, { weekly_stop: 60 }, { headers: { Authorization: 'Bearer ' + TOKEN012 } });
+    assert.strictEqual(res.status, 400);
+  } finally {
+    await r.close();
+    fs.unlinkSync(p);
+  }
+});
+
+test('[SPEC] unknown key over HTTP -> 400 unknown-key', async () => {
+  const p = tempConfigPath('unknown-key');
+  writeConfigFile(p, { thresholds: { weekly_stop: 85, weekly_release: 70, session_stop: 90, session_release: 75 } });
+  const r = await startControlServer({ port: 0, authToken: TOKEN012, configPath: p, getSnapshot: okSnapshot });
+  try {
+    const res = await putThresholds(r.port, { weekly_stop: 80, foo: 1 }, { headers: { Authorization: 'Bearer ' + TOKEN012 } });
+    assert.strictEqual(res.status, 400);
+    assert.strictEqual(res.body.reason, 'unknown-key');
+  } finally {
+    await r.close();
+    fs.unlinkSync(p);
+  }
+});
+
+test('[DERIVED] enabled/control in the body over HTTP -> 400 unknown-key', async () => {
+  const p = tempConfigPath('unknown-key-2');
+  writeConfigFile(p, { thresholds: { weekly_stop: 85, weekly_release: 70, session_stop: 90, session_release: 75 } });
+  const r = await startControlServer({ port: 0, authToken: TOKEN012, configPath: p, getSnapshot: okSnapshot });
+  try {
+    const r1 = await putThresholds(r.port, { enabled: false }, { headers: { Authorization: 'Bearer ' + TOKEN012 } });
+    assert.strictEqual(r1.body.reason, 'unknown-key');
+    const r2 = await putThresholds(r.port, { control: { port: 1 } }, { headers: { Authorization: 'Bearer ' + TOKEN012 } });
+    assert.strictEqual(r2.body.reason, 'unknown-key');
+  } finally {
+    await r.close();
+    fs.unlinkSync(p);
+  }
+});
+
+test('[DERIVED] unparseable JSON body -> 400 invalid-json', async () => {
+  const p = tempConfigPath('invalid-json');
+  writeConfigFile(p, { thresholds: { weekly_stop: 85, weekly_release: 70, session_stop: 90, session_release: 75 } });
+  const r = await startControlServer({ port: 0, authToken: TOKEN012, configPath: p, getSnapshot: okSnapshot });
+  try {
+    const res = await httpRequest(r.port, '/api/thresholds', {
+      method: 'PUT',
+      headers: { Authorization: 'Bearer ' + TOKEN012 },
+      body: '{ not json'
+    });
+    assert.strictEqual(res.status, 400);
+    assert.strictEqual(res.body.reason, 'invalid-json');
+  } finally {
+    await r.close();
+    fs.unlinkSync(p);
+  }
+});
+
+test('[DERIVED] oversized body (>64KiB) -> 413 body-too-large', async () => {
+  const p = tempConfigPath('too-large');
+  writeConfigFile(p, { thresholds: { weekly_stop: 85, weekly_release: 70, session_stop: 90, session_release: 75 } });
+  const r = await startControlServer({ port: 0, authToken: TOKEN012, configPath: p, getSnapshot: okSnapshot });
+  try {
+    const huge = JSON.stringify({ weekly_stop: 80, padding: 'x'.repeat(70 * 1024) });
+    const res = await httpRequest(r.port, '/api/thresholds', {
+      method: 'PUT',
+      headers: { Authorization: 'Bearer ' + TOKEN012, 'Content-Length': String(Buffer.byteLength(huge)) },
+      body: huge
+    });
+    assert.strictEqual(res.status, 413);
+    assert.strictEqual(res.body.reason, 'body-too-large');
+  } finally {
+    await r.close();
+    fs.unlinkSync(p);
+  }
+});
+
+// ---- baseline is readConfig(), not the raw file --------------------------
+
+test('[SPEC] baseline for direction/validation is readConfig(configPath).thresholds, not the raw file value', async () => {
+  // File has an already-expired expires_at, so readConfig() falls back to
+  // HARD_DEFAULTS (85/90) regardless of the stale on-disk thresholds (99/99).
+  const p = tempConfigPath('baseline-expired');
+  writeConfigFile(p, {
+    thresholds: { weekly_stop: 99, weekly_release: 70, session_stop: 99, session_release: 75 },
+    expires_at: '2000-01-01T00:00:00Z'
+  });
+  const r = await startControlServer({ port: 0, authToken: TOKEN012, configPath: p, getSnapshot: okSnapshot });
+  try {
+    // Requesting weekly_stop:90 is a rise over the (expired) raw file's 99? No --
+    // it's a rise over the HARD_DEFAULTS baseline (85), so this must be judged
+    // as a loosen and rejected without expires_at.
+    const res = await putThresholds(r.port, { weekly_stop: 90 }, { headers: { Authorization: 'Bearer ' + TOKEN012 } });
+    assert.strictEqual(res.status, 400);
+    assert.strictEqual(res.body.reason, 'loosen-requires-expiry');
+  } finally {
+    await r.close();
+    fs.unlinkSync(p);
+  }
+});
+
+// ---- atomic write, key preservation ---------------------------------------
+
+test('[SPEC] enabled and control.* are preserved after a write', async () => {
+  const p = tempConfigPath('preserve');
+  writeConfigFile(p, {
+    enabled: false,
+    control: { port: 3999, authToken: TOKEN012 },
+    thresholds: { weekly_stop: 99, weekly_release: 70, session_stop: 99, session_release: 75 }
+  });
+  const r = await startControlServer({ port: 0, authToken: TOKEN012, configPath: p, getSnapshot: okSnapshot });
+  try {
+    const res = await putThresholds(r.port, { weekly_stop: 85 }, { headers: { Authorization: 'Bearer ' + TOKEN012 } });
+    assert.strictEqual(res.status, 200);
+    const onDisk = readConfigFile(p);
+    assert.strictEqual(onDisk.enabled, false);
+    assert.strictEqual(onDisk.control.port, 3999);
+    assert.strictEqual(onDisk.control.authToken, TOKEN012);
+  } finally {
+    await r.close();
+    fs.unlinkSync(p);
+  }
+});
+
+test('[SPEC] other pre-existing keys in the file are preserved after a write', async () => {
+  const p = tempConfigPath('preserve-note');
+  writeConfigFile(p, {
+    note: 'hand-edited',
+    thresholds: { weekly_stop: 99, weekly_release: 70, session_stop: 99, session_release: 75 }
+  });
+  const r = await startControlServer({ port: 0, authToken: TOKEN012, configPath: p, getSnapshot: okSnapshot });
+  try {
+    await putThresholds(r.port, { weekly_stop: 85 }, { headers: { Authorization: 'Bearer ' + TOKEN012 } });
+    const onDisk = readConfigFile(p);
+    assert.strictEqual(onDisk.note, 'hand-edited');
+  } finally {
+    await r.close();
+    fs.unlinkSync(p);
+  }
+});
+
+test('[SPEC] partial request (weekly_stop only) -- the other 3 threshold values are unchanged on disk', async () => {
+  const p = tempConfigPath('partial');
+  writeConfigFile(p, { thresholds: { weekly_stop: 99, weekly_release: 70, session_stop: 90, session_release: 75 } });
+  const r = await startControlServer({ port: 0, authToken: TOKEN012, configPath: p, getSnapshot: okSnapshot });
+  try {
+    await putThresholds(r.port, { weekly_stop: 85 }, { headers: { Authorization: 'Bearer ' + TOKEN012 } });
+    const onDisk = readConfigFile(p);
+    assert.strictEqual(onDisk.thresholds.weekly_release, 70);
+    assert.strictEqual(onDisk.thresholds.session_stop, 90);
+    assert.strictEqual(onDisk.thresholds.session_release, 75);
+  } finally {
+    await r.close();
+    fs.unlinkSync(p);
+  }
+});
+
+test('[SPEC] write is tmp-file + rename -- no .tmp file left behind and the target has no partial content', async () => {
+  const p = tempConfigPath('atomic');
+  writeConfigFile(p, { thresholds: { weekly_stop: 99, weekly_release: 70, session_stop: 90, session_release: 75 } });
+  const r = await startControlServer({ port: 0, authToken: TOKEN012, configPath: p, getSnapshot: okSnapshot });
+  try {
+    const res = await putThresholds(r.port, { weekly_stop: 85 }, { headers: { Authorization: 'Bearer ' + TOKEN012 } });
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(fs.existsSync(p + '.tmp'), false, 'tmp file must not linger after a successful write');
+    assert.doesNotThrow(() => JSON.parse(fs.readFileSync(p, 'utf8')), 'target file must be fully-formed JSON, not partial');
+  } finally {
+    await r.close();
+    fs.unlinkSync(p);
+  }
+});
+
+test('[DERIVED] config file missing -- PUT still succeeds, creating the file from {}', async () => {
+  const p = tempConfigPath('missing');
+  const r = await startControlServer({ port: 0, authToken: TOKEN012, configPath: p, getSnapshot: okSnapshot });
+  try {
+    const res = await putThresholds(r.port, { weekly_stop: 80 }, { headers: { Authorization: 'Bearer ' + TOKEN012 } });
+    assert.strictEqual(res.status, 200);
+    const onDisk = readConfigFile(p);
+    assert.strictEqual(onDisk.thresholds.weekly_stop, 80);
+  } finally {
+    await r.close();
+    if (fs.existsSync(p)) fs.unlinkSync(p);
+  }
+});
+
+test('[DERIVED] config file exists but is unparseable JSON -- 500 config-unreadable, file left untouched', async () => {
+  const p = tempConfigPath('unparseable');
+  fs.writeFileSync(p, '{ this is not json');
+  const before = fs.readFileSync(p, 'utf8');
+  const r = await startControlServer({ port: 0, authToken: TOKEN012, configPath: p, getSnapshot: okSnapshot });
+  try {
+    const res = await putThresholds(r.port, { weekly_stop: 80 }, { headers: { Authorization: 'Bearer ' + TOKEN012 } });
+    assert.strictEqual(res.status, 500);
+    assert.strictEqual(res.body.reason, 'config-unreadable');
+    assert.strictEqual(fs.readFileSync(p, 'utf8'), before);
+  } finally {
+    await r.close();
+    fs.unlinkSync(p);
+  }
+});
+
+test('[DERIVED] a UTF-8 BOM in the existing config file is read and merged without error', async () => {
+  const p = tempConfigPath('bom');
+  const json = JSON.stringify({ thresholds: { weekly_stop: 99, weekly_release: 70, session_stop: 90, session_release: 75 } });
+  fs.writeFileSync(p, '\uFEFF' + json);
+  const r = await startControlServer({ port: 0, authToken: TOKEN012, configPath: p, getSnapshot: okSnapshot });
+  try {
+    const res = await putThresholds(r.port, { weekly_stop: 85 }, { headers: { Authorization: 'Bearer ' + TOKEN012 } });
+    assert.strictEqual(res.status, 200);
+  } finally {
+    await r.close();
+    fs.unlinkSync(p);
+  }
+});
+
+test('[DERIVED] write failure (parent directory does not exist) -> 500 write-failed', async () => {
+  const p = path.join(os.tmpdir(), 'quaestor-012-does-not-exist-dir-' + Date.now(), 'config.json');
+  const r = await startControlServer({ port: 0, authToken: TOKEN012, configPath: p, getSnapshot: okSnapshot });
+  try {
+    const res = await putThresholds(r.port, { weekly_stop: 80 }, { headers: { Authorization: 'Bearer ' + TOKEN012 } });
+    assert.strictEqual(res.status, 500);
+    assert.strictEqual(res.body.reason, 'write-failed');
+  } finally {
+    await r.close();
+  }
+});
+
+test('[DERIVED] no configPath given at all -> 500 config-unavailable (only once past the 403/401 gates)', async () => {
+  const r = await startControlServer({ port: 0, authToken: TOKEN012, getSnapshot: okSnapshot });
+  try {
+    const res = await putThresholds(r.port, { weekly_stop: 80 }, { headers: { Authorization: 'Bearer ' + TOKEN012 } });
+    assert.strictEqual(res.status, 500);
+    assert.strictEqual(res.body.reason, 'config-unavailable');
+  } finally {
+    await r.close();
+  }
+});
+
+test('[DERIVED] no configPath AND no token -- 403 fires first, not config-unavailable', async () => {
+  const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });
+  try {
+    const res = await putThresholds(r.port, { weekly_stop: 80 });
+    assert.strictEqual(res.status, 403);
+    assert.strictEqual(res.body.reason, 'write-requires-token');
+  } finally {
+    await r.close();
+  }
+});
+
+// ---- never-brick ------------------------------------------------------------
+
+test('[SPEC] a throwing onConfigChange callback still yields 200 -- the file write already committed', async () => {
+  const p = tempConfigPath('never-brick');
+  writeConfigFile(p, { thresholds: { weekly_stop: 99, weekly_release: 70, session_stop: 99, session_release: 75 } });
+  const r = await startControlServer({
+    port: 0, authToken: TOKEN012, configPath: p, getSnapshot: okSnapshot,
+    onConfigChange: () => { throw new Error('refresh boom'); }
+  });
+  try {
+    const res = await putThresholds(r.port, { weekly_stop: 85 }, { headers: { Authorization: 'Bearer ' + TOKEN012 } });
+    assert.strictEqual(res.status, 200);
+    const health = await getJson(r.port, '/api/health', { headers: { Authorization: 'Bearer ' + TOKEN012 } });
+    assert.strictEqual(health.status, 200, 'server must survive a throwing onConfigChange');
+  } finally {
+    await r.close();
+    fs.unlinkSync(p);
+  }
+});
+
+test('[SPEC] a write failure does not crash the server -- it keeps answering after', async () => {
+  const p = path.join(os.tmpdir(), 'quaestor-012-nb2-' + Date.now(), 'config.json');
+  const r = await startControlServer({ port: 0, authToken: TOKEN012, configPath: p, getSnapshot: okSnapshot });
+  try {
+    await putThresholds(r.port, { weekly_stop: 80 }, { headers: { Authorization: 'Bearer ' + TOKEN012 } });
+    const health = await getJson(r.port, '/api/health', { headers: { Authorization: 'Bearer ' + TOKEN012 } });
+    assert.strictEqual(health.status, 200);
+  } finally {
+    await r.close();
+  }
+});
+
+test('[SPEC] startControlServer() with configPath/onConfigChange options still never rejects/throws', async () => {
+  const p = tempConfigPath('never-throws');
+  writeConfigFile(p, { thresholds: { weekly_stop: 85, weekly_release: 70, session_stop: 90, session_release: 75 } });
+  await assert.doesNotReject(async () => {
+    const r = await startControlServer({ port: 0, authToken: TOKEN012, configPath: p, onConfigChange: () => {}, getSnapshot: okSnapshot });
+    await r.close();
+  });
+  fs.unlinkSync(p);
+});
+
+// ---- recording --------------------------------------------------------------
+
+test('[SPEC] a successful change logs exactly one [thresholds]-prefixed line with from/to/direction/expires_at', async () => {
+  const p = tempConfigPath('log-line');
+  writeConfigFile(p, { thresholds: { weekly_stop: 99, weekly_release: 70, session_stop: 90, session_release: 75 } });
+  const logs = [];
+  const r = await startControlServer({
+    port: 0, authToken: TOKEN012, configPath: p, getSnapshot: okSnapshot,
+    onLog: (m) => logs.push(m)
+  });
+  try {
+    await putThresholds(r.port, { weekly_stop: 85 }, { headers: { Authorization: 'Bearer ' + TOKEN012 } });
+    const thresholdLines = logs.filter((l) => l.startsWith('[thresholds]'));
+    assert.strictEqual(thresholdLines.length, 1);
+    assert.ok(thresholdLines[0].includes('tighten'));
+    assert.ok(thresholdLines[0].includes('weekly_stop 99->85'));
+    assert.ok(thresholdLines[0].includes('expires_at=none'));
+  } finally {
+    await r.close();
+    fs.unlinkSync(p);
+  }
+});
+
+test('[SPEC] the logged line, with an ISO timestamp prefix, is not misread by parseLogTail as a success or failure poll', async () => {
+  const p = tempConfigPath('log-parse');
+  writeConfigFile(p, { thresholds: { weekly_stop: 85, weekly_release: 70, session_stop: 90, session_release: 75 } });
+  const logs = [];
+  const r = await startControlServer({
+    port: 0, authToken: TOKEN012, configPath: p, getSnapshot: okSnapshot,
+    onLog: (m) => logs.push(m)
+  });
+  try {
+    await putThresholds(r.port, { weekly_stop: 99, expires_at: FUTURE012 }, { headers: { Authorization: 'Bearer ' + TOKEN012 } });
+    const line = logs.find((l) => l.startsWith('[thresholds]'));
+    const withTimestamp = new Date().toISOString() + ' ' + line;
+    assert.strictEqual(parseLogTail([withTimestamp]), null);
+  } finally {
+    await r.close();
+    fs.unlinkSync(p);
+  }
+});
+
+test('[SPEC] rejected requests produce no [thresholds] log line', async () => {
+  const p = tempConfigPath('log-none-on-reject');
+  writeConfigFile(p, { thresholds: { weekly_stop: 85, weekly_release: 70, session_stop: 90, session_release: 75 } });
+  const logs = [];
+  const r = await startControlServer({
+    port: 0, authToken: TOKEN012, configPath: p, getSnapshot: okSnapshot,
+    onLog: (m) => logs.push(m)
+  });
+  try {
+    await putThresholds(r.port, { weekly_stop: 99 }, { headers: { Authorization: 'Bearer ' + TOKEN012 } }); // loosen, no expiry
+    assert.strictEqual(logs.filter((l) => l.startsWith('[thresholds]')).length, 0);
+  } finally {
+    await r.close();
+    fs.unlinkSync(p);
+  }
+});
+
+// ---- immediate reflection via onConfigChange -------------------------------
+
+test('[SPEC] a write is reflected by GET /api/status right away, via onConfigChange -- no waiting for the next poll', async () => {
+  const p = tempConfigPath('immediate');
+  writeConfigFile(p, { thresholds: { weekly_stop: 99, weekly_release: 70, session_stop: 99, session_release: 75 } });
+  // Mirrors watch-loop.js's refreshConfig(): onConfigChange re-reads
+  // readConfig(p) and the snapshot's ctx.thresholds is updated in place --
+  // the control server does not assign to watch-loop's variables directly.
+  let ctxThresholds = readConfig(p).thresholds;
+  const snap = { observation: okSnapshot().observation, ctx: { enabled: true, thresholds: ctxThresholds, stop: null, configSource: 'file' } };
+  const r = await startControlServer({
+    port: 0, authToken: TOKEN012, configPath: p,
+    getSnapshot: () => snap,
+    onConfigChange: () => { snap.ctx.thresholds = readConfig(p).thresholds; }
+  });
+  try {
+    const authHdr = { headers: { Authorization: 'Bearer ' + TOKEN012 } };
+    const before = await getJson(r.port, '/api/status', authHdr);
+    assert.strictEqual(before.body.usage.thresholds.weekly_stop, 99);
+
+    await putThresholds(r.port, { weekly_stop: 85 }, authHdr);
+
+    const after = await getJson(r.port, '/api/status', authHdr);
+    assert.strictEqual(after.body.usage.thresholds.weekly_stop, 85);
+  } finally {
+    await r.close();
+    fs.unlinkSync(p);
+  }
+});
+
+test('[DERIVED] configPath/onConfigChange are optional -- a server started without them behaves as before for GET routes', async () => {
+  const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });
+  try {
+    const res = await getJson(r.port, '/api/status');
+    assert.strictEqual(res.status, 200);
+  } finally {
+    await r.close();
+  }
+});
+
+// ---- regression: existing surfaces unaffected by 012 -----------------------
+
+test('[SPEC] regression: GET /api/status fields/summary/state/allowance/usage shape is unchanged after 012', async () => {
+  const p = tempConfigPath('regress-status');
+  writeConfigFile(p, { thresholds: { weekly_stop: 85, weekly_release: 70, session_stop: 90, session_release: 75 } });
+  const snap = okSnapshot();
+  const expected = deriveState(snap.observation, snap.ctx, Date.now());
+  const r = await startControlServer({ port: 0, authToken: TOKEN012, configPath: p, getSnapshot: () => snap });
+  try {
+    const res = await getJson(r.port, '/api/status', { headers: { Authorization: 'Bearer ' + TOKEN012 } });
+    assert.deepStrictEqual(Object.keys(res.body).sort(), ['allowance', 'fields', 'ok', 'state', 'summary', 'updatedAt', 'usage']);
+    assert.strictEqual(res.body.state, expected.state);
+    assert.strictEqual(res.body.summary, expected.summary);
+  } finally {
+    await r.close();
+    fs.unlinkSync(p);
+  }
+});
+
+test('[SPEC] regression: GET / is still read-only -- no form/input/edit affordance in the HTML', async () => {
+  const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });
+  try {
+    const html = await (await fetch('http://127.0.0.1:' + r.port + '/')).text();
+    assert.ok(!/<form/i.test(html));
+    assert.ok(!/<input/i.test(html));
+    assert.ok(!/method=["']put["']/i.test(html));
+  } finally {
+    await r.close();
+  }
+});
+
+test('[SPEC] regression: POST /api/stop is still 501', async () => {
+  const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });
+  try {
+    const res = await getJson(r.port, '/api/stop', { method: 'POST' });
+    assert.strictEqual(res.status, 501);
+  } finally {
+    await r.close();
+  }
+});
+
+test('[SPEC] regression: package.json version is unaffected -- software axis and contract axis stay separate', () => {
+  assert.strictEqual(PKG.version, '0.1.0');
+});
+
+test('[DERIVED] GET /api/health still does not call getSnapshot() after 012', async () => {
+  let calls = 0;
+  const r = await startControlServer({ port: 0, getSnapshot: () => { calls++; return okSnapshot(); } });
+  try {
+    await getJson(r.port, '/api/health');
+    assert.strictEqual(calls, 0);
+  } finally {
+    await r.close();
+  }
+});
+
+test('[SPEC] control-server.js delegates validation to ./thresholds -- does not reimplement hysteresis/range checks itself', () => {
+  const putSection = SRC.match(/function handlePutThresholds\([\s\S]*?\n\}/)[0];
+  assert.ok(/validateThresholdRequest\(/.test(putSection));
+  assert.ok(!/weekly_stop\s*>\s*weekly_release/.test(putSection), 'hysteresis check must live in ./thresholds, not here');
+});
+
+test('[DERIVED] handlePutThresholds reads the wall clock exactly once (Date.now()) and passes it as nowMs', () => {
+  const putSection = SRC.match(/function handlePutThresholds\([\s\S]*?\n\}/)[0];
+  const codeOnly = putSection.replace(/\/\/[^\n]*/g, ''); // strip // comments before counting
+  const nowCalls = codeOnly.match(/Date\.now\(\)/g) || [];
+  assert.strictEqual(nowCalls.length, 1, 'expected exactly one Date.now() read (outside comments) in handlePutThresholds');
+  assert.ok(/validateThresholdRequest\([^)]*Date\.now\(\)\)/.test(putSection), 'Date.now() must be passed straight into validateThresholdRequest');
+});

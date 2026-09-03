@@ -230,6 +230,11 @@ function writeConfigAtomic(configPath, obj) {
 
 // Collects a request body up to maxBytes. cb(err, text) -- err.message is
 // 'body-too-large' when the cap is exceeded, otherwise a generic read error.
+// [DERIVED, fixed during Phase 2 QA] must NOT call req.destroy() on overflow --
+// that tears down the underlying socket and the 413 response can never reach
+// the client (observed as ECONNRESET). Instead keep draining (discarding)
+// the rest of the body so the stream finishes normally and the handler is
+// free to write a response on the still-open connection.
 function collectBody(req, maxBytes, cb) {
   const chunks = [];
   let total = 0;
@@ -239,7 +244,6 @@ function collectBody(req, maxBytes, cb) {
     total += chunk.length;
     if (total > maxBytes) {
       done = true;
-      req.destroy();
       cb(new Error('body-too-large'));
       return;
     }

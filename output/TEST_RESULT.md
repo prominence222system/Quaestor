@@ -181,3 +181,149 @@ Phase 1 작업이 유발한 회귀가 아니다.
 ## 결론
 
 **Phase 1 PASS.** `output/ACCEPTANCE.md` 의 모든 [SPEC]/[DERIVED] 기준을 충족한다.
+
+---
+
+# TEST_RESULT — Phase 2: `lib/control-server.js` 에 `PUT /api/thresholds` 배선
+
+## 대상
+Phase 2 — 토큰 게이트(403 `write-requires-token`) · 본문 파싱 · `readConfig()` 기준선 ·
+원자적 파일 쓰기 · `[thresholds]` 기록 · `onConfigChange` 즉시 반영 · `contracts` `1.3.0`.
+
+## 실행
+```
+node p-quaestor/test/run-all.js
+```
+결과: **344개 중 343 PASS, 1 FAIL(Phase 2 범위 밖 — 하단 참고, Phase 1 QA 때부터 있던 동일한 환경 충돌)**.
+
+`p-quaestor/test/control-server.test.js` 에 `PUT /api/thresholds` 전용 신규 테스트 **51건** 추가, 전건 PASS.
+(테스트 실행 전 확인 결과 기존 파일에는 라우팅 자체를 제외하면 이 엔드포인트에 대한 커버리지가 전혀 없었다 —
+`contracts["supervised-v1"] === "1.3.0"` 검증만 011 에서 이미 갱신돼 있었다.)
+
+## Acceptance 기준별 결과 (output/ACCEPTANCE.md Phase 2)
+
+### 라우팅
+| 기준 | 결과 | 근거 |
+|---|---|---|
+| `PUT /api/thresholds` 존재 (404 아님) | PASS | `[SPEC] PUT /api/thresholds exists -- not a 404` |
+| `PUT` 외 메서드 → 405 | PASS | `[DERIVED] /api/thresholds with a non-PUT method -> 405` |
+| `getSnapshot()` 미호출 | PASS | `[DERIVED] PUT /api/thresholds does not call getSnapshot()` |
+
+### 토큰 게이트 — 기본 거부
+| 기준 | 결과 | 근거 |
+|---|---|---|
+| 토큰 미설정 → 403 write-requires-token | PASS | `[SPEC] no authToken configured -> PUT ... 403 write-requires-token` |
+| 같은 상태에서 GET /api/status 는 200 | PASS | `[SPEC] same (no-token) state -- GET /api/status is still 200` |
+| 토큰 설정 + 잘못/없는 Bearer → 401 (403 보다 먼저) | PASS | `[SPEC] token configured + wrong/missing Bearer -> 401 ...` |
+| 토큰 설정 + 올바른 Bearer → 검증 단계로 진행 | PASS | `[SPEC] token configured + correct Bearer -> proceeds ...` |
+
+### 무르기는 만료 없이는 거부 — HTTP
+| 기준 | 결과 | 근거 |
+|---|---|---|
+| 무르기 + expires_at 없음 → 400 loosen-requires-expiry (200 나오면 실패) | PASS | `[SPEC] loosen without expires_at -> 400 ...` (파일 미변경도 같이 검증) |
+| 무르기 + 미래 expires_at → 200, direction loosen, 파일에 반영 | PASS | `[SPEC] loosen with a future expires_at -> 200 ...` |
+| 무르기 + 과거 expires_at → 400 | PASS | `[SPEC] loosen with a past expires_at -> 400` |
+| 조이기(99→85, 토큰 설정) → 200, direction tighten, 파일 반영 | PASS | `[SPEC] tighten (99->85, token set) -> 200 ...` |
+| 거부 시 파일 한 바이트도 안 바뀜 | PASS | `[DERIVED] rejected (4xx) PUTs never modify the config file ...` |
+
+### 검증 위임
+| 기준 | 결과 | 근거 |
+|---|---|---|
+| 히스테리시스 위반 → 400 | PASS | `[SPEC] hysteresis violation over HTTP -> 400` |
+| 미지 키 → 400 unknown-key | PASS | `[SPEC] unknown key over HTTP -> 400 unknown-key` |
+| `enabled`/`control` 포함 → unknown-key | PASS | `[DERIVED] enabled/control in the body over HTTP -> 400 unknown-key` |
+| 검증 로직 재구현 없이 `validateThresholdRequest()` 위임 | PASS | `[SPEC] control-server.js delegates validation to ./thresholds ...` (소스 정적 검사) |
+| 현재 시각은 핸들러에서 한 번만 읽어 주입 | PASS | `[DERIVED] handlePutThresholds reads the wall clock exactly once ...` |
+| JSON 파싱 불가 → 400 invalid-json | PASS | `[DERIVED] unparseable JSON body -> 400 invalid-json` |
+| 상한(64KiB) 초과 → 413 body-too-large | PASS (버그 수정 후) | `[DERIVED] oversized body (>64KiB) -> 413 body-too-large` |
+
+### 기준선은 readConfig() 의 결과
+| 기준 | 결과 | 근거 |
+|---|---|---|
+| 방향 판정 기준선이 `readConfig(configPath).thresholds` (파일 원문 아님) | PASS | `[SPEC] baseline for direction/validation is readConfig(configPath).thresholds ...` — 만료된 `expires_at` 이 붙은 파일(원문 99/99)에서 `weekly_stop:90` 요청이 하드 기본값(85) 대비 loosen 으로 판정됨을 확인 |
+| `lib/config.js` 의 `isExpired` 재구현 없음 | PASS | 코드 리뷰 — `readConfig` 그대로 호출, `config.js` 미수정(`git diff --stat` 확인) |
+
+### 파일 쓰기 — 원자적, 키 보존
+| 기준 | 결과 | 근거 |
+|---|---|---|
+| `enabled`/`control.*` 보존 | PASS | `[SPEC] enabled and control.* are preserved after a write` |
+| 그 밖의 기존 키 보존 | PASS | `[SPEC] other pre-existing keys in the file are preserved after a write` |
+| 부분 요청 시 나머지 3개 파일 값 불변 | PASS | `[SPEC] partial request (weekly_stop only) -- the other 3 threshold values are unchanged on disk` |
+| tmp → rename 원자적 쓰기 | PASS | `[SPEC] write is tmp-file + rename -- no .tmp file left behind ...` |
+| 파일 없으면 `{}` 에서 시작 | PASS | `[DERIVED] config file missing -- PUT still succeeds, creating the file from {}` |
+| 파싱 불가 파일 → 500 config-unreadable, 미덮어씀 | PASS | `[DERIVED] config file exists but is unparseable JSON -- 500 config-unreadable ...` |
+| UTF-8 BOM 파일 정상 처리 | PASS | `[DERIVED] a UTF-8 BOM in the existing config file is read and merged without error` |
+| 쓰기 자체 실패 → 500 write-failed | PASS | `[DERIVED] write failure (parent directory does not exist) -> 500 write-failed` |
+
+### never-brick
+| 기준 | 결과 | 근거 |
+|---|---|---|
+| 쓰기 실패가 폴 루프에 예외 전파 안 함 / `startControlServer()` 미거부·미throw | PASS | `[SPEC] startControlServer() with configPath/onConfigChange options still never rejects/throws` |
+| `onConfigChange` 콜백이 던져도 응답은 200 | PASS | `[SPEC] a throwing onConfigChange callback still yields 200 ...` |
+| 쓰기 실패 후에도 서버가 계속 응답 | PASS | `[SPEC] a write failure does not crash the server -- it keeps answering after` |
+
+### 기록
+| 기준 | 결과 | 근거 |
+|---|---|---|
+| 성공 시 `[thresholds]` 줄 정확히 한 줄(전→후·방향·expires_at 포함) | PASS | `[SPEC] a successful change logs exactly one [thresholds]-prefixed line ...` |
+| ISO 타임스탬프 붙여도 `parseLogTail` 오인 없음 | PASS | `[SPEC] the logged line, with an ISO timestamp prefix, is not misread by parseLogTail ...` |
+| 기존 로그 형식(`[poll start]` 등) 불변 | PASS | 코드 리뷰 — `logparse.js`/`watch-loop.js` 미수정, 기존 005 관련 테스트 전건 유지 통과 |
+| 거부된 요청은 `[thresholds]` 줄 없음 | PASS | `[SPEC] rejected requests produce no [thresholds] log line` |
+
+### 즉시 반영
+| 기준 | 결과 | 근거 |
+|---|---|---|
+| 쓰기 직후 `GET /api/status` 의 `usage.thresholds` 가 새 값 | PASS | `[SPEC] a write is reflected by GET /api/status right away, via onConfigChange ...` |
+| `configPath`/`onConfigChange` 선택적 옵션 | PASS | `[DERIVED] configPath/onConfigChange are optional ...` |
+| `configPath` 없이 PUT → 500 config-unavailable (토큰 미설정이면 403 이 먼저) | PASS | `[DERIVED] no configPath given at all -> 500 config-unavailable ...`, `[DERIVED] no configPath AND no token -- 403 fires first ...` |
+
+### 계약 버전
+| 기준 | 결과 | 근거 |
+|---|---|---|
+| `contracts["supervised-v1"] === "1.3.0"` | PASS | 011 에서 이미 갱신, 기존 테스트 유지 통과 |
+| `package.json` 의 `version` 불변 | PASS | `[SPEC] regression: package.json version is unaffected ...` |
+| `/api/health` 여전히 `getSnapshot()` 미호출 | PASS | `[DERIVED] GET /api/health still does not call getSnapshot() after 012` |
+
+### 회귀 없음
+| 기준 | 결과 | 근거 |
+|---|---|---|
+| `/api/status` 의 `fields`/`summary`/`state`/`allowance`/`usage` 형태 불변 | PASS | `[SPEC] regression: GET /api/status fields/summary/state/allowance/usage shape is unchanged after 012` |
+| `GET /` 읽기 전용 유지(편집 UI 없음) | PASS | `[SPEC] regression: GET / is still read-only -- no form/input/edit affordance in the HTML` |
+| `POST /api/stop` 여전히 501 | PASS | `[SPEC] regression: POST /api/stop is still 501` |
+| `deriveDesired()`/STOP.json 무관 | PASS | 코드 리뷰 — 둘 다 `watch-loop.js` 소관, `control-server.js` 는 건드리지 않음, 미수정 |
+| `lib/thresholds.js`/`config.js`/`observation.js`/`status-page.js`/`logparse.js` Phase 2 미수정 | PASS | `git diff --stat` 확인 — 이번 Phase 에서 수정된 소스는 `lib/control-server.js` 뿐(버그 수정) |
+| 토큰 비교 `===`/`==`/`startsWith`/`indexOf` 미사용 유지 | PASS | 기존 SRC 정적 검사 테스트 유지 통과(파일 전체 대상이라 신규 코드도 포함) |
+| `claude` 문자열 미등장 | PASS | 기존 `p-quaestor/.js files do not reference the Claude CLI` 테스트가 전체 파일 대상이라 신규 코드 포함 |
+| 새 npm 의존성 없음 | PASS | `p-quaestor/package.json` 확인 — `puppeteer` 뿐, 변경 없음 |
+| `run-all.js` 기존 전체 테스트 무손상(005 의 26일 fixture 포함) | PASS | 아래 전체 실행 결과 참고 |
+
+## 구현에서 수정한 버그
+
+**`collectBody()` 의 소켓 파괴 버그 (`lib/control-server.js`)** — 요청 본문이 64KiB 상한을 넘으면
+기존 코드가 `req.destroy()` 를 호출했는데, 이는 Node 의 `http.IncomingMessage` 에서 요청과 같은
+소켓 전체를 파괴한다. 그 결과 서버가 413 응답을 쓰려고 해도 클라이언트 쪽 소켓이 이미 끊겨
+`ECONNRESET`("socket hang up")만 관측되고 413 자체가 절대 도달하지 않았다 — Phase 2 acceptance
+"[DERIVED] 본문이 상한(64KiB)을 넘으면 413" 을 실제로는 만족할 수 없는 상태였다.
+`req.destroy()` 호출만 제거하고(스트림은 계속 흘려보내되 `done` 플래그로 추가 누적만 막음),
+413 을 정상 왕복시키도록 고쳤다. 다른 로직은 변경하지 않았다.
+
+## 이전 Phase 통합 검증
+
+`node p-quaestor/test/run-all.js` 전체 실행 결과 344개 중 343 PASS.
+
+**1건 FAIL — Phase 2 범위 밖, 환경 충돌 (Phase 1 QA 리포트와 동일 원인):**
+```
+control-server.test.js:91 "omitting opts.port uses DEFAULT_PORT (3210)"
+  Expected started:true, got started:false
+```
+`netstat`/`tasklist` 로 재확인 — 이 개발 머신에 `node.exe`(PID 6944)가 여전히 포트 3210 을 점유 중이다.
+`git diff --stat` 상 이 테스트는 이번 Phase 2 작업으로 한 글자도 바뀌지 않았고(신규 추가분은 전부
+`port: 0` 사용, 실포트 3210 은 건드리지 않음), Phase 1 QA 때부터 있던 동일한 환경 충돌이다.
+실사용량 감시자로 추정되는 프로세스이므로 QA 목적으로 종료하지 않았다.
+
+Phase 1 의 34개(`thresholds.test.js`) + 26일 fixture 복원 테스트(005) 포함 전체 기존 테스트 무손상.
+
+## 결론
+
+**Phase 2 PASS.** `output/ACCEPTANCE.md` 의 모든 [SPEC]/[DERIVED] 기준을 충족한다.
+`collectBody()` 소켓 파괴 버그를 발견해 수정했으며, 그 밖의 검증 로직은 그대로 유지했다.
