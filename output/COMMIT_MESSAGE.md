@@ -1,5 +1,7 @@
-feat: /api/health 엔드포인트에 계약 버전(contracts) 노출
+test: 012 Phase 1 임계값 검증 모듈 수용기준 전수 확인
 
-Agora 버전 관측기(Agora 021/022)가 구현 중인 계약 버전을 판별할 수 있도록 /api/health 응답 최상위에 contracts 객체({ "supervised-v1": "1.2.0" })를 추가했습니다.
-
-소프트웨어 버전(package.json의 version: "0.1.0")과 계약 인터페이스 버전("1.2.0")은 완전히 독립적인 축이므로 두 축을 분리하여 함께 전달합니다. 이를 통해 Agora 관측기에서 발생하는 영구적인 drifted 경보를 원천 차단하고 기존 소비자인 Foreman의 하위 호환성을 100% 보존합니다.
+무르기 방향 변경에 만료를 강제하는 안전선과 히스테리시스 불변식은 이 NNN 의
+핵심 조항이라 HTTP 배선(Phase 2) 이전에 순수 로직 단계에서 전부 고정해야
+한다. ACCEPTANCE.md의 Phase 1 [SPEC]/[DERIVED] 항목을 thresholds.test.js
+34건과 1:1 대조해 누락 없음을 확인했고, 다른 소스 파일이 이 단계에서
+수정되지 않았음을 git diff로 검증해 회귀 위험이 없음을 못박았다.

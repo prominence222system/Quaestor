@@ -1,5 +1,5 @@
 ## Verdict
-PASS
+NEXT
 
 ## Verdict Criteria (current work file only)
 - NEXT: a phase REMAINS WITHIN the current work file (not for other work files)
@@ -13,40 +13,36 @@ NO
 
 ## Current Phase Evaluation
 - Phase: 1
-- Feature: `/api/health` 에 계약 버전(`contracts`) 노출
+- Feature: `lib/thresholds.js` 순수 모듈 — 방향 판정(tighten/loosen) · 검증(미지 키·범위·히스테리시스·만료) · 설정 병합 · 로그 줄 생성
 - Complete: yes
-- Issues found: none
+- Issues found: 없음
+
+## Acceptance-criteria integrity check
+`output/ACCEPTANCE.md` Phase 1 섹션의 모든 [SPEC]/[DERIVED] 항목이 `test/thresholds.test.js` 34개 테스트로 1:1 대응 확인됨:
+- 순수성(fs/http/net 미require, Date.now 미호출, `claude` 미등장) — 커버
+- 방향 판정 5종(조이기/동일/release만/역치 케이스) — 커버
+- 무르기+만료 9종(누락/미래/과거/파싱불가/생략+기존미래/생략+기존null·과거/명시null 허용·거부/에러문구) — 커버
+- 히스테리시스 4종(각 축 위반·부분요청 병합판정·등호위반) — 커버
+- 값·키 검증 6종(비정수/비숫자/범위밖/미지키/enabled·control 거부/본문형태·빈객체) — 커버
+- 부분요청 2종, 병합 5종(보존/일치/불변성/누락thresholds) — 커버
+- 로그 줄 4종(형식/parseLogTail null/금지토큰/미변경축 생략) — 커버
+- 회귀: git diff 로 `lib/thresholds.js`·`test/thresholds.test.js` 두 파일만 추가됐음을 확인, 기타 소스(`config.js`·`observation.js`·`control-server.js`·`logparse.js`·`watch-loop.js`) 미수정
+
+이전 iteration과 비교해 삭제·완화된 [SPEC] 항목 없음.
 
 ## Work Detail
-- Files created/modified:
-  - `p-quaestor/lib/control-server.js`: `CONTRACTS` 상수 선언, 유지보수 주석 추가, `handleHealth` 응답에 `contracts` 객체 노출, `CONTRACTS` 내보내기 추가.
-  - `p-quaestor/test/control-server.test.js`: 011 Phase 1 신규 [SPEC] 테스트 6건 추가.
-- Key changes summary:
-  - `/api/health` 엔드포인트에 소프트웨어 버전(`version: "0.1.0"`)과 독립적인 계약 버전 축(`contracts: { "supervised-v1": "1.2.0" }`)을 추가 노출.
-  - Agora 버전 관측기와의 상호운용성을 확보하면서 기존 소비자인 Foreman의 하위 호환성을 100% 보존.
-  - 모든 수용 기준([SPEC])을 실포트 통신 기반 통합 테스트로 검증 완료.
+- Files created/modified: `p-quaestor/lib/thresholds.js` (신규), `p-quaestor/test/thresholds.test.js` (신규)
+- Key changes summary: 요청 검증(범위/미지키/히스테리시스), 방향 판정(`*_stop` 두 축 기준), 만료 3가지 입력 처리(생략/ISO/명시적 null), `mergeIntoConfig`(다른 키 보존, 원본 비변형), `formatThresholdLog`(005 파서 오인 방지) 구현. 전부 순수 함수, `nowMs` 주입.
 
 ## Issues
-- 없음
+없음.
 
 ## Good Points
-- 소프트웨어 버전축과 계약 버전축을 명확히 분리하여 Agora 관측 시 영구 `drifted` 경보 위험을 원천 차단함.
-- `CONTRACTS` 상수에 주석을 명시하여 향후 계약 문서 변경 시 함께 업데이트해야 함을 가이드함.
-- 기존의 모든 259개 단위/통합 테스트를 단 하나도 깨뜨리지 않고 무회귀 완료.
+- `readConfig().thresholds` 를 기준선으로 삼아 만료된 파일 값(99)을 조이기로 오판하지 않도록 설계(D2) 그대로 구현됨
+- 히스테리시스 검사를 병합 결과 기준으로 수행해 부분 요청으로도 안전선이 뚫리지 않음을 확인
+- `expires_at: null` 경로("오늘 무르고 내일 만료만 지운다" 우회)를 HARD_DEFAULTS 재검사로 차단 — 설계 의도(D7 3번째 행) 정확히 구현
+- 로그 줄이 `parseLogTail` 을 실제로 통과시켜 `null` 반환을 검증(005 회귀 방지 실측)
+- Phase 1 범위를 정확히 지킴 — HTTP/파일 I/O 없음, 다른 소스 파일 무수정 확인됨
 
-## How to Run
-- 전체 단위 및 통합 테스트 실행 (npm 사용 금지, node 직접 실행):
-  ```bash
-  node p-quaestor/test/run-all.js
-  ```
-- 백그라운드 워치 루프 실행 후 `/api/health` 헬스 체크 엔드포인트 확인:
-  ```bash
-  powershell -ExecutionPolicy Bypass -File .\run-quaestor.ps1
-  curl http://127.0.0.1:3210/api/health
-  ```
-
-
-===========================================
-NNN: 012-threshold-write-api
-Started: 2026-09-03T03:51:38Z
-===========================================
+## Test result unrelated failure
+`control-server.test.js:91` 포트 3210 점유 실패는 개발 머신에서 실행 중인 별도 watch-loop 프로세스와의 충돌이며 Phase 1 변경과 무관(git status 상 `p-quaestor/` 미커밋 변경 없음). Phase 2/3 에서 재확인 필요.
