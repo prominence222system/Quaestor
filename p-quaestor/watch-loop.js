@@ -86,7 +86,12 @@ function isValidUsage(u) {
   return true;
 }
 
-async function pollOnce() {
+// pollOnce()'s original first 3 lines + 2 log lines, extracted so the PUT
+// /api/thresholds handler can force an immediate re-read after a write
+// without waiting for the next poll (see output/DESIGN.md D9). Behavior
+// identical to before -- same lines, same order, same conditions, so 005's
+// restore input is unchanged.
+function refreshConfig() {
   const cfg = readConfig(CONFIG_PATH);
   lastCfg = cfg;
   lastConfigSource = (fs.existsSync(CONFIG_PATH) && !cfg._parseError && !cfg._expired) ? 'file' : 'default';
@@ -96,6 +101,11 @@ async function pollOnce() {
   if (cfg._expired) {
     log('[config] expires_at past, using defaults');
   }
+  return cfg;
+}
+
+async function pollOnce() {
+  const cfg = refreshConfig();
 
   log('[poll start]');
   let usage = null;
@@ -263,10 +273,12 @@ async function mainLoop() {
   try {
     const cfg0 = readConfig(CONFIG_PATH);
     const r = await startControlServer({
-      port:        cfg0.control.port,
-      authToken:   cfg0.control.authToken,
-      getSnapshot: controlSnapshot,
-      onLog:       log
+      port:           cfg0.control.port,
+      authToken:      cfg0.control.authToken,
+      getSnapshot:    controlSnapshot,
+      onLog:          log,
+      configPath:     CONFIG_PATH,
+      onConfigChange: refreshConfig
     });
     if (!r.started) {
       log('[control] listen failed: ' + r.error);

@@ -149,14 +149,14 @@ test('GET /api/health startedAt is constant across two requests', async () => {
 
 // ---- 011: /api/health contracts field -------------------------------------
 
-test('[SPEC] GET /api/health over real port returns top-level contracts object with contracts["supervised-v1"] === "1.2.0"', async () => {
+test('[SPEC] GET /api/health over real port returns top-level contracts object with contracts["supervised-v1"] === "1.3.0"', async () => {
   const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });
   try {
     const res = await fetch('http://127.0.0.1:' + r.port + '/api/health');
     assert.strictEqual(res.status, 200);
     const body = await res.json();
     assert.ok(body.contracts && typeof body.contracts === 'object');
-    assert.strictEqual(body.contracts['supervised-v1'], '1.2.0');
+    assert.strictEqual(body.contracts['supervised-v1'], '1.3.0');
     assert.strictEqual(typeof body.contracts['supervised-v1'], 'string');
   } finally {
     await r.close();
@@ -190,14 +190,14 @@ test('[SPEC] existing GET /api/health fields (ok, id, version, startedAt) remain
   }
 });
 
-test('[SPEC] software version (0.1.0) and contract version (1.2.0) are distinct axes and have different values', async () => {
+test('[SPEC] software version (0.1.0) and contract version (1.3.0) are distinct axes and have different values', async () => {
   const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });
   try {
     const res = await fetch('http://127.0.0.1:' + r.port + '/api/health');
     const body = await res.json();
     assert.notStrictEqual(body.version, body.contracts['supervised-v1']);
     assert.strictEqual(body.version, '0.1.0');
-    assert.strictEqual(body.contracts['supervised-v1'], '1.2.0');
+    assert.strictEqual(body.contracts['supervised-v1'], '1.3.0');
   } finally {
     await r.close();
   }

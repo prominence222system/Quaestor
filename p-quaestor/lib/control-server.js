@@ -6,8 +6,10 @@
 // new dependencies.
 //
 // Phase 1: listener + routing + health/status.
-// Phase 2 (this revision): Authorization: Bearer auth gate + secret-leak
-// guarantees. watch-loop.js wiring is still Phase 3.
+// Phase 2 (this revision): PUT /api/thresholds -- token gate, body parsing,
+// readConfig() baseline, atomic file write, [thresholds] log line, and
+// onConfigChange snapshot refresh. Judgement itself lives in ./thresholds
+// (pure module) -- this file only wires it to HTTP/fs/log.
 //
 // Design invariants (see output/DESIGN.md):
 // - HOST is a hard constant: loopback only. Never read from opts.
@@ -18,21 +20,28 @@
 //   endpoints. Merging them would make a 3-week-silent process look green.
 // - /api/status only calls deriveState() from ./observation -- it does not
 //   re-implement or duplicate threshold/state judgement.
+// - PUT /api/thresholds does not touch getSnapshot() either -- it is a
+//   config write, not an observation read.
 
 const http = require('node:http');
 const crypto = require('node:crypto');
+const fs = require('node:fs');
 const { deriveState, deriveUsage, deriveAllowance } = require('./observation');
 const { renderStatusPage } = require('./status-page');
+const { readConfig } = require('./config');
+const { validateThresholdRequest, mergeIntoConfig, formatThresholdLog } = require('./thresholds');
 
 const HOST = '127.0.0.1';       // [SPEC] fixed. not configurable via opts.
 const DEFAULT_PORT = 3210;
 const SERVICE_ID = 'quaestor'; // [SPEC] product id, not the folder name "Bellows".
+const MAX_BODY_BYTES = 65536;   // 64 KiB cap on PUT /api/thresholds request bodies.
 
 // 이 값을 바꾸는 시점 = Agora 등록 문서(apis/Quaestor/supervised-v1.md)의 `version`을 바꾸는 시점.
-// 소프트웨어 버전(package.json의 version: "0.1.0")과 계약(인터페이스) 버전("1.2.0")은 서로 다른 축이다.
+// 소프트웨어 버전(package.json의 version: "0.1.0")과 계약(인터페이스) 버전("1.3.0")은 서로 다른 축이다.
 // 두 축을 함께 내되 섞지 않는다 (Agora 022 §2/§3 규율).
+// 1.2.0 -> 1.3.0: PUT /api/thresholds 추가 (하위호환 확장).
 const CONTRACTS = Object.freeze({
-  'supervised-v1': '1.2.0'
+  'supervised-v1': '1.3.0'
 });
 
 let cachedVersion = null;
@@ -179,7 +188,169 @@ function handleStop(res) {
   });
 }
 
-function requestListener(ctx) {
+// Reads the raw config file exactly as written on disk -- no defaults
+// layered in. The write path merges into this object, not into
+// readConfig()'s merged output (see output/DESIGN.md D3), so unknown keys
+// (enabled, control, anything an operator added) survive a write.
+// Returns { ok:true, raw:object } (raw:{} when the file is missing), or
+// { ok:false } when the file exists but cannot be read/parsed.
+function readRawConfigFile(configPath) {
+  if (!fs.existsSync(configPath)) return { ok: true, raw: {} };
+  let text;
+  try {
+    text = fs.readFileSync(configPath, 'utf8');
+  } catch (e) {
+    return { ok: false };
+  }
+  // Strip UTF-8 BOM if present (PowerShell 5.1 Set-Content -Encoding utf8 writes BOM).
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (e) {
+    return { ok: false };
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { ok: false };
+  return { ok: true, raw: parsed };
+}
+
+// Atomic write: tmp file -> rename, the same convention the watch loop
+// already uses for its own atomic writes. Returns null on success, Error
+// on failure.
+function writeConfigAtomic(configPath, obj) {
+  try {
+    const tmp = configPath + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(obj, null, 2));
+    fs.renameSync(tmp, configPath);
+    return null;
+  } catch (e) {
+    return e;
+  }
+}
+
+// Collects a request body up to maxBytes. cb(err, text) -- err.message is
+// 'body-too-large' when the cap is exceeded, otherwise a generic read error.
+function collectBody(req, maxBytes, cb) {
+  const chunks = [];
+  let total = 0;
+  let done = false;
+  req.on('data', function (chunk) {
+    if (done) return;
+    total += chunk.length;
+    if (total > maxBytes) {
+      done = true;
+      req.destroy();
+      cb(new Error('body-too-large'));
+      return;
+    }
+    chunks.push(chunk);
+  });
+  req.on('error', function () {
+    if (done) return;
+    done = true;
+    cb(new Error('read-error'));
+  });
+  req.on('end', function () {
+    if (done) return;
+    done = true;
+    cb(null, Buffer.concat(chunks).toString('utf8'));
+  });
+}
+
+// PUT /api/thresholds -- see output/DESIGN.md D5 for the fixed validation
+// order. Judgement is fully delegated to ./thresholds; this function only
+// owns the token gate, body collection, file I/O, logging, and snapshot
+// refresh. Never touches ctx.getSnapshot() or observation.
+function handlePutThresholds(req, res, ctx, onLog) {
+  // (a) token gate -- write-only, default-deny. Read policy (isAuthorized's
+  // "unset -> pass") is untouched; this is one more layer on top of it.
+  if (!ctx.authToken) {
+    sendJson(res, 403, {
+      ok: false,
+      reason: 'write-requires-token',
+      error: 'writing thresholds requires control.authToken to be set'
+    });
+    return;
+  }
+  // (b) write target
+  if (!ctx.configPath) {
+    sendJson(res, 500, { ok: false, reason: 'config-unavailable', error: 'no config path configured' });
+    return;
+  }
+
+  collectBody(req, MAX_BODY_BYTES, function (err, text) {
+    if (err) {
+      if (err.message === 'body-too-large') {
+        sendJson(res, 413, { ok: false, reason: 'body-too-large', error: 'request body too large' });
+      } else {
+        sendJson(res, 400, { ok: false, reason: 'invalid-body', error: 'failed to read request body' });
+      }
+      return;
+    }
+
+    let body;
+    try {
+      body = JSON.parse(text);
+    } catch (e) {
+      sendJson(res, 400, { ok: false, reason: 'invalid-json', error: 'request body is not valid JSON' });
+      return;
+    }
+
+    // (d) baseline = readConfig().thresholds -- what the breaker actually
+    // uses right now, not the file's raw value (D2).
+    const appliedNow = readConfig(ctx.configPath).thresholds;
+
+    // (e) raw file -- merge target (D3). Missing -> {}. Unparseable -> 500,
+    // do not silently overwrite what an operator hand-edited.
+    const rawResult = readRawConfigFile(ctx.configPath);
+    if (!rawResult.ok) {
+      sendJson(res, 500, { ok: false, reason: 'config-unreadable', error: 'existing config file could not be parsed' });
+      return;
+    }
+    const rawFile = rawResult.raw;
+    const currentExpiresAt = typeof rawFile.expires_at === 'string' ? rawFile.expires_at : null;
+
+    // (f) validation, delegated to the pure module. Date.now() read once,
+    // here -- the validator itself never touches the clock.
+    const result = validateThresholdRequest(body, appliedNow, currentExpiresAt, Date.now());
+    if (!result.ok) {
+      sendJson(res, result.status, { ok: false, reason: result.reason, error: result.error });
+      return;
+    }
+
+    // (g) merge + atomic write
+    const merged = mergeIntoConfig(rawFile, result.next, result.expiresAt);
+    const writeErr = writeConfigAtomic(ctx.configPath, merged);
+    if (writeErr) {
+      onLog('[thresholds] write failed: ' + writeErr.message);
+      sendJson(res, 500, { ok: false, reason: 'write-failed', error: 'failed to write config file' });
+      return;
+    }
+
+    // (h) record
+    onLog(formatThresholdLog(result.direction, result.changed, result.expiresAt));
+
+    // (i) refresh the in-memory snapshot immediately -- never-brick: a
+    // throwing callback still yields 200, since the file is already
+    // committed and the next poll would re-read it anyway.
+    try {
+      ctx.onConfigChange();
+    } catch (e) {
+      onLog('[thresholds] refresh failed: ' + e.message);
+    }
+
+    // (j) success
+    sendJson(res, 200, {
+      ok: true,
+      direction: result.direction,
+      applied: result.next,
+      expires_at: result.expiresAt,
+      previous: result.previous
+    });
+  });
+}
+
+function requestListener(ctx, onLog) {
   return function (req, res) {
     let pathname;
     try {
@@ -216,6 +387,11 @@ function requestListener(ctx) {
         handleStop(res);
         return;
       }
+      if (pathname === '/api/thresholds') {
+        if (req.method !== 'PUT') { sendJson(res, 405, { ok: false, error: 'method not allowed' }); return; }
+        handlePutThresholds(req, res, ctx, onLog);
+        return;
+      }
       sendJson(res, 404, { ok: false, error: 'not found' });
     } catch (e) {
       try { sendJson(res, 500, { ok: false, error: 'internal error' }); } catch (e2) { /* socket already gone */ }
@@ -245,12 +421,16 @@ function startControlServer(opts) {
   const authToken = (typeof o.authToken === 'string' && o.authToken.length > 0)
     ? o.authToken
     : null;
+  // [DERIVED] both new options are optional -- existing callers (and
+  // tests) that don't pass them still get a server that starts fine.
+  const configPath = typeof o.configPath === 'string' ? o.configPath : null;
+  const onConfigChange = typeof o.onConfigChange === 'function' ? o.onConfigChange : noop;
 
-  const ctx = { getSnapshot, version, startedAt, authToken };
+  const ctx = { getSnapshot, version, startedAt, authToken, configPath, onConfigChange };
 
   return new Promise((resolve) => {
     let settled = false;
-    const server = http.createServer(requestListener(ctx));
+    const server = http.createServer(requestListener(ctx, onLog));
 
     function safeClose() {
       return new Promise((res2) => {
