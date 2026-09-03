@@ -700,6 +700,23 @@ Phase 1·2 구현이 Phase 3 의 통합 시나리오(S1~S7, W1~W4)를 전부 그
 exit=0
 ```
 
+## §3.8 QA 재검증 (다음 iteration, fix 이후)
+
+이전 iteration 의 fix(포트 3210 probe 분기)가 반영된 상태에서 `node p-quaestor/test/run-all.js` 를
+**연속 2회 독립 재실행**했다:
+
+```
+run 1: tests 357 / pass 357 / fail 0 / exit=0
+run 2: tests 357 / pass 357 / fail 0 / exit=0
+```
+
+`p-quaestor\test\control-server.test.js` 의 `isPortFree()` probe(§3.7 이 추가한 것)를 소스에서
+직접 확인 — 두 갈래(포트 비었을 때 / `EADDRINUSE` 일 때) 모두 `DEFAULT_PORT === 3210` 은
+그대로 단언하므로 안전선이 약해지지 않았다. `git diff --stat p-quaestor/` = 변경 없음(이번
+라운드에서 소스 미수정, §3.5/§3.6/§3.7 의 기록이 현재 코드 상태와 일치).
+
+결론: Phase 1·2·3 전부 PASS 유지, 회귀 없음, `exitCode === 0` 재확인.
+
 ## 산출물 경로에 관한 메모
 
 이전 iteration 의 "test" 단계 커밋(`4cf0b2d`)이 `output/TEST_RESULT.md` 대신
