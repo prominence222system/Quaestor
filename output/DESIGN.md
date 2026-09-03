@@ -396,3 +396,226 @@ const loosen = next.weekly_stop  > applied.weekly_stop
 - 파일 읽기/쓰기, `readConfig` 호출 → Phase 2
 - `CONTRACTS` 버전 상승 → Phase 2
 - 실포트 왕복 검증 → Phase 3
+
+---
+
+# Phase 2 상세 설계 — `PUT /api/thresholds` 배선
+
+Phase 1 이 만든 순수 모듈을 **HTTP·파일·로그·스냅샷에 연결한다.**
+🔒 Phase 2 는 판정 논리를 하나도 새로 만들지 않는다 — 전부 `lib/thresholds.js` 에 위임하고,
+이 Phase 가 소유하는 것은 **토큰 게이트 · 본문 수집 · 파일 원문 읽기 · 원자적 쓰기 · 기록 · 스냅샷 갱신**뿐이다.
+
+## 2.0 이 Phase 가 만지는 파일
+
+| 파일 | 변경 |
+|---|---|
+| `lib/control-server.js` | PUT 라우트 · 403 게이트 · 본문 수집 · 파일 I/O · `CONTRACTS` 1.3.0 |
+| `watch-loop.js` | `configPath`·`onConfigChange` 주입, `refreshConfig()` 추출 |
+| `lib/thresholds.js` | 🔒 **불변** (Phase 1 산출물) |
+| `lib/config.js` · `observation.js` · `status-page.js` · `logparse.js` | 🔒 **불변** |
+
+## 2.1 `startControlServer(opts)` 의 새 옵션
+
+```js
+startControlServer({
+  port, authToken, getSnapshot, onLog,   // 기존 — 형태·의미 불변
+  configPath,       // [신규] string|null. bellows-config.json 의 절대 경로
+  onConfigChange    // [신규] function|noop. 쓰기 성공 후 동기 호출
+});
+```
+
+- 두 옵션 모두 **선택적**이다. 기존 호출부(테스트 포함)가 주지 않아도 서버는 그대로 뜬다.
+  🔒 이것이 회귀 없음의 기계적 보장이다 — `ctx` 에 두 필드가 추가될 뿐 기존 경로는 한 줄도 안 바뀐다.
+- `configPath` 가 문자열이 아니면 `ctx.configPath = null`.
+- `onConfigChange` 가 함수가 아니면 기존 `noop` 을 쓴다 (`onLog` 와 동일한 관례).
+
+`ctx` 최종 형태:
+```js
+const ctx = { getSnapshot, version, startedAt, authToken, configPath, onConfigChange };
+```
+
+## 2.2 라우팅 — 기존 게이트 순서를 그대로 쓴다
+
+```
+requestListener()
+  ├─ URL 파싱 실패            -> 404
+  ├─ isAuthorized(ctx, req)   -> 401 unauthorized      🔒 라우팅보다 먼저 (기존, 불변)
+  ├─ '/'            GET  아니면 405
+  ├─ '/api/health'  GET  아니면 405
+  ├─ '/api/status'  GET  아니면 405
+  ├─ '/api/stop'    POST 아니면 405 -> 501 (의도적 미구현, 불변)
+  ├─ '/api/thresholds'  [신규]  PUT 아니면 405
+  │      -> handlePutThresholds(req, res, ctx)
+  └─ 그 외 -> 404
+```
+
+🔒 **401 이 403 보다 반드시 먼저다.** 전역 `isAuthorized()` 가 라우팅 앞에 있으므로
+"토큰이 설정돼 있는데 Bearer 가 틀린" 요청은 PUT 핸들러에 도달조차 하지 않는다 —
+수용 기준의 401/403 분기가 코드 순서로 보장된다.
+
+⚠️ 신규 경로 추가로 `/api/thresholds` 의 존재가 401 이전에 노출되지 않는지 확인할 것:
+게이트가 먼저이므로 토큰 설정 상태에서 미인증 요청은 경로 불문 401 이다. 기존 규율 유지.
+
+## 2.3 `handlePutThresholds(req, res, ctx)` — 단계별
+
+```
+(a) 토큰 게이트 (쓰기 전용, 기본 거부)
+    if (!ctx.authToken) -> 403 { ok:false, reason:'write-requires-token', error:'...' }
+    🔒 읽기 정책(isAuthorized 의 "미설정 -> 통과")은 건드리지 않는다. 여기서 한 겹만 더 얹는다.
+
+(b) 쓰기 대상 경로
+    if (!ctx.configPath) -> 500 { reason:'config-unavailable' }
+    (서버가 configPath 없이 떠 있는 경우 — 옛 호출부·단위 테스트)
+
+(c) 본문 수집  (async)
+    req.on('data') 누적, 상한 65536 바이트
+      초과 -> 413 { reason:'body-too-large' }, req.destroy()
+    req.on('error') -> 400 { reason:'invalid-body' }
+    req.on('end'):
+      JSON.parse 실패(빈 본문 포함) -> 400 { reason:'invalid-json' }
+
+(d) 기준선 = readConfig(ctx.configPath).thresholds          ← D2
+    🔒 파일 원문이 아니라 "지금 차단기가 실제로 쓰는 값". isExpired 재구현 없음.
+
+(e) 파일 원문 = readRawConfigFile(ctx.configPath)           ← D3
+    없음        -> {}          (신규 생성)
+    읽기 실패   -> 500 { reason:'config-unreadable' }
+    JSON.parse 실패 / 객체 아님 -> 500 { reason:'config-unreadable' }
+    🔒 깨진 파일을 조용히 덮어쓰지 않는다.
+
+(f) 검증 (순수 위임)
+    validateThresholdRequest(body, applied, rawFile.expires_at ?? null, Date.now())
+      ok:false -> sendJson(res, r.status, { ok:false, reason:r.reason, error:r.error })
+      🔒 Date.now() 는 여기서 딱 한 번 읽어 넘긴다. 판정 안에서는 시계를 읽지 않는다.
+
+(g) 병합 + 원자적 쓰기
+    merged = mergeIntoConfig(rawFile, r.next, r.expiresAt)
+    writeConfigAtomic(ctx.configPath, merged)   // tmp -> renameSync
+      실패 -> 500 { reason:'write-failed' } + onLog('[thresholds] write failed: ...')
+
+(h) 기록
+    onLog(formatThresholdLog(r.direction, r.changed, r.expiresAt))
+
+(i) 스냅샷 즉시 갱신
+    try { ctx.onConfigChange(); } catch (e) { onLog('[thresholds] refresh failed: ...') }
+    🔒 콜백이 던져도 200 이다 — 파일은 이미 커밋됐고, 다음 폴이 어차피 readConfig 를 다시 한다.
+
+(j) 200
+    { ok:true, direction, applied:r.next, expires_at:r.expiresAt, previous:r.previous }
+```
+
+⚠️ 응답의 `applied` 는 **적용된 새 값**(= `r.next`)이다. (d) 의 기준선 변수명과 겹치므로
+코드에서는 기준선을 `appliedNow`, 응답 필드를 `applied: result.next` 로 구분해 쓴다.
+
+### never-brick 재확인
+- 이 핸들러는 `ctx.getSnapshot()` 도 `observation` 도 만지지 않는다.
+- 모든 실패 경로가 **응답을 보내고 끝난다.** 예외는 `requestListener` 의 기존 try/catch 가 받아
+  `500 internal error` 가 된다 — 감시 루프는 별도 실행 흐름이므로 영향이 없다.
+- 🔒 쓰기 실패가 폴링을 멈추는 경로는 존재하지 않는다.
+
+## 2.4 파일 헬퍼 두 개 (control-server.js 지역 함수)
+
+```js
+// 원문 읽기. config.js 의 BOM 처리 관례를 그대로 따른다(PS 5.1 이 BOM 을 붙인다).
+// 반환: { ok:true, raw:object } | { ok:false }   -- 없으면 { ok:true, raw:{} }
+function readRawConfigFile(configPath)
+
+// 원자적 쓰기. writeStopJsonAtomic 과 같은 방식(D8).
+//   tmp = configPath + '.tmp' -> writeFileSync(JSON.stringify(obj, null, 2)) -> renameSync
+// 반환: null(성공) | Error
+function writeConfigAtomic(configPath, obj)
+```
+
+- 🔒 BOM(`0xFEFF`) 를 벗기고 파싱한다. 벗기지 않으면 운영자가 PowerShell 로 만든 파일이
+  `config-unreadable` 로 거부돼, 고치려는 창구가 정확히 고쳐야 할 상황에서 잠긴다.
+- 쓰기는 BOM 없는 UTF-8. `readConfig` 는 양쪽 다 읽으므로 형식 변경이 아니다.
+- `.tmp` 접미어는 STOP.json 관례와 동일. 같은 디렉터리이므로 rename 은 원자적이다.
+- `require('node:fs')` 를 control-server.js 에 새로 들인다. 🔒 새 **의존성**은 아니다(코어 모듈).
+
+## 2.5 응답 스키마 (성공/실패 공통 규약)
+
+```jsonc
+// 200
+{ "ok": true, "direction": "tighten",
+  "applied":  { "weekly_stop":85, "weekly_release":70, "session_stop":90, "session_release":75 },
+  "expires_at": null,
+  "previous": { "weekly_stop":99, "weekly_release":70, "session_stop":99, "session_release":75 } }
+
+// 4xx/5xx  -- 항상 reason 을 담는다(기계가 분기할 수 있게)
+{ "ok": false, "reason": "loosen-requires-expiry", "error": "사람이 읽는 설명" }
+```
+
+기존 엔드포인트의 오류 응답(`{ok:false, error}`)에는 `reason` 이 없었다.
+🔒 **기존 응답에 `reason` 을 소급 추가하지 않는다** — 회귀 금지. 신규 엔드포인트만 이 규약을 쓴다.
+
+`reason` 전체 목록(D5 순서 고정):
+`write-requires-token`(403) · `config-unavailable`(500) · `body-too-large`(413) ·
+`invalid-json`(400) · `invalid-body`(400) · `unknown-key`(400) · `invalid-value`(400) ·
+`invalid-expiry`(400) · `expiry-in-past`(400) · `hysteresis-violation`(400) ·
+`loosen-requires-expiry`(400) · `config-unreadable`(500) · `write-failed`(500)
+
+## 2.6 계약 버전 상승 (D11)
+
+```js
+const CONTRACTS = Object.freeze({
+  'supervised-v1': '1.3.0'   // 1.2.0 -> 1.3.0 : PUT /api/thresholds 추가(하위호환 확장)
+});
+```
+
+🔒 `package.json` 의 `version`(`0.1.0`)은 손대지 않는다. 두 축을 섞으면 Agora 022 기준으로
+영원히 `drifted` 다. 011 이 남긴 주석(“이 값을 바꾸는 시점 = Agora 등록 문서를 바꾸는 시점”)을
+갱신해 1.3.0 의 근거를 남긴다.
+
+## 2.7 `watch-loop.js` 배선
+
+현재 `pollOnce()` 의 처음 세 줄이 설정 갱신을 담당한다(90–98행). 그 블록을 **함수로 추출**해
+PUT 핸들러와 폴 루프가 같은 코드를 공유하게 한다.
+
+```js
+// pollOnce() 의 기존 3줄 + 로그 2줄을 그대로 옮긴 것. 동작 동일.
+function refreshConfig() {
+  const cfg = readConfig(CONFIG_PATH);
+  lastCfg = cfg;
+  lastConfigSource = (fs.existsSync(CONFIG_PATH) && !cfg._parseError && !cfg._expired) ? 'file' : 'default';
+  if (cfg._parseError) log('[config] parse error, using defaults: ' + cfg._parseError);
+  if (cfg._expired)    log('[config] expires_at past, using defaults');
+  return cfg;
+}
+```
+
+- `pollOnce()` 는 `const cfg = refreshConfig();` 한 줄로 바뀐다.
+  🔒 **로그 줄·순서·조건이 전부 동일**하므로 005 의 복원 입력에 변화가 없다.
+- `startControlServer` 호출에 두 줄 추가:
+  ```js
+  configPath:     CONFIG_PATH,
+  onConfigChange: refreshConfig
+  ```
+- 🔒 제어 서버가 `lastCfg` 를 직접 대입하지 않는다. 스냅샷은 여전히 **단방향**이고,
+  갱신 요청만 콜백으로 들어온다(D9).
+
+### 쓰기 직후 `/api/status` 가 새 값을 내는 경로
+
+```
+PUT 성공 -> renameSync 완료 -> onConfigChange()
+   -> watch-loop: lastCfg = readConfig(CONFIG_PATH)   (새 파일을 다시 읽음)
+   -> controlSnapshot().ctx.thresholds 가 새 값
+   -> GET /api/status 의 usage.thresholds 가 즉시 새 값       ✅ 15분 대기 없음
+   -> 다음 pollOnce() 의 deriveDesired() 도 새 값으로 판정   (🔒 deriveDesired 자체는 불변)
+```
+
+## 2.8 🔒 이 Phase 가 건드리지 않는 것 (회귀 경계)
+
+- `isAuthorized()` 본문 — 읽기 정책 불변. 403 은 PUT 핸들러 안에만 있다
+- `handleHealth` / `handleStatus` / `handleIndex` / `buildStatusPayload` / `handleStop`
+- `sendJson` / `sendHtml` / `tokensMatch` / `bearerFrom` — 🔒 토큰 비교의 `===` 금지 규율 유지
+- `HOST` 상수(loopback 고정) · `startControlServer` 의 never-reject 계약
+- `deriveDesired()` · STOP.json 의 위치·이름·스키마 · 수동 STOP 우선 규칙
+- 기존 로그 줄 형식 전부(`[poll start]` · `session=NN%` · `[restore]` · `[stop]` · `[config]` · `[control]`)
+- 상태 웹 페이지(010) — 🔒 편집 UI 없음, 읽기 전용 유지
+
+## 2.9 Phase 2 가 하지 않는 것
+
+- 실포트 왕복 테스트 작성 → Phase 3
+- `POST /api/stop` 구현 → 여전히 501
+- `enabled` · `control.*` 쓰기 → 범위 밖 (요청 본문에 오면 `unknown-key` 로 400)
+- Agora 등록 문서 갱신 → 사람이 랜딩 후 수행

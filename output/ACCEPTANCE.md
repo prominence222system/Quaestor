@@ -60,3 +60,83 @@ Phase 1 은 `lib/thresholds.js` **순수 모듈**이다. HTTP·파일·시계를
 ### 🔒 회귀 없음
 - [SPEC] `lib/config.js`·`lib/observation.js`·`lib/control-server.js`·`lib/logparse.js`·`watch-loop.js` 는 Phase 1 에서 수정되지 않는다.
 - [SPEC] `node p-quaestor/test/run-all.js` 의 기존 전체 테스트가 하나도 깨지지 않는다 (005 의 26일 fixture 테스트 포함).
+
+## Phase 2 Acceptance Criteria
+
+Phase 2 는 Phase 1 의 순수 모듈을 HTTP·파일·로그·스냅샷에 **배선**한다.
+아래 기준은 서버 인스턴스 수준에서 검증 가능하다 (실포트 왕복 회귀 검증 전체는 Phase 3).
+
+### 라우팅
+- [SPEC] `PUT /api/thresholds` 경로가 존재한다 — 404 가 아니다.
+- [DERIVED] `/api/thresholds` 에 `PUT` 이외의 메서드로 오면 `405`.
+- [DERIVED] `PUT /api/thresholds` 는 `getSnapshot()` 을 호출하지 않는다 — 관측 상태와 무관한 경로다.
+
+### 🔒 쓰기는 토큰이 있어야 한다 — 기본 거부
+- [SPEC] `control.authToken` **미설정** 상태에서 `PUT /api/thresholds` → `403`, `reason === 'write-requires-token'`.
+- [SPEC] 같은(토큰 미설정) 상태에서 `GET /api/status` 는 여전히 `200` 이다 — 읽기 정책은 영향받지 않는다.
+- [SPEC] 토큰 설정 + 잘못된/없는 `Authorization: Bearer` → `401`. 401 이 403 보다 항상 먼저 결정된다.
+- [SPEC] 토큰 설정 + 올바른 Bearer → 검증 단계로 진행한다.
+- [DERIVED] `isAuthorized()` 의 기존 동작(토큰 미설정 → 통과)은 수정되지 않는다. 403 검사는 PUT 핸들러 안에만 존재한다.
+
+### 🔒 무르기는 만료 없이는 거부 — HTTP 왕복에서도 성립
+- [SPEC] 적용값 `{85,70,90,75}` 에 `{"weekly_stop":99}` 를 `expires_at` 없이 PUT → `400`, `reason === 'loosen-requires-expiry'`. **`200` 이 나오면 이 Phase 는 실패다.**
+- [SPEC] 같은 무르기에 **미래** `expires_at` 을 붙이면 `200`, `direction === 'loosen'`, 파일에 그 `expires_at` 이 저장된다.
+- [SPEC] 같은 무르기에 **과거** `expires_at` → `400`.
+- [SPEC] 조이기(`99→85`, 토큰 설정 상태) → `200`, `direction === 'tighten'`, 파일의 `thresholds` 에 새 값이 반영된다.
+- [DERIVED] 거부(4xx/5xx) 시 설정 파일은 **한 바이트도 바뀌지 않는다** — 검증이 파일 쓰기보다 먼저다.
+
+### 검증 위임
+- [SPEC] 히스테리시스 위반 조합(예: `weekly_stop 60`, 기존 `weekly_release 70`) → `400`.
+- [SPEC] `ALLOWED_KEYS` 밖의 키가 포함되면 → `400`, `reason === 'unknown-key'`.
+- [DERIVED] `enabled`·`control` 을 본문에 넣으면 `unknown-key` 로 400 이다 (012 범위 밖).
+- [DERIVED] `lib/control-server.js` 는 방향 판정·범위 검사·히스테리시스 검사를 **재구현하지 않고** `validateThresholdRequest()` 에 위임한다.
+- [DERIVED] 현재 시각은 핸들러에서 한 번 읽어 `nowMs` 로 주입한다 — 검증 모듈은 시계를 읽지 않는다.
+- [DERIVED] 본문이 JSON 으로 파싱되지 않으면(빈 본문 포함) `400`, `reason === 'invalid-json'`.
+- [DERIVED] 본문이 상한(64KiB)을 넘으면 `413`, `reason === 'body-too-large'`.
+
+### 🔒 기준선은 `readConfig()` 의 결과다
+- [SPEC] 방향 판정의 기준선은 `readConfig(configPath).thresholds` 다 — 파일 원문 값이 아니다.
+- [SPEC] `lib/config.js` 의 `isExpired` 는 재구현되지 않는다 (`readConfig` 를 그대로 호출한다).
+- [DERIVED] 파일의 `expires_at` 이 이미 과거여서 하드 기본값으로 동작 중이면, 파일 원문보다 큰 값이라도 하드 기본값 대비 상승이면 `loosen` 으로 판정된다.
+
+### 🔒 파일 쓰기 — 원자적이고, 다른 키를 보존한다
+- [SPEC] 쓰기 후 파일의 `enabled` 와 `control.*` 가 **보존**된다.
+- [SPEC] 파일에 있던 그 밖의 키도 보존된다 (병합 대상은 `thresholds` 4개와 `expires_at` 뿐).
+- [SPEC] 부분 요청(`weekly_stop` 만) 후 파일의 나머지 3개 임계값이 **변하지 않는다**.
+- [SPEC] 쓰기는 임시 파일 → `rename` 방식이다 (`writeStopJsonAtomic` 과 같은 관례). 대상 경로에 부분 기록된 내용이 남지 않는다.
+- [DERIVED] 설정 파일이 없으면 `{}` 에서 시작해 새로 만든다.
+- [DERIVED] 설정 파일이 있는데 JSON 파싱 불가면 `500`, `reason === 'config-unreadable'` 이고 **덮어쓰지 않는다**.
+- [DERIVED] UTF-8 BOM 이 붙은 설정 파일도 정상적으로 읽어 병합한다 (PowerShell 5.1 이 BOM 을 붙인다).
+- [DERIVED] 쓰기 자체가 실패하면 `500`, `reason === 'write-failed'`.
+
+### 🔒 never-brick
+- [SPEC] 쓰기 실패가 감시 루프를 멈추지 않는다 — PUT 핸들러의 어떤 경로도 폴 루프에 예외를 전파하지 않는다.
+- [SPEC] `startControlServer()` 는 여전히 reject 하지 않고 throw 하지 않는다.
+- [DERIVED] `onConfigChange` 콜백이 예외를 던져도 응답은 `200` 이다 — 파일은 이미 커밋됐다.
+
+### 기록
+- [SPEC] 임계값 변경이 성공하면 로그에 `[thresholds]` 로 시작하는 줄이 **정확히 한 줄** 남는다 (전→후 값, 방향, `expires_at` 포함).
+- [SPEC] 그 줄에 ISO 타임스탬프가 붙은 상태로 `parseLogTail` 에 들어가도 성공 폴/실패 폴로 오인되지 않는다.
+- [SPEC] 기존 로그 줄 형식(`[poll start]`·`session=NN%`·`[restore]`·`[stop]`·`[config]`·`[control]`)은 한 글자도 바뀌지 않는다.
+
+### 즉시 반영
+- [SPEC] 쓰기 직후(다음 폴을 기다리지 않고) `GET /api/status` 의 `usage.thresholds` 가 **새 값**을 낸다.
+- [DERIVED] 반영 경로는 `onConfigChange` 콜백 → watch-loop 의 `readConfig()` 재호출이다. 제어 서버가 watch-loop 의 변수를 직접 대입하지 않는다.
+- [DERIVED] `configPath`/`onConfigChange` 는 선택적 옵션이다 — 주지 않아도 서버는 기존과 동일하게 뜬다.
+- [DERIVED] `configPath` 없이 뜬 서버에 PUT 하면 `500`, `reason === 'config-unavailable'` (단, 토큰 미설정이면 403 이 먼저다).
+
+### 계약 버전
+- [SPEC] `GET /api/health` 의 `contracts["supervised-v1"] === "1.3.0"`.
+- [SPEC] `package.json` 의 `version` 은 바뀌지 않는다 — 소프트웨어 축과 계약 축을 섞지 않는다.
+- [DERIVED] `/api/health` 는 여전히 `getSnapshot()` 을 호출하지 않는다.
+
+### 🔒 회귀 없음
+- [SPEC] `GET /api/status` 의 `fields`·`summary`·`state`·`allowance`·`usage` 응답 형태가 불변이다.
+- [SPEC] `GET /` 상태 페이지는 읽기 전용이다 — 편집 UI 나 폼이 추가되지 않는다.
+- [SPEC] `POST /api/stop` 은 여전히 `501` 이다.
+- [SPEC] `deriveDesired()` 와 STOP.json 의 위치·이름·스키마·수동 STOP 우선 규칙이 바뀌지 않는다.
+- [SPEC] `lib/thresholds.js`·`lib/config.js`·`lib/observation.js`·`lib/status-page.js`·`lib/logparse.js` 는 Phase 2 에서 수정되지 않는다.
+- [SPEC] 토큰 비교에 `===`/`==`/`startsWith`/`indexOf` 를 쓰지 않는 기존 규율이 유지된다.
+- [SPEC] `claude` 문자열이 새로 추가된 `.js` 코드에 등장하지 않는다.
+- [SPEC] 새 npm 의존성이 추가되지 않는다 (`node:fs` 등 코어 모듈만).
+- [SPEC] `node p-quaestor/test/run-all.js` 의 기존 전체 테스트가 하나도 깨지지 않는다 (005 의 26일 fixture 테스트 포함).
