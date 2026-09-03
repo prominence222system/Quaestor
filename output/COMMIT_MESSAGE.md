@@ -1,11 +1,11 @@
-test: 012 Phase 2 임계값 쓰기 API 수용기준 전수 확인
+docs: 012 Phase 3 테스트 결과 문서화 누락을 FIX 로 반려
 
-PUT /api/thresholds가 판정 로직을 재구현하지 않고 순수 모듈(Phase 1)에
-전부 위임했는지, 토큰 기본 거부·401이 403보다 항상 먼저·원자적 쓰기·
-enabled/control.* 보존·never-brick이 실제 HTTP 왕복에서도 성립하는지가
-이 NNN의 안전선이다. ACCEPTANCE.md Phase 2 [SPEC]/[DERIVED] 항목을
-control-server.test.js 신규 테스트와 1:1 대조했고, run-all.js를 직접
-재실행해 344개 중 343 PASS를 재현했다. 유일한 실패는 netstat으로 확인한
-개발 머신의 포트 3210 선점 프로세스(PID 6944)로 인한 환경 충돌이며 이번
-Phase 변경과 무관함을 확인했다. QA 중 발견된 collectBody()의 413 소켓
-파괴 버그 수정도 판정 로직을 건드리지 않는 최소 범위였음을 검증했다.
+Phase 3 구현물(thresholds-integration.test.js S1~S7, watch-loop.test.js
+W1~W4)은 이미 작성돼 전체 테스트 스위트에서 통과하지만, output/TEST_RESULT.md
+에는 그 결과가 전혀 기록되지 않았다. 직전 "test" 단계 커밋이 TEST_RESULT.md
+대신 무관한 output/ANDROIDSMOKE_RESULT.md 만 수정한 것이 원인으로 보인다.
+
+ACCEPTANCE.md Phase 3 는 커버리지 매핑 표와 red-first 증적(R1~R3)을
+TEST_RESULT.md 에 명시적으로 요구하므로, 코드가 통과했다는 사실만으로는
+합격 근거가 되지 못한다. 다음 iteration 에서 TEST_RESULT.md 에 Phase 3
+섹션·커버리지 표·red-first 기록을 추가해야 PASS 로 진행할 수 있다.
