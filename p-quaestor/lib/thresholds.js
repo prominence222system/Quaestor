@@ -111,16 +111,22 @@ function validateThresholdRequest(body, applied, currentExpiresAt, nowMs) {
     expiresAt = currentExpiresAt != null ? currentExpiresAt : null;
   }
 
-  if (direction === 'loosen') {
-    if (hasExpiresKey && requestedExpiresAt === null) {
-      // explicit release: allowed only if both *_stop are within HARD_DEFAULTS
-      const withinHardDefaults =
-        next.weekly_stop <= HARD_DEFAULTS.thresholds.weekly_stop &&
-        next.session_stop <= HARD_DEFAULTS.thresholds.session_stop;
-      if (!withinHardDefaults) {
-        return fail(400, 'loosen-requires-expiry', LOOSEN_REQUIRES_EXPIRY_MSG);
-      }
-    } else if (hasExpiresKey && typeof requestedExpiresAt === 'string') {
+  if (hasExpiresKey && requestedExpiresAt === null) {
+    // Explicit release, checked regardless of `direction`: a request that
+    // does not touch the *_stop keys (e.g. {"expires_at": null} alone)
+    // computes direction:'tighten' against the current applied values even
+    // when those applied values are still above HARD_DEFAULTS -- this is
+    // the two-call bypass (loosen with expiry, then a follow-up call that
+    // only clears the expiry). Gating on `next` vs HARD_DEFAULTS instead of
+    // on `direction` closes that gap.
+    const withinHardDefaults =
+      next.weekly_stop <= HARD_DEFAULTS.thresholds.weekly_stop &&
+      next.session_stop <= HARD_DEFAULTS.thresholds.session_stop;
+    if (!withinHardDefaults) {
+      return fail(400, 'loosen-requires-expiry', LOOSEN_REQUIRES_EXPIRY_MSG);
+    }
+  } else if (direction === 'loosen') {
+    if (hasExpiresKey && typeof requestedExpiresAt === 'string') {
       // valid future expiry provided -- ok
     } else {
       // no expires_at in request -- fall back to existing expires_at, must be future

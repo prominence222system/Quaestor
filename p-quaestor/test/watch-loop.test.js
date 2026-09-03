@@ -286,3 +286,43 @@ test('Phase 2 [SPEC]: mainLoop structurally integrates restoreObservation at sta
   assert.ok(/restoreObservation\s*\(/.test(SRC), 'mainLoop must invoke restoreObservation');
 });
 
+// ---- 012 Phase 3: refreshConfig()/PUT wiring (structural, W1-W4) --------
+//
+// watch-loop.js cannot be driven end-to-end without Chrome (see the note
+// at the top of this file), so the config-refresh wiring 012 adds is
+// verified the same way the control-server wiring above is: structurally
+// against source. See output/DESIGN.md §3.4.
+
+test('W1: startControlServer(...) is called with both configPath and onConfigChange', () => {
+  const mainLoopMatch = SRC.match(/async function mainLoop\(\)[\s\S]*?\/\/ Guard:/);
+  assert.ok(mainLoopMatch, 'expected to find mainLoop() function body');
+  const startCallMatch = mainLoopMatch[0].match(/startControlServer\(\{[\s\S]*?\}\)/);
+  assert.ok(startCallMatch, 'expected a startControlServer({...}) call');
+  const call = startCallMatch[0];
+  assert.ok(/configPath\s*:/.test(call), 'startControlServer(...) must be given configPath');
+  assert.ok(/onConfigChange\s*:/.test(call), 'startControlServer(...) must be given onConfigChange');
+});
+
+test('W2: refreshConfig() exists and updates lastCfg/lastConfigSource from readConfig(CONFIG_PATH)', () => {
+  const fnMatch = SRC.match(/function refreshConfig\(\)[\s\S]*?\n\}/);
+  assert.ok(fnMatch, 'expected a refreshConfig() function');
+  const body = fnMatch[0];
+  assert.ok(/readConfig\s*\(\s*CONFIG_PATH\s*\)/.test(body), 'refreshConfig() must call readConfig(CONFIG_PATH)');
+  assert.ok(/lastCfg\s*=/.test(body), 'refreshConfig() must assign lastCfg');
+  assert.ok(/lastConfigSource\s*=/.test(body), 'refreshConfig() must assign lastConfigSource');
+});
+
+test('W3: pollOnce() calls refreshConfig() and does not duplicate config-reading logic', () => {
+  const pollMatch = SRC.match(/async function pollOnce\(\)[\s\S]*?\r?\n\}\r?\n/);
+  assert.ok(pollMatch, 'expected a pollOnce() function');
+  const body = pollMatch[0];
+  assert.ok(/refreshConfig\s*\(\s*\)/.test(body), 'pollOnce() must call refreshConfig()');
+  assert.ok(!/readConfig\s*\(\s*CONFIG_PATH\s*\)/.test(body), 'pollOnce() must not call readConfig(CONFIG_PATH) itself -- it must share refreshConfig() with the PUT handler');
+});
+
+test('W4 [SPEC]: existing [config] log strings are byte-for-byte unchanged, and watch-loop.js contains no "[thresholds]" string', () => {
+  assert.ok(SRC.includes("'[config] parse error, using defaults: '"), '[config] parse error log string must be unchanged');
+  assert.ok(SRC.includes("'[config] expires_at past, using defaults'"), '[config] expires_at past log string must be unchanged');
+  assert.ok(!SRC.includes('[thresholds]'), 'recording the [thresholds] line is control-server.js\'s job, not watch-loop.js\'s');
+});
+
