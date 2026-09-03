@@ -619,3 +619,206 @@ PUT 성공 -> renameSync 완료 -> onConfigChange()
 - `POST /api/stop` 구현 → 여전히 501
 - `enabled` · `control.*` 쓰기 → 범위 밖 (요청 본문에 오면 `unknown-key` 로 400)
 - Agora 등록 문서 갱신 → 사람이 랜딩 후 수행
+
+---
+
+# Phase 3 상세 설계 — 통합 검증 · 회귀 · 증적
+
+Phase 3 은 **검증 전용 Phase** 다. 🔒 **`lib/*` 와 `watch-loop.js` 를 수정하지 않는다.**
+산출물은 테스트 파일과 `output/TEST_RESULT.md` 뿐이다.
+
+⚠️ 예외 조항: 검증 중 Phase 2 의 결함이 드러나면 **최소 수정**을 하되,
+무엇이 왜 바뀌었는지를 TEST_RESULT.md 에 명시한다. "테스트를 통과시키려고 판정을 완화"하는
+방향의 수정은 금지다 — 🔒 이 NNN 의 안전선(`loosen-requires-expiry`)을 무르는 수정은
+어떤 이유로도 하지 않는다.
+
+## 3.0 Phase 1/2 가 이미 덮은 면과, Phase 3 이 채우는 면
+
+| 층 | 이미 있는 검증 | Phase 3 이 더하는 것 |
+|---|---|---|
+| 순수 판정 | `test/thresholds.test.js` (Phase 1) | — (불변) |
+| HTTP 단건 왕복 | `test/control-server.test.js` §012 (Phase 2) | — (불변) |
+| **수명주기·시나리오** | 없음 | 🔒 만료 경과 · 2단계 우회 시도 · USER_GATE 재현 |
+| **watch-loop 배선** | 없음 | `refreshConfig` 추출·주입의 구조 검증 + 로그 불변 |
+| **동시성·생존** | 읽기 경로만(Phase 5/010) | 동시 PUT · 실패 후 생존 |
+| **커버리지·증적** | 없음 | 수용 기준 1:1 매핑표 · red-first 재현 |
+
+🔒 **Phase 3 의 초점은 "한 번의 호출이 맞는가"가 아니라 "시간이 흐르고 호출이 이어져도
+안전선이 유지되는가"다.** 5월 사건은 단건 호출의 오류가 아니라 **넉 달의 흐름**이었다.
+
+## 3.1 파일 배치
+
+| 파일 | 변경 | 이유 |
+|---|---|---|
+| `test/thresholds-integration.test.js` | **[신규]** | 시나리오·수명주기·동시성. 여러 모듈(`config`+`control-server`)을 가로지르므로 별도 파일 |
+| `test/watch-loop.test.js` | [추가] | `refreshConfig` 배선은 watch-loop 의 성질이므로 그 파일에 붙인다 |
+| `test/control-server.test.js` | 🔒 **불변** | Phase 2 산출물. 회귀 증거이므로 손대지 않는다 |
+| `test/thresholds.test.js` | 🔒 **불변** | Phase 1 산출물 |
+| 그 밖의 `test/*.test.js` | 🔒 **불변** | 005 의 26일 fixture 포함 — 무수정이 곧 증거다 |
+| `lib/*` · `watch-loop.js` | 🔒 **불변** | |
+
+`test/run-all.js` 는 이름순으로 `*.test.js` 를 전부 `require()` 하므로 **등록 작업이 따로 없다.**
+신규 파일명은 `thresholds-integration.test.js` — `thresholds.test.js`(순수) 다음,
+`watch-loop.test.js` 앞에 실행된다.
+
+## 3.2 신규 파일의 지역 헬퍼 (최소한만)
+
+`control-server.test.js` 의 `httpRequest` 는 그 파일의 모듈 스코프에 있어 재사용할 수 없다.
+🔒 그 파일을 헬퍼 노출용으로 고치지 않는다(불변 규율). 신규 파일에 필요한 최소한만 다시 둔다:
+
+```js
+function httpJson(port, pathname, opts)   // node:http 원시 요청 -> { status, json, raw }
+function withConfig(initialObj, fn)       // 임시 파일 생성 -> fn(path) -> finally unlink(+ .tmp 잔여 확인)
+function withServer(opts, fn)             // startControlServer -> fn(r) -> finally r.close()
+```
+
+- 임시 설정 파일은 `os.tmpdir()` 아래 무작위 이름. 🔒 **`.prominence` 실경로를 절대 쓰지 않는다.**
+- 서버는 전부 `port: 0`. 🔒 신규 파일에서 `3210` 을 쓰지 않는다(기존 DEFAULT_PORT 테스트와의 충돌 방지).
+- `getSnapshot` 은 **파일을 다시 읽는 클로저**로 만든다:
+  ```js
+  () => ({ observation: freshObs, ctx: { enabled: true, thresholds: readConfig(p).thresholds } })
+  ```
+  이것이 watch-loop 의 `refreshConfig` 가 하는 일과 같은 모양이므로,
+  `onConfigChange` 배선의 **행위적 효과**(쓰기 직후 `/api/status` 가 새 값)를
+  watch-loop 프로세스를 띄우지 않고도 실포트로 관측할 수 있다.
+
+## 3.3 시나리오 (S1–S7)
+
+### S1 — USER_GATE-A: 조이기 왕복 후 `/api/status` 가 즉시 새 값
+```
+파일 {thresholds:{99,70,99,75}, enabled:true, control:{...}}
+ -> PUT {weekly_stop:85, session_stop:90} + Bearer
+ -> 200 direction:"tighten", previous 4개 = 99/70/99/75, applied 4개 = 85/70/90/75
+ -> 같은 서버에 GET /api/status  =>  usage.thresholds 가 85/90        🔒 폴 대기 없음
+```
+🔒 작업 지시서 USER_GATE 의 첫 줄을 그대로 기계화한 것이다.
+
+### S2 — 🔒 USER_GATE-B: 무르기는 만료 없이 거부되고, **아무것도 남기지 않는다**
+```
+같은 상태에서 PUT {weekly_stop:99}   (expires_at 없음)
+ -> 400 reason:"loosen-requires-expiry"          🔒 200 이면 이 NNN 은 실패다
+ -> 파일 바이트가 호출 전과 동일
+ -> onLog 에 '[thresholds]' 로 시작하는 줄이 0개
+ -> 이어진 GET /api/status 의 usage.thresholds 도 그대로
+```
+🔒 거부는 응답만이 아니라 **부작용 0** 이어야 한다. 세 면(파일·로그·읽기 응답)을 함께 본다.
+
+### S3 — 🔒 2단계 우회 차단 (D7 세 번째 줄의 실증)
+```
+(1) PUT {weekly_stop:99, session_stop:99, expires_at: 미래}   -> 200 loosen
+(2) 이어서 PUT {expires_at: null}                             -> 400 loosen-requires-expiry
+ -> 파일의 expires_at 이 (1) 의 값 그대로 남아 있다
+```
+🔒 **"오늘 만료를 달고 무른 뒤 내일 만료만 지운다"** 는 경로로 5월의 결과 상태
+(99/99 + 만료 없음)를 만들 수 없음을 실포트로 못박는다. 이 시나리오가 통과하지 못하면
+안전선은 두 번의 호출로 우회 가능한 장식이다.
+
+### S4 — 🔒 만료가 실제로 흘러 저절로 풀린다
+```
+now + 약 1.5초를 expires_at 으로 주는 무르기      -> 200
+그 시각이 지날 때까지 실제로 대기               (setTimeout, 단일 테스트)
+ -> readConfig(파일)  =>  thresholds 가 HARD_DEFAULTS(85/90) 로 복귀
+ -> GET /api/status   =>  usage.thresholds 도 하드 기본값
+```
+- 🔒 `isExpired` 를 재구현하거나 시계를 조작하지 않는다. **실제 시간을 흘려보낸다.**
+  이 NNN 의 주장("5월에 만료를 썼다면 저절로 풀렸을 것")은 시간이 흘러야만 증명되는 명제다.
+- 대기는 **한 테스트에서 2초 미만**. Work Verify 의 300초 예산 대비 무시할 수준이다.
+- ⚠️ `expires_at` 은 쓰기 시점에 반드시 **미래**여야 하므로(Phase 1 규칙), 만료된 상태는
+  파일을 직접 조작해 만들지 않고 **정상 경로로 쓴 뒤 기다려서** 도달한다.
+
+### S5 — 5월 사건의 재현과 복구
+```
+파일: {thresholds:{weekly_stop:99, session_stop:99, ...}, enabled:true}, expires_at 없음
+ -> 이 상태에서 GET /api/status 는 99/99 를 낸다 (사건 당시의 화면)
+ -> PUT {85, 90} + Bearer  -> 200 tighten
+ -> 로그에 '[thresholds] tighten: weekly_stop 99->85 session_stop 99->90 expires_at=none' 한 줄
+ -> 되돌리려는 무르기는 S2 대로 거부된다
+```
+🔒 사건의 **피해(기록 없음)** 가 해소됐다는 증거를 로그 줄 한 개로 고정한다.
+
+### S6 — 동시 쓰기 2건 (원자성의 관측 가능한 면)
+```
+Promise.all([ PUT {weekly_stop:80}, PUT {session_stop:88} ])
+ -> 두 응답 모두 유효 JSON, 상태코드 200 또는 결정론적 4xx/5xx (크래시·빈 응답 금지)
+ -> 파일이 유효 JSON 이고 thresholds 4개 키가 전부 정수로 존재
+ -> enabled/control 보존
+ -> configPath + '.tmp' 가 남아 있지 않다
+ -> 서버는 그 뒤에도 GET /api/health 200
+```
+[DERIVED] 마지막 쓰기가 이기는(last-writer-wins) 것은 허용한다 — 🔒 **깨진 파일이 남지 않는 것**이
+원자적 쓰기의 계약이고, 직렬화나 잠금은 이 NNN 의 범위가 아니다.
+
+### S7 — never-brick 통합: 실패를 겪은 뒤에도 계기판이 산다
+```
+config-unreadable(깨진 파일) 500  ->  write-failed(없는 디렉터리) 500  ->  403  ->  401
+ 위 네 실패를 연달아 겪은 같은 서버가
+ -> GET /api/health 200, GET /api/status 200, GET / 200(HTML)
+ -> 프로세스에 uncaughtException / unhandledRejection 0건
+```
+🔒 004 Phase 5 가 읽기 경로에 대해 세운 규율("계기판이 차단기를 죽이지 않는다")을
+**쓰기 경로에 대해** 같은 방식으로 세운다.
+
+## 3.4 watch-loop 배선 검증 (W1–W4, `watch-loop.test.js` 에 추가)
+
+watch-loop 은 Chrome 없이는 돌릴 수 없으므로(🔒 MASTER 의 경고) **소스 구조 검증**을 쓴다 —
+이미 이 파일이 C1/C2/C3 에 대해 쓰고 있는 방식과 동일하다.
+
+- **W1** `startControlServer(...)` 호출 인자에 `configPath` 와 `onConfigChange` 가 모두 있다.
+- **W2** `refreshConfig` 라는 함수가 존재하고, 그 본문이 `readConfig(CONFIG_PATH)` 를 호출해
+  `lastCfg` 와 `lastConfigSource` 를 갱신한다.
+- **W3** `pollOnce()` 는 `refreshConfig()` 를 호출하고, 설정 읽기를 **중복 구현하지 않는다**
+  (폴 루프와 PUT 핸들러가 같은 코드를 공유한다는 증거).
+- **W4** 🔒 **로그 형식 불변**: `[config] parse error, using defaults: ` 와
+  `[config] expires_at past, using defaults` 문자열이 그대로 남아 있고,
+  `watch-loop.js` 에 `[thresholds]` 문자열이 **없다**(기록은 control-server 의 소유).
+
+🔒 W4 가 005 의 `parseLogTail` 입력 불변에 대한 구조적 증거이고,
+`watch-loop.test.js:160` 의 26일 fixture 테스트가 **행위적** 증거다. 둘을 함께 유지한다.
+
+## 3.5 수용 기준 커버리지 매핑
+
+`output/TEST_RESULT.md` 에 다음 표를 싣는다:
+
+```
+| ACCEPTANCE 항목 (Phase/태그/요지) | 근거 테스트 이름 | 결과 |
+```
+
+- 🔒 **Phase 1·2·3 의 모든 `[SPEC]`/`[DERIVED]` 항목이 최소 하나의 테스트 이름과 1:1 로 연결**된다.
+  미커버 0 이 목표이고, 커버 못 한 항목이 있으면 그 사실을 숨기지 않고 남긴다.
+- 008 의 eval 이 요구한 규율(“다른 테스트가 우연히 커버”가 아니라 “그 자리에서 직접 단언”)을 따른다.
+
+## 3.6 red-first 증적 (R1–R3)
+
+핵심 안전선 세 개를 **일시적으로 무력화해 FAIL 을 실제로 재현**한 뒤 복원한다.
+🔒 복원 후 전체 PASS 로 끝나는 것이 이 Phase 의 종료 조건이다.
+
+| # | 무력화 대상 (일시) | 무너져야 하는 테스트 |
+|---|---|---|
+| R1 | `thresholds.js` 의 `loosen-requires-expiry` 반환 | S2 · S3 · Phase 1/2 의 무르기 거부 케이스 |
+| R2 | `control-server.js` 의 403 게이트 | 토큰 미설정 PUT 이 403 이라는 테스트 |
+| R3 | `mergeIntoConfig` 의 원본 키 보존(스프레드) | `enabled`/`control.*` 보존 테스트 |
+
+TEST_RESULT.md 에 각 항목의 **before(FAIL 수) → after(전체 PASS)** 를 기록한다.
+⚠️ 무력화는 파일을 되돌리는 것으로 끝난다 — 커밋에 흔적을 남기지 않는다.
+
+## 3.7 전체 회귀 실행
+
+```
+node p-quaestor/test/run-all.js
+```
+
+- 🔒 **`npm` 을 쓰지 않는다.** Windows 에서 `.cmd` shim 이 이 러너에서 실행되지 않고,
+  그 실패가 clean eval 을 뒤집어 작업 전체를 FAIL 시킨 이력이 있다.
+- 종료 조건: 실패 0, `process.exitCode === 0`, 기존 테스트 무수정.
+- 011 시점의 259건 + 012 Phase 1/2 신규 + Phase 3 신규가 **한 번의 실행**에서 전부 통과해야 한다.
+- 🔒 `/api/health` 의 `contracts["supervised-v1"] === "1.3.0"` 과 `package.json` 의
+  `version` 불변은 이미 있는 테스트가 지킨다 — Phase 3 은 그것이 계속 통과함을 확인한다.
+
+## 3.8 🔒 Phase 3 이 하지 않는 것
+
+- 새 엔드포인트·새 기능·응답 스키마 변경
+- `lib/*`·`watch-loop.js` 수정 (§3.0 의 예외 조항 밖에서는)
+- 실제 `claude.ai` 접속 · Chrome/puppeteer 기동 — 🔒 **전 테스트 hermetic**, 네트워크는 loopback 뿐
+- `.prominence` 실경로 접근 — 임시 디렉터리만 쓴다
+- 상태 페이지에 편집 UI 추가 (010 의 읽기 전용 유지)
+- Agora 등록 문서 갱신 → 사람이 랜딩 후 수행

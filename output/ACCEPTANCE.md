@@ -140,3 +140,77 @@ Phase 2 는 Phase 1 의 순수 모듈을 HTTP·파일·로그·스냅샷에 **�
 - [SPEC] `claude` 문자열이 새로 추가된 `.js` 코드에 등장하지 않는다.
 - [SPEC] 새 npm 의존성이 추가되지 않는다 (`node:fs` 등 코어 모듈만).
 - [SPEC] `node p-quaestor/test/run-all.js` 의 기존 전체 테스트가 하나도 깨지지 않는다 (005 의 26일 fixture 테스트 포함).
+
+## Phase 3 Acceptance Criteria
+
+Phase 3 은 **검증 전용**이다. 아래 기준은 실포트 왕복(hermetic)·소스 구조·전체 스위트 실행으로
+확인한다. 단건 HTTP 계약은 Phase 2 가 이미 덮었으므로, 여기서는 🔒 **시간이 흐르고 호출이 이어져도
+안전선이 유지되는가**에 무게를 둔다.
+
+### 이 Phase 의 자기 구속
+- [DERIVED] Phase 3 의 산출물은 테스트 파일과 `output/TEST_RESULT.md` 뿐이다 — `lib/*` 와 `watch-loop.js` 는 수정되지 않는다.
+- [DERIVED] 결함이 발견돼 최소 수정을 한 경우, 무엇을 왜 바꿨는지 `TEST_RESULT.md` 에 명시된다.
+- [SPEC] 🔒 `loosen-requires-expiry` 안전선을 무르는 방향의 수정은 어떤 이유로도 하지 않는다.
+- [DERIVED] `test/thresholds.test.js`·`test/control-server.test.js` 및 005 이전의 기존 테스트 파일들은 수정되지 않는다 (무수정 자체가 회귀 증거다).
+
+### 🔒 USER_GATE 의 기계화
+- [SPEC] 토큰 설정 상태에서 조이기(`99→85`) 한 번 → `200`, `direction === 'tighten'`, 이어진 `GET /api/status` 의 `usage.thresholds` 가 **새 값**을 낸다 (다음 폴을 기다리지 않는다).
+- [SPEC] 🔒 같은 상태에서 무르기(`85→99`)를 `expires_at` 없이 시도하면 `400 loosen-requires-expiry` 로 **거부된다**. 통과하면 안전선이 없는 것이고 이 NNN 은 실패다.
+- [SPEC] 그 거부는 부작용이 0 이다 — 설정 파일이 호출 전과 동일하고, `[thresholds]` 로그 줄이 남지 않으며, 이어진 `GET /api/status` 의 `usage.thresholds` 도 변하지 않는다.
+
+### 🔒 두 번의 호출로 안전선을 우회할 수 없다
+- [SPEC] 미래 `expires_at` 을 붙인 무르기(`200`) 직후, `{"expires_at": null}` 로 만료만 지우는 요청은 `400 loosen-requires-expiry` 로 거부된다.
+- [SPEC] 그 거부 후에도 파일의 `expires_at` 은 앞선 성공이 저장한 값 그대로 남아 있다.
+- [DERIVED] 즉 "정지선 99/99 + 만료 없음"(5월의 결과 상태)은 API 를 통해 도달할 수 없다.
+
+### 🔒 만료는 실제로 흘러 저절로 풀린다
+- [SPEC] 짧은 미래 `expires_at` 으로 무르기를 성공시킨 뒤 그 시각이 **실제로 지나면**, `readConfig()` 의 `thresholds` 가 `HARD_DEFAULTS`(85/90)로 복귀한다.
+- [SPEC] 같은 시점의 `GET /api/status` 의 `usage.thresholds` 도 하드 기본값을 낸다.
+- [SPEC] `lib/config.js` 의 `isExpired` 는 재구현되지 않고, 시계도 조작하지 않는다 — 실제 경과 시간으로 확인한다.
+- [DERIVED] 이 대기는 단일 테스트에서 2초 미만이고, Work Verify 의 300초 예산 안에서 전체 스위트가 끝난다.
+
+### 5월 사건의 재현과 기록
+- [SPEC] `{weekly_stop:99, session_stop:99}`·`expires_at` 없음 파일로 시작한 서버의 `GET /api/status` 는 99/99 를 낸다 (사건 당시 상태의 재현).
+- [SPEC] 그 상태를 조이는 PUT 이 성공하면 `[thresholds]` 로 시작하는 로그 줄이 **정확히 한 줄** 남고, 그 줄에 방향·전→후 값·`expires_at` 이 들어 있다.
+- [SPEC] 그 로그 줄에 ISO 타임스탬프를 앞에 붙여 `parseLogTail` 에 넣으면 성공 폴로도 실패 폴로도 해석되지 않는다.
+
+### 동시 쓰기 — 원자성의 관측 가능한 면
+- [DERIVED] 서로 다른 두 PUT 을 동시에 보내도 두 응답 모두 유효한 JSON 이고, 서버는 크래시하지 않는다.
+- [SPEC] 동시 쓰기 후 설정 파일은 **유효한 JSON** 이고 `thresholds` 4개 키가 모두 정수로 존재한다 (부분 기록·깨진 파일이 남지 않는다).
+- [SPEC] 동시 쓰기 후에도 `enabled` 와 `control.*` 가 보존된다.
+- [DERIVED] `configPath + '.tmp'` 가 남아 있지 않다.
+- [DERIVED] 마지막 쓰기가 이기는 것은 허용된다 — 직렬화·잠금은 이 NNN 의 범위가 아니다.
+
+### 🔒 never-brick 통합
+- [SPEC] `config-unreadable`(500)·`write-failed`(500)·`403`·`401` 을 연달아 겪은 같은 서버가 그 뒤에도 `GET /api/health`·`GET /api/status`·`GET /` 에 정상 응답한다.
+- [SPEC] 쓰기 경로의 어떤 실패도 프로세스 수준 `uncaughtException`/`unhandledRejection` 을 만들지 않는다.
+
+### watch-loop 배선 (소스 구조 검증)
+- [DERIVED] `watch-loop.js` 의 `startControlServer(...)` 호출 인자에 `configPath` 와 `onConfigChange` 가 모두 있다.
+- [DERIVED] `refreshConfig` 함수가 존재하고, `readConfig(CONFIG_PATH)` 로 `lastCfg`·`lastConfigSource` 를 갱신한다.
+- [DERIVED] `pollOnce()` 는 `refreshConfig()` 를 호출하며 설정 읽기를 중복 구현하지 않는다 — 폴 루프와 PUT 핸들러가 같은 코드를 공유한다.
+- [SPEC] 🔒 `[config] parse error, using defaults: ` 와 `[config] expires_at past, using defaults` 로그 문자열이 한 글자도 바뀌지 않았다.
+- [DERIVED] `watch-loop.js` 에 `[thresholds]` 문자열이 없다 — 기록은 control-server 의 소유다.
+
+### 커버리지·증적
+- [DERIVED] `TEST_RESULT.md` 에 ACCEPTANCE Phase 1·2·3 의 모든 `[SPEC]`/`[DERIVED]` 항목과 근거 테스트 이름을 1:1 로 연결한 표가 있고, 미커버 항목은 숨기지 않고 명시된다.
+- [DERIVED] red-first 증적: 무르기 강제 · 403 게이트 · 병합 보존 세 안전선을 각각 일시 무력화해 **실제 FAIL 을 재현**하고 복원한 기록(before FAIL 수 → after 전체 PASS)이 `TEST_RESULT.md` 에 있다.
+- [DERIVED] 무력화는 되돌려져 커밋에 흔적이 남지 않는다.
+
+### hermetic 규율
+- [SPEC] 모든 테스트가 hermetic 이다 — 실제 `claude.ai` 접속도, Chrome/puppeteer 기동도 없고 네트워크는 loopback 뿐이다.
+- [SPEC] 🔒 테스트가 `.prominence` 실경로를 읽거나 쓰지 않는다. 설정 파일은 임시 디렉터리에만 만든다.
+- [DERIVED] 신규 테스트의 서버는 전부 `port: 0` 으로 뜬다 (기존 `DEFAULT_PORT` 테스트와 충돌하지 않는다).
+- [DERIVED] 생성한 임시 파일은 `finally` 에서 정리되고, 서버는 `finally` 에서 닫힌다.
+
+### 🔒 전체 회귀 — 한 번의 실행으로
+- [SPEC] `node p-quaestor/test/run-all.js` 단일 실행에서 실패 0, `process.exitCode === 0`.
+- [SPEC] 🔒 `npm` 을 쓰지 않는다 (`node` 를 직접 부른다).
+- [SPEC] 🔒 005 의 26일 fixture 테스트가 계속 통과한다 — 로그 형식 불변의 기계적 증거.
+- [SPEC] `/api/status` 의 `fields`·`summary`·`state`·`allowance`·`usage` 응답 형태가 불변이다.
+- [SPEC] `GET /` 상태 페이지는 읽기 전용이다 — 편집 UI·폼·입력 요소가 없다.
+- [SPEC] `POST /api/stop` 은 여전히 `501` 이다.
+- [SPEC] `deriveDesired()` 와 STOP.json 의 위치·이름·스키마·수동 STOP 우선 규칙이 바뀌지 않았다.
+- [SPEC] `GET /api/health` 의 `contracts["supervised-v1"] === "1.3.0"` 이고, `package.json` 의 `version` 은 바뀌지 않았다.
+- [SPEC] `claude` 문자열이 `p-quaestor` 의 `.js` 코드에 등장하지 않는다 (도메인 URL 은 예외).
+- [SPEC] 새 npm 의존성이 추가되지 않았다 — `dependencies` 는 여전히 puppeteer 하나뿐이다.
