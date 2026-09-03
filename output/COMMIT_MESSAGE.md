@@ -1,11 +1,10 @@
-docs: 012 Phase 3 테스트 결과 문서화 누락을 FIX 로 반려
+feat: 임계값 쓰기 API(PUT /api/thresholds) 추가
 
-Phase 3 구현물(thresholds-integration.test.js S1~S7, watch-loop.test.js
-W1~W4)은 이미 작성돼 전체 테스트 스위트에서 통과하지만, output/TEST_RESULT.md
-에는 그 결과가 전혀 기록되지 않았다. 직전 "test" 단계 커밋이 TEST_RESULT.md
-대신 무관한 output/ANDROIDSMOKE_RESULT.md 만 수정한 것이 원인으로 보인다.
-
-ACCEPTANCE.md Phase 3 는 커버리지 매핑 표와 red-first 증적(R1~R3)을
-TEST_RESULT.md 에 명시적으로 요구하므로, 코드가 통과했다는 사실만으로는
-합격 근거가 되지 못한다. 다음 iteration 에서 TEST_RESULT.md 에 Phase 3
-섹션·커버리지 표·red-first 기록을 추가해야 PASS 로 진행할 수 있다.
+정지선이 넉 달간 양쪽 다 99로 방치됐던 사건(측정 죽음 36일 무인지)의
+재발을 막기 위해, 임계값을 API로 쓸 수 있게 하되 무르는 방향의 변경은
+expires_at 없이는 거부하도록 서버 쪽에 안전선을 둔다. 조이기는 그대로
+허용하고, 히스테리시스(stop > release)를 위반하는 조합은 거부하며,
+쓰기는 토큰이 설정된 경우에만 허용한다(미설정 시 403). 파일 쓰기는
+원자적(tmp -> rename)이며 enabled/control.* 등 기존 키를 보존하고,
+변경 시 [thresholds] 로그 한 줄을 남겨 이번 사건의 핵심 피해였던
+"기록 없음"을 구조적으로 해소한다. 계약 버전을 1.3.0으로 올린다.
