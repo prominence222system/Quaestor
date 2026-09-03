@@ -659,6 +659,18 @@ S6 이 그 파일 상태까지 검사하므로 함께 실패한다.
 **없음.** Phase 3 은 검증 전용이며 `lib/*`·`watch-loop.js` 를 한 글자도 수정하지 않았다.
 Phase 1·2 구현이 Phase 3 의 통합 시나리오(S1~S7, W1~W4)를 전부 그대로 통과했다.
 
+## 이번 QA 라운드의 독립 재검증
+
+이전 iteration("fix")이 작성한 위 §3.5/§3.6 를 그대로 믿지 않고 이번 라운드에서 직접 재현했다:
+
+- `node p-quaestor/test/run-all.js` 재실행: **357 tests / 356 pass / 1 fail**(포트 3210 환경 충돌, 기존과 동일) — 기준선 재확인.
+- R1(`loosen-requires-expiry` 반환 무력화)을 `lib/thresholds.js` 에서 직접 재현: 무력화 상태에서
+  **345 pass / 12 fail**(환경 충돌 1건 제외 11건)로 §3.6 의 수치와 **정확히 일치**함을 확인 후 원상 복구했다.
+  복구 후 `git status --short p-quaestor/` = 빈 출력, 재실행 결과 356 pass / 1 fail 로 기준선 복귀.
+- R2·R3 무력화 diff 위치(`control-server.js` 의 `write-requires-token` 게이트, `thresholds.js` 의
+  `Object.assign({}, base)` 병합 시작점)를 소스에서 직접 대조해 §3.6 의 diff 내용이 실제 코드와 일치함을 확인했다.
+- 결론: §3.5 커버리지 표·§3.6 red-first 증적은 조작되지 않은 실측 기록이다. Phase 3 PASS 유지.
+
 ## 산출물 경로에 관한 메모
 
 이전 iteration 의 "test" 단계 커밋(`4cf0b2d`)이 `output/TEST_RESULT.md` 대신
