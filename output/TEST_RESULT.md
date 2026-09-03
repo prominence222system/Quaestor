@@ -327,3 +327,389 @@ Phase 1 의 34개(`thresholds.test.js`) + 26일 fixture 복원 테스트(005) �
 
 **Phase 2 PASS.** `output/ACCEPTANCE.md` 의 모든 [SPEC]/[DERIVED] 기준을 충족한다.
 `collectBody()` 소켓 파괴 버그를 발견해 수정했으며, 그 밖의 검증 로직은 그대로 유지했다.
+
+---
+
+# TEST_RESULT — Phase 3: 실포트 왕복 통합 테스트 · 회귀 검증 · 증적
+
+## 대상
+
+Phase 3 은 **검증 전용**이다. 산출물은 테스트 파일과 이 문서뿐이며 `lib/*` 와 `watch-loop.js` 는 수정하지 않았다.
+
+- `p-quaestor/test/thresholds-integration.test.js` (신규 — S1~S7 + hermetic 규율 검사)
+- `p-quaestor/test/watch-loop.test.js` (W1~W4 추가)
+
+## 실행
+
+```
+node p-quaestor/test/run-all.js
+```
+
+결과: **357 tests / 356 pass / 1 fail**
+
+```
+ℹ tests 357
+ℹ suites 0
+ℹ pass 356
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+```
+
+**1건 FAIL — 012 와 무관한 환경 충돌 (Phase 1·2 QA 리포트와 동일 원인):**
+
+```
+test at p-quaestor\test\control-server.test.js:91:1
+✖ omitting opts.port uses DEFAULT_PORT (3210)
+  AssertionError: Expected values to be strictly equal: false !== true
+```
+
+`netstat -ano | grep :3210` 재확인:
+```
+TCP    127.0.0.1:3210    0.0.0.0:0    LISTENING    6944
+```
+이 개발 머신에서 실제 Quaestor watch-loop 로 추정되는 `node.exe`(PID 6944)가 계약 기본 포트
+3210 을 점유 중이다. 실사용량 감시자일 수 있어 QA 목적으로 종료하지 않았다.
+이 테스트는 012 작업으로 한 글자도 바뀌지 않았고(`git diff` 확인), Phase 3 신규 테스트는
+전부 `port: 0` 을 쓰므로 이 포트를 건드리지 않는다. **012 가 유발한 회귀가 아니다.**
+
+## Phase 3 신규 테스트 — Acceptance 매핑
+
+### `test/thresholds-integration.test.js` (S1~S7)
+
+| ID | Acceptance 항목 (ACCEPTANCE.md Phase 3) | 테스트 이름 | 결과 |
+|---|---|---|---|
+| S1 | [SPEC] 🔒 USER_GATE-A — 토큰 설정 + 조이기(99→85) → 200 · `direction: tighten` · 이어진 `GET /api/status` 의 `usage.thresholds` 가 즉시 새 값(다음 폴 대기 없음) | `[SPEC] S1 USER_GATE-A: tighten round trip then GET /api/status reflects new thresholds immediately (no poll wait)` | PASS |
+| S2 | [SPEC] 🔒 USER_GATE-B — 무르기(85→99) + `expires_at` 없음 → `400 loosen-requires-expiry`<br>[SPEC] 그 거부는 부작용 0 — 파일 동일 · `[thresholds]` 로그 없음 · `/api/status` 불변 | `[SPEC] S2 USER_GATE-B: loosen without expires_at is rejected with 400 and leaves zero side effects` | PASS |
+| S3 | [SPEC] 🔒 미래 만료 무르기(200) 직후 `{"expires_at": null}` 만 보내는 요청 → `400 loosen-requires-expiry`<br>[SPEC] 거부 후에도 파일의 `expires_at` 이 앞선 성공값 그대로<br>[DERIVED] "99/99 + 만료 없음"(5월 결과 상태)은 API 로 도달 불가 | `[SPEC] S3 two-call bypass: loosen+expiry succeeds, then a follow-up expires_at:null-only request is rejected and the stored expiry survives` | PASS |
+| S4 | [SPEC] 짧은 미래 만료로 무르기 성공 후 그 시각이 **실제로 지나면** `readConfig()` 가 `HARD_DEFAULTS`(85/90)로 복귀<br>[SPEC] 같은 시점 `GET /api/status` 도 하드 기본값<br>[SPEC] `isExpired` 재구현 없음 · 시계 미조작<br>[DERIVED] 대기 2초 미만 | `[SPEC] S4 an expiry that actually elapses causes readConfig() and GET /api/status to fall back to HARD_DEFAULTS` | PASS |
+| S5 | [SPEC] 99/99·만료 없음 파일로 시작한 서버의 `GET /api/status` 가 99/99 (사건 재현)<br>[SPEC] 조이는 PUT 성공 시 `[thresholds]` 줄이 **정확히 한 줄** (방향·전→후·`expires_at` 포함)<br>[SPEC] ISO 타임스탬프를 붙여도 `parseLogTail` 이 성공/실패 폴로 오인하지 않음 | `[SPEC] S5 reproduces the May incident state (99/99, no expiry) and records exactly one recovery log line` | PASS |
+| S6 | [DERIVED] 동시 두 PUT → 두 응답 모두 유효 JSON · 서버 무크래시<br>[SPEC] 이후 파일이 유효 JSON 이고 `thresholds` 4키 전부 정수<br>[SPEC] `enabled`·`control.*` 보존<br>[DERIVED] `.tmp` 잔존 없음 · 마지막 쓰기 승리 허용 | `[DERIVED] S6 concurrent PUTs: both responses are valid JSON, the file stays valid, and no .tmp survives` | PASS |
+| S7 | [SPEC] 🔒 never-brick — `config-unreadable`(500)·`write-failed`(500)·403·401 을 연달아 겪은 같은 서버가 이후에도 `/api/health`·`/api/status`·`/` 에 정상 응답 | `[SPEC] S7 never-brick: config-unreadable, write-failed, 403, and 401 in sequence leave the dashboard alive` | PASS |
+| S7b | [SPEC] 쓰기 경로의 어떤 실패도 프로세스 수준 `uncaughtException`/`unhandledRejection` 을 만들지 않음 | `[SPEC] never-brick: no uncaughtException/unhandledRejection observed across the S7 failure sequence` | PASS |
+| H | [SPEC] 🔒 테스트가 `.prominence` 실경로를 읽거나 쓰지 않음 — 설정 파일은 `os.tmpdir()` 에만 | `[SPEC] hermetic discipline: this file never references a real product config path, only os.tmpdir()` | PASS |
+
+### `test/watch-loop.test.js` (W1~W4)
+
+| ID | Acceptance 항목 | 테스트 이름 | 결과 |
+|---|---|---|---|
+| W1 | [DERIVED] `startControlServer(...)` 인자에 `configPath` 와 `onConfigChange` 가 모두 있음 | `W1: startControlServer(...) is called with both configPath and onConfigChange` | PASS |
+| W2 | [DERIVED] `refreshConfig()` 존재 · `readConfig(CONFIG_PATH)` 로 `lastCfg`/`lastConfigSource` 갱신 | `W2: refreshConfig() exists and updates lastCfg/lastConfigSource from readConfig(CONFIG_PATH)` | PASS |
+| W3 | [DERIVED] `pollOnce()` 가 `refreshConfig()` 를 호출하고 설정 읽기를 중복 구현하지 않음 (폴 루프와 PUT 핸들러가 같은 코드 공유) | `W3: pollOnce() calls refreshConfig() and does not duplicate config-reading logic` | PASS |
+| W4 | [SPEC] 🔒 `[config] parse error, using defaults: ` · `[config] expires_at past, using defaults` 문자열 한 글자도 불변<br>[DERIVED] `watch-loop.js` 에 `[thresholds]` 문자열 없음 | `W4 [SPEC]: existing [config] log strings are byte-for-byte unchanged, and watch-loop.js contains no "[thresholds]" string` | PASS |
+
+---
+
+## §3.5 커버리지 매핑 — ACCEPTANCE Phase 1·2·3 전 항목 ↔ 근거 테스트
+
+출처: `output/ACCEPTANCE.md`. 모든 `[SPEC]`/`[DERIVED]` 항목을 근거 테스트 이름과 1:1 로 연결한다.
+테스트 코드가 아닌 **정적 검사·소스 리뷰·git 증거**로 커버된 항목은 그 사실을 그대로 적었다 —
+미커버 항목은 숨기지 않는다.
+
+### Phase 1 — `lib/thresholds.js` (근거: `test/thresholds.test.js`, 36건)
+
+| 구분 | Acceptance 항목 | 근거 테스트 | 결과 |
+|---|---|---|---|
+| [SPEC] | `THRESHOLD_KEYS`/`ALLOWED_KEYS`/`validateThresholdRequest`/`mergeIntoConfig`/`formatThresholdLog` export | `module purity: exports required names` | PASS |
+| [SPEC] | `fs`/`http`/`net` require 없음, `Date.now()` 미호출 (`nowMs` 주입) | `module purity: does not require http/net, does not call Date.now()` | PASS |
+| [SPEC] | `claude` 문자열 미등장 | `module purity: no literal "claude" in source` | PASS |
+| [SPEC] | `{99,70,99,75}` + `{85,90}` → tighten, ok | `tighten: 99,99 -> 85,90 succeeds` | PASS |
+| [DERIVED] | 완전 동일 요청 → tighten | `tighten: identical request is tighten` | PASS |
+| [DERIVED] | `*_release` 만 변경 → tighten | `tighten: only *_release changed is tighten` | PASS |
+| [SPEC] | 🔒 무르기 + `expires_at` 없음 → 400 `loosen-requires-expiry` | `loosen without expires_at is rejected (400 loosen-requires-expiry)` | PASS |
+| [SPEC] | 무르기 + 미래 `expires_at` → ok, `direction: loosen`, `expiresAt` 일치 | `loosen with future expires_at succeeds` | PASS |
+| [SPEC] | 무르기 + 과거 `expires_at` → 400 `expiry-in-past` | `loosen with past expires_at is rejected (400 expiry-in-past)` | PASS |
+| [SPEC] | `expires_at` 파싱 불가 → 400 `invalid-expiry` | `invalid expires_at string is rejected (400 invalid-expiry)` | PASS |
+| [DERIVED] | `expires_at` 생략 + 기존 값 미래 → 허용, 기존값 반환 | `loosen with omitted expires_at but future currentExpiresAt succeeds` | PASS |
+| [DERIVED] | `expires_at` 생략 + 기존 null → `loosen-requires-expiry` | `loosen with omitted expires_at and null currentExpiresAt is rejected` | PASS |
+| [DERIVED] | `expires_at` 생략 + 기존 과거 → `loosen-requires-expiry` | `loosen with omitted expires_at and past currentExpiresAt is rejected` | PASS |
+| [DERIVED] | `expires_at: null` + 두 `*_stop` 모두 `HARD_DEFAULTS` 이하 → 허용 | `explicit expires_at:null allowed when both *_stop within HARD_DEFAULTS` | PASS |
+| [SPEC] | 🔒 `expires_at: null` + `*_stop` 이 하드 기본값 초과 → `loosen-requires-expiry` (2단계 우회 차단) | `explicit expires_at:null rejected when *_stop above HARD_DEFAULTS` | PASS |
+| [SPEC] | 거부 메시지에 "하드 기본값 / 임시 파일" 취지 문구 포함 | `loosen-requires-expiry error message mentions hard defaults / temporary file` | PASS |
+| [SPEC] | 🔒 `weekly_stop <= weekly_release` → 400 `hysteresis-violation` | `hysteresis: weekly_stop <= weekly_release rejected` | PASS |
+| [SPEC] | 🔒 `session_stop <= session_release` → 400 | `hysteresis: session_stop <= session_release rejected` | PASS |
+| [SPEC] | `stop === release` 도 위반 | `hysteresis: equal stop/release rejected` | PASS |
+| [DERIVED] | release 미포함 요청도 **병합 결과**로 판정 (`weekly_stop:60` vs 적용 release 70) | `hysteresis: weekly_stop <= weekly_release rejected` (병합 후 판정 케이스 포함) | PASS |
+| [SPEC] | 비정수(85.5) → `invalid-value` | `invalid value: non-integer rejected` | PASS |
+| [SPEC] | 비숫자 문자열("85") → `invalid-value` | `invalid value: non-numeric string rejected` | PASS |
+| [SPEC] | `null` → `invalid-value` | `invalid value: null rejected` | PASS |
+| [SPEC] | boolean → `invalid-value` | `invalid value: boolean rejected` | PASS |
+| [SPEC] | 범위 밖(<0, >100) → `invalid-value` | `invalid value: out of range rejected` | PASS |
+| [SPEC] | `ALLOWED_KEYS` 밖 키 → `unknown-key` (조용히 무시 금지) | `unknown key rejected` | PASS |
+| [SPEC] | `enabled`/`control` 포함 → `unknown-key` | `unknown key: enabled/control rejected` | PASS |
+| [DERIVED] | null/배열/비객체 본문 → `invalid-body` | `invalid body: null/array/non-object rejected` | PASS |
+| [DERIVED] | 빈 객체 `{}` → `invalid-body` | `invalid body: empty object rejected` | PASS |
+| [SPEC] | 부분 요청 시 나머지 3개가 `next` 에서 불변 | `partial request: other 3 values unchanged in next` | PASS |
+| [SPEC] | `previous`/`next` 가 4개 전부 반환 | `returns previous and next with all 4 values` | PASS |
+| [SPEC] | 🔒 `enabled`/`control.*`/기타 키 보존 | `mergeIntoConfig preserves other keys` | PASS |
+| [DERIVED] | `rawConfig` 원본 미변형 | `mergeIntoConfig does not mutate input` | PASS |
+| [DERIVED] | `thresholds` 없거나 비객체여도 `next` 온전 반영 | `mergeIntoConfig handles missing/non-object thresholds` | PASS |
+| [SPEC] | 로그 줄 형식: `[thresholds] ` 접두어 + direction + `key from->to` + `expires_at=<iso 또는 none>`, 금칙 토큰(`session=`/`weekly=`/`%`) 없음 | `formatThresholdLog format and no forbidden tokens` | PASS |
+| [DERIVED] | 만료 없으면 `none`, 미변경 축은 생략 | `formatThresholdLog with no expiry says none, unchanged keys omitted` | PASS |
+| [SPEC] | 🔒 생성 줄 + ISO 타임스탬프 → 005 의 `parseLogTail` 이 `null` 반환 | `generated log line does not confuse 005 parseLogTail (returns null)` | PASS |
+| [SPEC] | `config.js`/`observation.js`/`control-server.js`/`logparse.js`/`watch-loop.js` Phase 1 미수정 | **테스트 아님 — git 증거**: `git show --stat 8c29bc6` = `lib/thresholds.js`, `test/thresholds.test.js` 두 파일만 | PASS |
+| [SPEC] | `run-all.js` 기존 전체 테스트 무손상(005 의 26일 fixture 포함) | `Phase 2 [SPEC]: 26-day silence fixture restored on boot yields state === crit` + 전체 스위트 | PASS |
+
+### Phase 2 — `lib/control-server.js` 의 `PUT /api/thresholds` (근거: `test/control-server.test.js`, 51건 신규)
+
+| 구분 | Acceptance 항목 | 근거 테스트 | 결과 |
+|---|---|---|---|
+| [SPEC] | `PUT /api/thresholds` 존재 (404 아님) | `[SPEC] PUT /api/thresholds exists -- not a 404` | PASS |
+| [DERIVED] | `PUT` 외 메서드 → 405 | `[DERIVED] /api/thresholds with a non-PUT method -> 405` | PASS |
+| [DERIVED] | `getSnapshot()` 미호출 | `[DERIVED] PUT /api/thresholds does not call getSnapshot()` | PASS |
+| [SPEC] | 🔒 토큰 미설정 → 403 `write-requires-token` | `[SPEC] no authToken configured -> PUT /api/thresholds is 403 write-requires-token` | PASS |
+| [SPEC] | 같은 (토큰 미설정) 상태에서 `GET /api/status` 는 여전히 200 — 읽기 무영향 | `[SPEC] same (no-token) state -- GET /api/status is still 200` | PASS |
+| [SPEC] | 토큰 설정 + 잘못/없는 Bearer → 401 (403 보다 먼저 결정) | `[SPEC] token configured + wrong/missing Bearer -> 401, and 401 is decided before 403` | PASS |
+| [SPEC] | 토큰 설정 + 올바른 Bearer → 검증 단계로 진행 | `[SPEC] token configured + correct Bearer -> proceeds past the auth gate to validation` | PASS |
+| [SPEC] | 🔒 무르기 + `expires_at` 없음 → 400 (200 은 절대 불가) | `[SPEC] loosen without expires_at -> 400 loosen-requires-expiry (200 must never happen here)` | PASS |
+| [SPEC] | 무르기 + 미래 `expires_at` → 200, 파일에 `expires_at` 저장 | `[SPEC] loosen with a future expires_at -> 200, direction loosen, file gets the expires_at` | PASS |
+| [SPEC] | 무르기 + 과거 `expires_at` → 400 | `[SPEC] loosen with a past expires_at -> 400` | PASS |
+| [SPEC] | 조이기(99→85, 토큰 설정) → 200, `direction: tighten`, 파일 반영 | `[SPEC] tighten (99->85, token set) -> 200, direction tighten, file reflects new thresholds` | PASS |
+| [DERIVED] | 거부(4xx) 시 설정 파일 한 바이트도 불변 — 검증이 쓰기보다 먼저 | `[DERIVED] rejected (4xx) PUTs never modify the config file -- validation happens before write` | PASS |
+| [SPEC] | 히스테리시스 위반 → 400 | `[SPEC] hysteresis violation over HTTP -> 400` | PASS |
+| [SPEC] | 미지 키 → 400 `unknown-key` | `[SPEC] unknown key over HTTP -> 400 unknown-key` | PASS |
+| [DERIVED] | `enabled`/`control` 포함 → 400 `unknown-key` | `[DERIVED] enabled/control in the body over HTTP -> 400 unknown-key` | PASS |
+| [SPEC] | 검증 재구현 없이 `validateThresholdRequest()` 위임 | `[SPEC] control-server.js delegates validation to ./thresholds -- does not reimplement hysteresis/range checks itself` | PASS |
+| [DERIVED] | 현재 시각을 핸들러에서 **한 번만** 읽어 `nowMs` 로 주입 | `[DERIVED] handlePutThresholds reads the wall clock exactly once (Date.now()) and passes it as nowMs` | PASS |
+| [DERIVED] | JSON 파싱 불가 본문 → 400 `invalid-json` | `[DERIVED] unparseable JSON body -> 400 invalid-json` | PASS |
+| [DERIVED] | 본문 상한(64KiB) 초과 → 413 `body-too-large` | `[DERIVED] oversized body (>64KiB) -> 413 body-too-large` | PASS (Phase 2 에서 `collectBody()` 버그 수정 후) |
+| [SPEC] | 방향 판정 기준선이 `readConfig(configPath).thresholds` (파일 원문 아님) | `[SPEC] baseline for direction/validation is readConfig(configPath).thresholds, not the raw file value` | PASS |
+| [SPEC] | 🔒 `lib/config.js` 의 `isExpired` 재구현 없음 | **테스트 아님 — 소스 리뷰 + git 증거**: `readConfig` 를 그대로 호출, `config.js` 미수정 | PASS |
+| [SPEC] | 🔒 `enabled`·`control.*` 보존 | `[SPEC] enabled and control.* are preserved after a write` | PASS |
+| [SPEC] | 🔒 그 밖의 기존 키 보존 | `[SPEC] other pre-existing keys in the file are preserved after a write` | PASS |
+| [SPEC] | 부분 요청 시 나머지 3개가 디스크에서 불변 | `[SPEC] partial request (weekly_stop only) -- the other 3 threshold values are unchanged on disk` | PASS |
+| [SPEC] | 🔒 tmp → rename 원자적 쓰기, `.tmp` 잔존·부분 기록 없음 | `[SPEC] write is tmp-file + rename -- no .tmp file left behind and the target has no partial content` | PASS |
+| [DERIVED] | 파일 없으면 `{}` 에서 시작해 생성 | `[DERIVED] config file missing -- PUT still succeeds, creating the file from {}` | PASS |
+| [DERIVED] | 파싱 불가 파일 → 500 `config-unreadable`, 미덮어씀 | `[DERIVED] config file exists but is unparseable JSON -- 500 config-unreadable, file left untouched` | PASS |
+| [DERIVED] | UTF-8 BOM 파일 정상 처리 | `[DERIVED] a UTF-8 BOM in the existing config file is read and merged without error` | PASS |
+| [DERIVED] | 쓰기 자체 실패 → 500 `write-failed` | `[DERIVED] write failure (parent directory does not exist) -> 500 write-failed` | PASS |
+| [SPEC] | 🔒 never-brick — `startControlServer()` 가 옵션이 있어도 절대 reject/throw 안 함 | `[SPEC] startControlServer() with configPath/onConfigChange options still never rejects/throws` | PASS |
+| [SPEC] | `onConfigChange` 가 던져도 응답 200 (파일 쓰기는 이미 커밋됨) | `[SPEC] a throwing onConfigChange callback still yields 200 -- the file write already committed` | PASS |
+| [SPEC] | 쓰기 실패 후에도 서버가 계속 응답 | `[SPEC] a write failure does not crash the server -- it keeps answering after` | PASS |
+| [SPEC] | 🔒 성공 시 `[thresholds]` 줄 **정확히 한 줄** (전→후·방향·`expires_at`) | `[SPEC] a successful change logs exactly one [thresholds]-prefixed line with from/to/direction/expires_at` | PASS |
+| [SPEC] | 🔒 ISO 타임스탬프를 붙여도 `parseLogTail` 이 오인 안 함 | `[SPEC] the logged line, with an ISO timestamp prefix, is not misread by parseLogTail as a success or failure poll` | PASS |
+| [SPEC] | 거부된 요청은 `[thresholds]` 줄 없음 | `[SPEC] rejected requests produce no [thresholds] log line` | PASS |
+| [SPEC] | 🔒 기존 로그 형식(`[poll start]` 등) 불변 | **테스트 아님 — 소스 리뷰 + git 증거**: `logparse.js`/`watch-loop.js` 미수정. 기계적 증거는 W4 와 26일 fixture 테스트 | PASS |
+| [SPEC] | 쓰기 직후 `GET /api/status` 의 `usage.thresholds` 가 새 값 | `[SPEC] a write is reflected by GET /api/status right away, via onConfigChange -- no waiting for the next poll` | PASS |
+| [DERIVED] | `configPath`/`onConfigChange` 는 선택적 옵션 | `[DERIVED] configPath/onConfigChange are optional -- a server started without them behaves as before for GET routes` | PASS |
+| [DERIVED] | `configPath` 없이 PUT → 500 `config-unavailable` | `[DERIVED] no configPath given at all -> 500 config-unavailable (only once past the 403/401 gates)` | PASS |
+| [DERIVED] | `configPath` 없고 토큰도 없으면 403 이 먼저 | `[DERIVED] no configPath AND no token -- 403 fires first, not config-unavailable` | PASS |
+| [SPEC] | 🔒 `contracts["supervised-v1"] === "1.3.0"` | `[SPEC] GET /api/health over real port returns top-level contracts object with contracts["supervised-v1"] === "1.3.0"` | PASS |
+| [SPEC] | `contracts` 값이 문자열 타입 | `[SPEC] contracts field values are string types, not numbers or objects` | PASS |
+| [SPEC] | 🔒 소프트웨어 축과 계약 축 분리 — `package.json` 의 `version` 불변 | `[SPEC] regression: package.json version is unaffected -- software axis and contract axis stay separate` · `[SPEC] software version (0.1.0) and contract version (1.3.0) are distinct axes and have different values` | PASS |
+| [DERIVED] | `/api/health` 가 여전히 `getSnapshot()` 미호출 | `[DERIVED] GET /api/health still does not call getSnapshot() after 012` | PASS |
+| [SPEC] | 🔒 `/api/status` 의 `fields`/`summary`/`state`/`allowance`/`usage` 형태 불변 | `[SPEC] regression: GET /api/status fields/summary/state/allowance/usage shape is unchanged after 012` | PASS |
+| [SPEC] | 🔒 `GET /` 읽기 전용 유지 — 편집 UI·폼·입력 없음 | `[SPEC] regression: GET / is still read-only -- no form/input/edit affordance in the HTML` | PASS |
+| [SPEC] | `POST /api/stop` 여전히 501 | `[SPEC] regression: POST /api/stop is still 501` | PASS |
+| [SPEC] | 🔒 `deriveDesired()`·STOP.json 무관 | **테스트 아님 — 소스 정적 검사**: `control-server.js source never references STOP.json / scrapeUsage / writeStopJsonAtomic` + `watch-loop.js` 미수정 | PASS |
+| [SPEC] | 토큰 비교에 `===`/`==`/`startsWith`/`indexOf` 미사용 유지 | `source: no ===/==/startsWith/indexOf token comparison, and no length-based branch` (파일 전체 대상) | PASS |
+| [SPEC] | `claude` 문자열 미등장 | `p-quaestor/.js files do not reference the Claude CLI` (전 파일 대상) | PASS |
+| [SPEC] | 새 npm 의존성 없음 | `no new runtime dependency: package.json dependencies is still puppeteer-only` | PASS |
+
+### Phase 3 — 통합·회귀·증적
+
+| 구분 | Acceptance 항목 | 근거 | 결과 |
+|---|---|---|---|
+| [DERIVED] | Phase 3 산출물은 테스트 파일과 `TEST_RESULT.md` 뿐 — `lib/*`·`watch-loop.js` 미수정 | **git 증거**: red-first 복원 후 `git status --short p-quaestor/` 가 빈 출력 | PASS |
+| [DERIVED] | 결함 발견 시 무엇을 왜 바꿨는지 명시 | Phase 3 에서 발견된 코드 결함 **없음** — 아래 "수정한 버그" 절 참조 | PASS |
+| [SPEC] | 🔒 `loosen-requires-expiry` 안전선을 무르는 방향의 수정을 하지 않음 | **git 증거**: `lib/thresholds.js` 미수정. §3.6 R1 의 일시 무력화는 백업본 복원으로 되돌림 | PASS |
+| [DERIVED] | `thresholds.test.js`·`control-server.test.js` 및 005 이전 기존 테스트 파일 미수정 | **git 증거**: `git status` 상 해당 파일들 unmodified | PASS |
+| [SPEC]×3 | 🔒 USER_GATE 기계화 — 조이기 즉시 반영 / 무르기 거부 / 거부의 부작용 0 | S1, S2 | PASS |
+| [SPEC]×2 · [DERIVED]×1 | 🔒 두 번의 호출로 안전선을 우회할 수 없다 | S3 | PASS |
+| [SPEC]×3 · [DERIVED]×1 | 🔒 만료는 실제로 흘러 저절로 풀린다 | S4 | PASS |
+| [SPEC]×3 | 5월 사건의 재현과 기록 | S5 | PASS |
+| [SPEC]×2 · [DERIVED]×3 | 동시 쓰기 — 원자성의 관측 가능한 면 | S6 | PASS |
+| [SPEC]×2 | 🔒 never-brick 통합 | S7, S7b | PASS |
+| [DERIVED]×4 · [SPEC]×1 | watch-loop 배선 (소스 구조 검증) | W1~W4 | PASS |
+| [DERIVED] | 커버리지 매핑 표가 `TEST_RESULT.md` 에 있다 | **이 §3.5 표** | PASS |
+| [DERIVED] | red-first 증적 (before FAIL 수 → after 전체 PASS) | **아래 §3.6** | PASS |
+| [DERIVED] | 무력화가 되돌려져 커밋에 흔적이 남지 않는다 | §3.6 의 복원 검증 (`git status --short p-quaestor/` = 빈 출력) | PASS |
+| [SPEC] | hermetic — 실제 `claude.ai` 접속·Chrome/puppeteer 기동 없음, 네트워크는 loopback 뿐 | 신규 테스트가 `startControlServer` + `127.0.0.1` `fetch` 만 사용 | PASS |
+| [SPEC] | 🔒 `.prominence` 실경로 미접근, 설정 파일은 임시 디렉터리에만 | `[SPEC] hermetic discipline: this file never references a real product config path, only os.tmpdir()` | PASS |
+| [DERIVED] | 신규 테스트의 서버는 전부 `port: 0` | 위 hermetic 테스트 + 신규 테스트 소스 (기존 `DEFAULT_PORT` 테스트와 미충돌) | PASS |
+| [DERIVED] | 임시 파일은 `finally` 에서 정리, 서버는 `finally` 에서 종료 | 신규 테스트 소스 구조 — 모든 S 테스트가 `try/finally` | PASS |
+| [SPEC] | 🔒 005 의 26일 fixture 테스트가 계속 통과 | `Phase 2 [SPEC]: 26-day silence fixture restored on boot yields state === crit` | PASS |
+| [SPEC] | 🔒 `npm` 미사용 — `node` 직접 호출 | 이 문서의 모든 실행이 `node p-quaestor/test/run-all.js` | PASS |
+| [SPEC] | `node p-quaestor/test/run-all.js` 단일 실행에서 실패 0, `exitCode === 0` | ⚠️ **미충족 — 숨기지 않고 명시한다.** 357 중 356 PASS, `exitCode 1`. 유일한 실패는 포트 3210 을 외부 프로세스(PID 6944)가 점유한 **환경 충돌**이며 012 와 무관하다(위 "실행" 절). 그 프로세스가 없는 환경에서는 357/357 이 된다 | 조건부 PASS |
+---
+
+## §3.6 red-first 증적 — 세 안전선을 실제로 무력화해 FAIL 을 재현했다
+
+테스트가 "통과한다"는 사실만으로는 그 테스트가 **무엇을 지키는지** 알 수 없다.
+아래 세 안전선을 각각 일시 무력화해 실제 FAIL 을 재현하고, 복원 후 전체 PASS 로 돌아옴을 확인했다.
+
+방법: `p-quaestor/lib/thresholds.js`·`p-quaestor/lib/control-server.js` 를 실행 전 백업(`/tmp/qbak/`)해 두고,
+한 번에 하나씩만 무력화 → `node p-quaestor/test/run-all.js` 실행 → 백업본으로 복원 → `git status` 로 무흔적 확인.
+🔒 **무력화는 커밋에 남기지 않는다** — 최종 `git status --short p-quaestor/` 는 빈 출력이다.
+
+### 기준선 (무력화 없음)
+
+| tests | pass | fail |
+|---|---|---|
+| 357 | 356 | 1 (포트 3210 환경 충돌, 012 무관) |
+
+### R1 — `loosen-requires-expiry` 반환 무력화
+
+**무력화 내용** (`lib/thresholds.js`): `validateThresholdRequest()` 안의 두 `return fail(400, 'loosen-requires-expiry', ...)`
+경로를 모두 no-op 으로 바꿔, 무르기가 만료 없이도 통과하게 만들었다.
+
+```diff
+     if (!withinHardDefaults) {
+-      return fail(400, 'loosen-requires-expiry', LOOSEN_REQUIRES_EXPIRY_MSG);
++      null; /* R1 SABOTAGE */
+     }
+...
+       if (!existingIsFuture) {
+-        return fail(400, 'loosen-requires-expiry', LOOSEN_REQUIRES_EXPIRY_MSG);
++        null; /* R1 SABOTAGE */
+       }
+```
+
+**before (무력화 상태)**: `tests 357 / pass 345 / fail 12` — 환경 충돌 1건을 빼면 **11건이 이 안전선 때문에 실패**한다.
+
+```
+✖ [SPEC] loosen without expires_at -> 400 loosen-requires-expiry (200 must never happen here)
+✖ [SPEC] baseline for direction/validation is readConfig(configPath).thresholds, not the raw file value
+✖ [SPEC] rejected requests produce no [thresholds] log line
+✖ [SPEC] S2 USER_GATE-B: loosen without expires_at is rejected with 400 and leaves zero side effects
+✖ [SPEC] S3 two-call bypass: loosen+expiry succeeds, then a follow-up expires_at:null-only request is rejected and the stored expiry survives
+✖ [SPEC] S5 reproduces the May incident state (99/99, no expiry) and records exactly one recovery log line
+✖ loosen without expires_at is rejected (400 loosen-requires-expiry)
+✖ loosen with omitted expires_at and null currentExpiresAt is rejected
+✖ loosen with omitted expires_at and past currentExpiresAt is rejected
+✖ explicit expires_at:null rejected when *_stop above HARD_DEFAULTS
+✖ loosen-requires-expiry error message mentions hard defaults / temporary file
+```
+
+🔒 **이 NNN 의 핵심 안전선이 실제로 테스트에 물려 있다는 증거다.** 특히 S2·S3 —
+USER_GATE 와 2단계 우회 차단 — 가 함께 무너진다. 안전선을 지우면 5월 사건 상태(99/99 + 만료 없음)로
+API 를 통해 도달할 수 있게 되고, 그것을 세 층(순수 함수 · HTTP · 통합)이 각각 잡아낸다.
+
+**after (복원)**: `tests 357 / pass 356 / fail 1` — 기준선 복귀.
+
+### R2 — 403 `write-requires-token` 게이트 무력화
+
+**무력화 내용** (`lib/control-server.js`): `handlePutThresholds()` 의 토큰 게이트 조건을 항상 거짓으로 만들어,
+`control.authToken` 이 없어도 쓰기가 통과하게 했다.
+
+```diff
+-  if (!ctx.authToken) {
++  if (false && !ctx.authToken) { /* R2 SABOTAGE */
+     sendJson(res, 403, { ok: false, reason: 'write-requires-token', ... });
+     return;
+   }
+```
+
+**before (무력화 상태)**: `tests 357 / pass 353 / fail 4` — 환경 충돌 1건을 빼면 **3건**.
+
+```
+✖ [SPEC] no authToken configured -> PUT /api/thresholds is 403 write-requires-token
+✖ [DERIVED] no configPath AND no token -- 403 fires first, not config-unavailable
+✖ [SPEC] S7 never-brick: config-unreadable, write-failed, 403, and 401 in sequence leave the dashboard alive
+```
+
+🔒 게이트 순서(403 이 `config-unavailable` 보다 먼저)까지 함께 무너지는 것이 확인된다 —
+순서를 검사하는 테스트가 실제로 순서에 의존하고 있다는 뜻이다.
+
+**after (복원)**: `tests 357 / pass 356 / fail 1` — 기준선 복귀.
+
+### R3 — `mergeIntoConfig` 의 기존 키 보존 무력화
+
+**무력화 내용** (`lib/thresholds.js`): 병합 시 기존 파일 객체를 깔지 않고 빈 객체에서 시작하게 해,
+`enabled`·`control.*`·기타 키가 날아가도록 했다.
+
+```diff
+-  const merged = Object.assign({}, base);
++  const merged = {}; /* R3 SABOTAGE: drop base keys */
+   merged.thresholds = Object.assign({}, baseThresholds, next);
+```
+
+**before (무력화 상태)**: `tests 357 / pass 352 / fail 5` — 환경 충돌 1건을 빼면 **4건**.
+
+```
+✖ [SPEC] enabled and control.* are preserved after a write
+✖ [SPEC] other pre-existing keys in the file are preserved after a write
+✖ [DERIVED] S6 concurrent PUTs: both responses are valid JSON, the file stays valid, and no .tmp survives
+✖ mergeIntoConfig preserves other keys
+```
+
+🔒 순수 함수 단위(`mergeIntoConfig preserves other keys`)와 실포트 왕복(파일 실측) 양쪽이 함께 잡는다.
+보존이 깨지면 쓰기 한 번이 `control.authToken` 을 지워 **다음 쓰기가 403 으로 잠기는** 연쇄가 생기는데,
+S6 이 그 파일 상태까지 검사하므로 함께 실패한다.
+
+**after (복원)**: `tests 357 / pass 356 / fail 1` — 기준선 복귀.
+
+### 요약
+
+| 무력화 | before pass/fail | 안전선 때문에 실패한 테스트 수 | after pass/fail |
+|---|---|---|---|
+| 없음 (기준선) | 356 / 1 | — | — |
+| R1 `loosen-requires-expiry` | 345 / 12 | **11** | 356 / 1 |
+| R2 403 `write-requires-token` | 353 / 4 | **3** | 356 / 1 |
+| R3 `mergeIntoConfig` 보존 | 352 / 5 | **4** | 356 / 1 |
+
+**복원 검증**: `git status --short p-quaestor/` = 빈 출력, `git diff --stat p-quaestor/` = 변경 없음.
+무력화는 어떤 커밋에도 남지 않는다.
+
+---
+
+## Phase 3 에서 수정한 버그
+
+**없음.** Phase 3 은 검증 전용이며 `lib/*`·`watch-loop.js` 를 한 글자도 수정하지 않았다.
+Phase 1·2 구현이 Phase 3 의 통합 시나리오(S1~S7, W1~W4)를 전부 그대로 통과했다.
+
+## 산출물 경로에 관한 메모
+
+이전 iteration 의 "test" 단계 커밋(`4cf0b2d`)이 `output/TEST_RESULT.md` 대신
+`output/ANDROIDSMOKE_RESULT.md` 만 건드린 것으로 보고됐다. 확인 결과 `ANDROIDSMOKE_RESULT.md` 는
+forge 하니스가 자동 생성하는 파일로 내용이 다음뿐이다:
+
+```
+# Android Smoke Result
+Status: SKIP
+Reason: not-gradle-project
+```
+
+즉 test 단계 산출물이 **엉뚱한 파일에 쓰인 것이 아니라**, `TEST_RESULT.md` 갱신이 누락된 채
+하니스의 자동 생성 파일만 변경분으로 잡힌 것이다. 이번 iteration 에서 Phase 3 결과를
+`output/TEST_RESULT.md` 에 정상 기록했다.
+
+## 결론
+
+**Phase 3 PASS.** `output/ACCEPTANCE.md` Phase 3 의 [SPEC]/[DERIVED] 기준을 충족한다.
+유일한 미충족은 "실패 0 / exitCode 0" 항목이며, 그 원인은 이 개발 머신에서 포트 3210 을 점유한
+외부 프로세스(PID 6944)라는 **환경 충돌**로 012 의 회귀가 아니다 — 위에 그대로 명시했다.
+
+## How to Run
+
+```bash
+# 전체 단위·통합 테스트 (🔒 npm 금지 — node 직접 호출)
+node p-quaestor/test/run-all.js
+```
+
+임계값 쓰기 API 를 직접 확인하려면 — 🔒 **`control.authToken` 이 설정돼 있어야 한다**
+(미설정 시 쓰기는 403 `write-requires-token` 으로 기본 거부된다):
+
+```bash
+# 조이기 — 그대로 허용
+curl -X PUT http://127.0.0.1:3210/api/thresholds \
+  -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
+  -d '{"weekly_stop":85,"session_stop":90}'
+# -> 200 {"ok":true,"direction":"tighten","applied":{...},"expires_at":null,"previous":{...}}
+
+# 무르기 — expires_at 없으면 거부된다 (이것이 안전선이다)
+curl -X PUT http://127.0.0.1:3210/api/thresholds \
+  -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
+  -d '{"weekly_stop":99}'
+# -> 400 {"ok":false,"reason":"loosen-requires-expiry",...}
+
+# 무르기 + 미래 만료 — 허용되고, 그 시각이 지나면 저절로 하드 기본값(85/90)으로 돌아온다
+curl -X PUT http://127.0.0.1:3210/api/thresholds \
+  -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
+  -d '{"weekly_stop":99,"expires_at":"2026-09-09T00:00:00Z"}'
+
+# 반영 확인
+curl http://127.0.0.1:3210/api/status   # usage.thresholds 가 새 값
+curl http://127.0.0.1:3210/api/health   # contracts["supervised-v1"] === "1.3.0"
+```
