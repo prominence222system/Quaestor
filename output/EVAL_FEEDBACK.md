@@ -1,6 +1,5 @@
 ## Verdict
-PASS
-
+FIX
 ## Verdict Criteria (current work file only)
 - 012-threshold-write-api.md 의 Phase 1·2·3 이 output/PROGRESS.md 상 전부 DONE
 - 직전 iteration 의 FIX 사유(TEST_RESULT.md 에 Phase 3 섹션 누락, 커버리지 매핑 표 없음, red-first 증적 없음)가
@@ -33,3 +32,12 @@ NO
 - Phase 2 QA 중 `collectBody()` 의 소켓 파괴 버그(413 이 도달 못 하던 문제)를 발견해 수정 — 검증 완화가 아닌 버그 수정 방향
 - never-brick 규율(S7/S7b)로 쓰기 실패가 감시 루프·계기판에 전파되지 않음을 확인
 - 005 의 26일 fixture, `deriveDesired()`, STOP.json 스키마, 상태 페이지 읽기 전용 등 불변식이 전부 회귀 테스트로 지켜짐
+
+
+## Verdict
+FIX
+
+## Smoke Override
+Smoke verification failed. Forced to FIX.
+reason:
+  EXECUTED_FAIL `node p-quaestor/test/run-all.js` exit 1

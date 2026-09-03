@@ -88,12 +88,29 @@ test('after close(), the port is bindable again (no lingering handle)', async ()
   }
 });
 
+function isPortFree(port) {
+  return new Promise((resolve) => {
+    const probe = net.createServer();
+    probe.once('error', () => resolve(false));
+    probe.listen(port, HOST, () => probe.close(() => resolve(true)));
+  });
+}
+
 test('omitting opts.port uses DEFAULT_PORT (3210)', async () => {
   assert.strictEqual(DEFAULT_PORT, 3210);
+  const free = await isPortFree(DEFAULT_PORT);
   const r = await startControlServer({ getSnapshot: okSnapshot });
   try {
-    assert.strictEqual(r.started, true);
-    assert.strictEqual(r.port, 3210);
+    if (free) {
+      assert.strictEqual(r.started, true);
+      assert.strictEqual(r.port, DEFAULT_PORT);
+    } else {
+      // DEFAULT_PORT is held by another process on this machine (a real running
+      // watcher). The bind attempt still proves the default was used: an
+      // ephemeral fallback would have succeeded instead of colliding.
+      assert.strictEqual(r.started, false);
+      assert.match(String(r.error), /EADDRINUSE/);
+    }
   } finally {
     await r.close();
   }

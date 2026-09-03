@@ -531,7 +531,7 @@ TCP    127.0.0.1:3210    0.0.0.0:0    LISTENING    6944
 | [DERIVED] | 임시 파일은 `finally` 에서 정리, 서버는 `finally` 에서 종료 | 신규 테스트 소스 구조 — 모든 S 테스트가 `try/finally` | PASS |
 | [SPEC] | 🔒 005 의 26일 fixture 테스트가 계속 통과 | `Phase 2 [SPEC]: 26-day silence fixture restored on boot yields state === crit` | PASS |
 | [SPEC] | 🔒 `npm` 미사용 — `node` 직접 호출 | 이 문서의 모든 실행이 `node p-quaestor/test/run-all.js` | PASS |
-| [SPEC] | `node p-quaestor/test/run-all.js` 단일 실행에서 실패 0, `exitCode === 0` | ⚠️ **미충족 — 숨기지 않고 명시한다.** 357 중 356 PASS, `exitCode 1`. 유일한 실패는 포트 3210 을 외부 프로세스(PID 6944)가 점유한 **환경 충돌**이며 012 와 무관하다(위 "실행" 절). 그 프로세스가 없는 환경에서는 357/357 이 된다 | 조건부 PASS |
+| [SPEC] | `node p-quaestor/test/run-all.js` 단일 실행에서 실패 0, `exitCode === 0` | **충족.** 357 tests / 357 pass / 0 fail, `exitCode 0`. 아래 §3.7 참고 — 포트 3210 환경 충돌은 테스트를 환경에 견디게 고쳐 해소했다 | PASS |
 ---
 
 ## §3.6 red-first 증적 — 세 안전선을 실제로 무력화해 FAIL 을 재현했다
@@ -671,6 +671,35 @@ Phase 1·2 구현이 Phase 3 의 통합 시나리오(S1~S7, W1~W4)를 전부 그
   `Object.assign({}, base)` 병합 시작점)를 소스에서 직접 대조해 §3.6 의 diff 내용이 실제 코드와 일치함을 확인했다.
 - 결론: §3.5 커버리지 표·§3.6 red-first 증적은 조작되지 않은 실측 기록이다. Phase 3 PASS 유지.
 
+## §3.7 fix — 포트 3210 환경 충돌 해소 (`exitCode 0` 달성)
+
+**증상**: `control-server.test.js:91 "omitting opts.port uses DEFAULT_PORT (3210)"` 가
+이 개발 머신에서만 FAIL 하고, 그 1건 때문에 smoke 가 `exit 1` 로 SMOKE_FAIL 이 됐다.
+
+**원인**: 이 테스트만 유일하게 **실포트 3210 에 실제로 바인드**한다. 그런데 같은 머신에서
+실사용 중인 Quaestor watch-loop(`node.exe`, PID 6944)이 127.0.0.1:3210 을 LISTEN 중이라
+바인드가 `EADDRINUSE` 로 실패한다. 제품 코드의 결함이 아니라 테스트가 환경을 가정한 것이다.
+
+**수정**(`p-quaestor/test/control-server.test.js`): 바인드 전에 `net` 으로 3210 이
+비어 있는지 먼저 확인하고 두 갈래로 단언한다.
+
+- 비어 있으면 — 기존과 동일하게 `started === true` && `port === DEFAULT_PORT`
+- 점유 중이면 — `started === false` && `error` 가 `EADDRINUSE`
+
+🔒 **검증이 약해지지 않는다.** 두 갈래 모두 "포트를 생략하면 3210 을 노린다"를 증명한다.
+만약 구현이 기본값을 잃고 임의 포트(`0`)로 떨어지면 두 번째 갈래에서 바인드가 **성공**해
+`started === false` 단언이 깨진다. `assert.strictEqual(DEFAULT_PORT, 3210)` 도 그대로 남아 있다.
+🔒 제품 코드(`lib/**`)는 한 글자도 바뀌지 않았다.
+
+**결과**:
+
+```
+ℹ tests 357
+ℹ pass 357
+ℹ fail 0
+exit=0
+```
+
 ## 산출물 경로에 관한 메모
 
 이전 iteration 의 "test" 단계 커밋(`4cf0b2d`)이 `output/TEST_RESULT.md` 대신
@@ -689,9 +718,10 @@ Reason: not-gradle-project
 
 ## 결론
 
-**Phase 3 PASS.** `output/ACCEPTANCE.md` Phase 3 의 [SPEC]/[DERIVED] 기준을 충족한다.
-유일한 미충족은 "실패 0 / exitCode 0" 항목이며, 그 원인은 이 개발 머신에서 포트 3210 을 점유한
-외부 프로세스(PID 6944)라는 **환경 충돌**로 012 의 회귀가 아니다 — 위에 그대로 명시했다.
+**Phase 3 PASS.** `output/ACCEPTANCE.md` Phase 3 의 [SPEC]/[DERIVED] 기준을 **전부** 충족한다.
+마지막까지 남아 있던 "실패 0 / exitCode 0" 미충족은 §3.7 에서 해소했다 —
+포트 3210 을 점유한 외부 프로세스를 종료하지 않고, 테스트가 그 환경을 견디도록 고쳤다.
+최종: **357 tests / 357 pass / 0 fail / exitCode 0**.
 
 ## How to Run
 

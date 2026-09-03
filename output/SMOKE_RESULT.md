@@ -1,6 +1,6 @@
 # SMOKE_RESULT
 
-Generated: 2026-09-03 13:40:08
+Generated: 2026-09-03 13:52:53
 
 ## File Checks
 - FAIL: declared smoke failed: node p-quaestor/test/run-all.js (exit 1)
@@ -21,17 +21,17 @@ Generated: 2026-09-03 13:40:08
 ## Declared Smoke (MASTER.md ## Work Verify)
 - EXECUTED_FAIL: `node p-quaestor/test/run-all.js` (cwd: F:\Workspace\Automatic\projects\Quaestor, exit 1, 2.9s)
 ```
- re-judge thresholds when wiring control-server (no new 85/90/70/75 literals or state branches around the wiring) (0.1012ms)
-✔ Phase 2 [SPEC]: 26-day silence fixture restored on boot yields state === crit (2.7908ms)
-✔ Phase 2 [SPEC]: boundary verification -- real log file tail reading and chopped line handling (1.5547ms)
-✔ Phase 2 [SPEC]: non-existent file, 0-byte file, and corrupted binary bytes yield empty observation without throwing (1.7562ms)
-✔ Phase 2 [SPEC]: large file (>64KB) reads at most 64KB (65536 bytes) (41.1369ms)
-✔ Phase 2 [SPEC]: restored observation stringified contains no secrets (.profile, cookie, @) (1.4694ms)
-✔ Phase 2 [SPEC]: mainLoop structurally integrates restoreObservation at startup before polling loop (0.1391ms)
-✔ W1: startControlServer(...) is called with both configPath and onConfigChange (0.1534ms)
-✔ W2: refreshConfig() exists and updates lastCfg/lastConfigSource from readConfig(CONFIG_PATH) (0.1411ms)
-✔ W3: pollOnce() calls refreshConfig() and does not duplicate config-reading logic (0.1371ms)
-✔ W4 [SPEC]: existing [config] log strings are byte-for-byte unchanged, and watch-loop.js contains no "[thresholds]" string (0.0643ms)
+ot re-judge thresholds when wiring control-server (no new 85/90/70/75 literals or state branches around the wiring) (0.1009ms)
+✔ Phase 2 [SPEC]: 26-day silence fixture restored on boot yields state === crit (2.577ms)
+✔ Phase 2 [SPEC]: boundary verification -- real log file tail reading and chopped line handling (1.4388ms)
+✔ Phase 2 [SPEC]: non-existent file, 0-byte file, and corrupted binary bytes yield empty observation without throwing (1.678ms)
+✔ Phase 2 [SPEC]: large file (>64KB) reads at most 64KB (65536 bytes) (40.4344ms)
+✔ Phase 2 [SPEC]: restored observation stringified contains no secrets (.profile, cookie, @) (1.419ms)
+✔ Phase 2 [SPEC]: mainLoop structurally integrates restoreObservation at startup before polling loop (0.1186ms)
+✔ W1: startControlServer(...) is called with both configPath and onConfigChange (0.1483ms)
+✔ W2: refreshConfig() exists and updates lastCfg/lastConfigSource from readConfig(CONFIG_PATH) (0.1449ms)
+✔ W3: pollOnce() calls refreshConfig() and does not duplicate config-reading logic (0.1375ms)
+✔ W4 [SPEC]: existing [config] log strings are byte-for-byte unchanged, and watch-loop.js contains no "[thresholds]" string (0.0647ms)
 ℹ tests 357
 ℹ suites 0
 ℹ pass 356
@@ -39,12 +39,12 @@ Generated: 2026-09-03 13:40:08
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 2830.6845
+ℹ duration_ms 2789.7366
 
 ✖ failing tests:
 
 test at p-quaestor\test\control-server.test.js:91:1
-✖ omitting opts.port uses DEFAULT_PORT (3210) (0.948ms)
+✖ omitting opts.port uses DEFAULT_PORT (3210) (0.9294ms)
   AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
   
   false !== true
