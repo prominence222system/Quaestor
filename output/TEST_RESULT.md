@@ -69,3 +69,115 @@ curl http://127.0.0.1:3210/api/health
 NNN: 012-threshold-write-api
 Started: 2026-09-03T03:51:38Z
 ===========================================
+
+# TEST_RESULT — Phase 1: `lib/thresholds.js` 순수 모듈
+
+## 대상
+Phase 1 — 방향 판정(tighten/loosen) · 검증(미지 키·범위·히스테리시스·만료) · 설정 병합 · 로그 줄 생성
+
+## 실행
+```
+node p-quaestor/test/run-all.js
+```
+결과: **301개 중 300 PASS, 1 FAIL(Phase 1 범위 밖 — 하단 참고)**
+
+`p-quaestor/test/thresholds.test.js` 34개 테스트 전부 PASS.
+
+## Acceptance 기준별 결과 (output/ACCEPTANCE.md Phase 1)
+
+### 순수성·모듈 형태
+| 기준 | 결과 |
+|---|---|
+| `THRESHOLD_KEYS`/`ALLOWED_KEYS`/`validateThresholdRequest`/`mergeIntoConfig`/`formatThresholdLog` export | PASS |
+| `fs`/`http`/`net` require 없음, `Date.now()` 미호출 (`nowMs` 주입) | PASS |
+| `claude` 문자열 미등장 | PASS |
+
+### 방향 판정
+| 기준 | 결과 |
+|---|---|
+| 둘 다 안 커지면 tighten | PASS |
+| 어느 한쪽이라도 커지면 loosen | PASS |
+| `{99,70,99,75}` + `{85,90}` → tighten, ok | PASS |
+| 완전 동일 요청 → tighten | PASS |
+| release 만 변경 → tighten | PASS |
+
+### 무르기 만료 규칙
+| 기준 | 결과 |
+|---|---|
+| 무르기 + expires_at 없음 → 400 loosen-requires-expiry | PASS |
+| 무르기 + 미래 expires_at → ok, direction loosen, expiresAt 일치 | PASS |
+| 무르기 + 과거 expires_at → 400 expiry-in-past | PASS |
+| expires_at 파싱 불가 → 400 invalid-expiry | PASS |
+| expires_at 생략 + 기존 값 미래 → 허용, 기존값 반환 | PASS |
+| expires_at 생략 + 기존 null/과거 → loosen-requires-expiry | PASS |
+| expires_at:null + 두 stop 모두 HARD_DEFAULTS 이하 → 허용 | PASS |
+| expires_at:null + stop 초과 → loosen-requires-expiry | PASS |
+| 거부 메시지에 "하드 기본값/임시 파일" 문구 포함 | PASS |
+
+### 히스테리시스
+| 기준 | 결과 |
+|---|---|
+| weekly_stop ≤ weekly_release → 400 hysteresis-violation | PASS |
+| session_stop ≤ session_release → 400 | PASS |
+| release 미포함 요청도 병합 결과로 판정 (`weekly_stop:60` vs 적용 release 70) | PASS |
+| stop === release 도 위반 | PASS |
+
+### 값·키 검증
+| 기준 | 결과 |
+|---|---|
+| 비정수(85.5), 비숫자("85"/null/true) → invalid-value | PASS |
+| 범위 밖(<0, >100) → invalid-value | PASS |
+| ALLOWED_KEYS 밖 키 → unknown-key | PASS |
+| `enabled`/`control` 포함 → unknown-key | PASS |
+| null/배열/비객체 본문 → invalid-body | PASS |
+| 빈 객체 `{}` → invalid-body | PASS |
+
+### 부분 요청
+| 기준 | 결과 |
+|---|---|
+| 부분 요청 시 나머지 3개 `next` 에서 불변 | PASS |
+| `previous`/`next` 4개 전부 반환 | PASS |
+
+### 병합
+| 기준 | 결과 |
+|---|---|
+| `enabled`/`control.*`/기타 키 보존 | PASS |
+| `thresholds` 는 `next` 와 정확히 일치 | PASS |
+| `expires_at` 인자값과 일치 | PASS |
+| `rawConfig` 원본 미변형 | PASS |
+| `thresholds` 없거나 비객체여도 `next` 온전 반영 | PASS |
+
+### 로그 줄
+| 기준 | 결과 |
+|---|---|
+| `[thresholds] ` 접두어 + direction + `key from->to` + `expires_at=<iso|none>` | PASS |
+| 생성 줄 + ISO 타임스탬프 → `parseLogTail` 이 `null` 반환 | PASS |
+| `session=`/`weekly=`/`%` 미등장 | PASS |
+| 미변경 축은 로그에서 생략 | PASS |
+
+### 회귀
+| 기준 | 결과 |
+|---|---|
+| `config.js`/`observation.js`/`control-server.js`/`logparse.js`/`watch-loop.js` Phase 1 에서 미수정 | PASS — `git show --stat 8c29bc6` 확인: 구현 커밋은 `lib/thresholds.js`, `test/thresholds.test.js` 두 파일만 추가 |
+| `run-all.js` 기존 전체 테스트(005 의 26일 fixture 포함) 무손상 | PASS — 26일 fixture 테스트 통과 확인 |
+
+## 수정한 버그
+없음 — 구현이 이전 iteration 에서 이미 완료돼 있었고 모든 Phase 1 기준을 통과했다.
+
+## 이전 Phase 통합 검증
+`node p-quaestor/test/run-all.js` 전체 실행 결과 301개 중 300 PASS.
+
+**1건 FAIL — Phase 1 범위 밖, 환경 충돌:**
+```
+control-server.test.js:91 "omitting opts.port uses DEFAULT_PORT (3210)"
+  Expected started:true, got started:false
+```
+원인: 이 개발 머신에 `node.exe`(PID 6944)가 이미 포트 3210 을 점유 중 — 실제로 동작 중인
+Quaestor watch-loop 인스턴스로 추정된다(`netstat` 확인). 실사용량 감시자일 수 있으므로
+QA 목적으로 종료하지 않았다. 이 테스트는 `control-server.js`(Phase 2/3 영역) 소관이며
+`lib/thresholds.js` 와 무관하고, `git status` 상 `p-quaestor/` 에 미커밋 변경 없음 —
+Phase 1 작업이 유발한 회귀가 아니다.
+
+## 결론
+
+**Phase 1 PASS.** `output/ACCEPTANCE.md` 의 모든 [SPEC]/[DERIVED] 기준을 충족한다.
