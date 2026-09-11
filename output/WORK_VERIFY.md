@@ -817,3 +817,123 @@ al-stop and auto original reason both survive over-threshold usage (0.084ms)
 
 ```
 
+## 2026-09-03T04:59:05Z  round=Round 10  completed=012-threshold-write-api.md  verdict=VERIFIED
+- project: Quaestor
+- project_dir: F:\Workspace\Automatic\projects\Quaestor
+- head: 3f3dde871b1e39e87ef123e9435210523c0f2fb4
+- worktree: UNCHANGED
+- duration: 3s
+- checks: 1 declared / 1 ran / 1 passed
+- gate: this report is READ AS A GATE by the run loop -- it is not just a log.
+- gate: verdict=VERIFIED lets the run continue; BROKEN or UNVERIFIED sets failKind and stops the run (Result: WORK_VERIFY_FAIL).
+- gate: when it stops the run, the reason is also written to output/iterations.json partial_notes.
+- gate: set workverify_gate_strict=false in config to turn the gate off; the report is still written either way.
+
+### [1/1] SMOKE 1/1 -- PASS (exit 0)
+- command: node p-quaestor/test/run-all.js
+- workdir: F:\Workspace\Automatic\projects\Quaestor
+- failure point: none (passed)
+- reproduce:
+      cd "F:\Workspace\Automatic\projects\Quaestor"
+      node p-quaestor/test/run-all.js
+- log tail:
+```
+emote font declarations (0.0833ms)
+? [SPEC] renderStatusPage is pure: same input -> same output, and does not perform I/O (no fs/http/net requires, no Date.now()) (0.1719ms)
+? [SPEC] malformed payload (null / undefined / non-object / missing allowance / missing usage) never throws, and always renders as "unknown" (0.24ms)
+? [SPEC] the renderer signature takes only (payload, opts) -- no access to authToken/profile paths/cookies/accounts (0.1191ms)
+? [SPEC] rendered HTML never contains a secret (token/profile path/cookie/account) even when payload fields carry secret-shaped strings (0.1099ms)
+? [SPEC] status-page.js never calls deriveState/deriveUsage/deriveAllowance and does not require ./observation (0.0982ms)
+? [SPEC] "claude" does not appear anywhere in status-page.js (0.0877ms)
+? [SPEC] HTML special characters in reason / STOP value / failure value / summary are escaped, not emitted as raw tags (0.1661ms)
+? [DERIVED] thresholds are rendered from the payload, not hardcoded (0.1085ms)
+? [DERIVED] percent values render as "<n>%" and headroom as "<n>%p ??" only when numeric (0.0623ms)
+? [DERIVED] age formatting: <60s -> "??", minutes/hours/days otherwise (0.0643ms)
+? [DERIVED] no gauge bar is rendered when a percentage value is null (0.1102ms)
+? [SPEC] inline script contains no badge label literals ("?? ??"/"???"/"??") (0.1187ms)
+? [SPEC] inline script performs no threshold comparison or allowed-branching, and its only network call is a GET to /api/status (0.1946ms)
+? [DERIVED] default poll interval is 30000ms; a custom pollMs option is reflected in the script (0.1028ms)
+? [DERIVED] script reloads only on a signature mismatch and does nothing on fetch failure (0.1416ms)
+? signature() changes when allowed/reason/pct/stale/measured_at/state changes, and is stable otherwise (0.1082ms)
+? [DERIVED] returns a complete <!doctype html> document with <html lang="ko"> (0.0817ms)
+? [DERIVED] the four state class tokens are exactly st-allowed/st-blocked/st-unknown/st-stale (0.0624ms)
+? esc() escapes all five HTML-significant characters (0.0607ms)
+? [SPEC] S1 USER_GATE-A: tighten round trip then GET /api/status reflects new thresholds immediately (no poll wait) (6.7949ms)
+? [SPEC] S2 USER_GATE-B: loosen without expires_at is rejected with 400 and leaves zero side effects (8.1058ms)
+? [SPEC] S3 two-call bypass: loosen+expiry succeeds, then a follow-up expires_at:null-only request is rejected and the stored expiry survives (5.5478ms)
+? [SPEC] S4 an expiry that actually elapses causes readConfig() and GET /api/status to fall back to HARD_DEFAULTS (1523.417ms)
+? [SPEC] S5 reproduces the May incident state (99/99, no expiry) and records exactly one recovery log line (5.9693ms)
+? [DERIVED] S6 concurrent PUTs: both responses are valid JSON, the file stays valid, and no .tmp survives (6.5669ms)
+? [SPEC] S7 never-brick: config-unreadable, write-failed, 403, and 401 in sequence leave the dashboard alive (9.3653ms)
+? [SPEC] never-brick: no uncaughtException/unhandledRejection observed across the S7 failure sequence (4.6464ms)
+? [SPEC] hermetic discipline: this file never references a real product config path, only os.tmpdir() (0.2846ms)
+? module purity: exports required names (0.081ms)
+? module purity: does not require http/net, does not call Date.now() (0.1819ms)
+? module purity: no literal "claude" in source (0.0785ms)
+? tighten: 99,99 -> 85,90 succeeds (0.0683ms)
+? tighten: identical request is tighten (0.0602ms)
+? tighten: only *_release changed is tighten (0.0601ms)
+? loosen without expires_at is rejected (400 loosen-requires-expiry) (0.0597ms)
+? loosen with future expires_at succeeds (0.1116ms)
+? loosen with past expires_at is rejected (400 expiry-in-past) (0.1092ms)
+? invalid expires_at string is rejected (400 invalid-expiry) (0.0575ms)
+? loosen with omitted expires_at but future currentExpiresAt succeeds (0.0652ms)
+? loosen with omitted expires_at and null currentExpiresAt is rejected (0.0683ms)
+? loosen with omitted expires_at and past currentExpiresAt is rejected (0.0553ms)
+? explicit expires_at:null allowed when both *_stop within HARD_DEFAULTS (0.0576ms)
+? explicit expires_at:null rejected when *_stop above HARD_DEFAULTS (0.0547ms)
+? loosen-requires-expiry error message mentions hard defaults / temporary file (0.0901ms)
+? hysteresis: weekly_stop <= weekly_release rejected (0.0568ms)
+? hysteresis: session_stop <= session_release rejected (0.0535ms)
+? hysteresis: equal stop/release rejected (0.0512ms)
+? invalid value: non-integer rejected (0.059ms)
+? invalid value: non-numeric string rejected (0.0523ms)
+? invalid value: null rejected (0.0507ms)
+? invalid value: boolean rejected (0.0502ms)
+? invalid value: out of range rejected (0.0854ms)
+? unknown key rejected (0.0549ms)
+? unknown key: enabled/control rejected (0.0566ms)
+? invalid body: null/array/non-object rejected (0.0513ms)
+? invalid body: empty object rejected (0.0488ms)
+? partial request: other 3 values unchanged in next (0.0577ms)
+? returns previous and next with all 4 values (0.0614ms)
+? mergeIntoConfig preserves other keys (0.085ms)
+? mergeIntoConfig does not mutate input (0.0755ms)
+? mergeIntoConfig handles missing/non-object thresholds (0.056ms)
+? formatThresholdLog format and no forbidden tokens (0.0737ms)
+? formatThresholdLog with no expiry says none, unchanged keys omitted (0.0637ms)
+? generated log line does not confuse 005 parseLogTail (returns null) (0.0804ms)
+? require("../watch-loop.js") loads without starting the watch loop (0.0645ms)
+? watch-loop.js source guards its immediate-invocation loop with require.main === module (0.0801ms)
+? watch-loop.js wires lib/observation.js into pollOnce success/failure branches (0.1102ms)
+? scrape-failure log line surfaces kind and hint (?5 diagnostic logging requirement) (0.1563ms)
+? watch-loop.js does not re-implement frozen helpers (deriveDesired/isValidUsage/writeStopJsonAtomic/readConfig/resolveStopDir stay) (0.074ms)
+? p-quaestor/.js files do not reference the Claude CLI (0.3976ms)
+? C1: requiring watch-loop.js does not call startControlServer at module-load time (0.8387ms)
+? C1 (structural): startControlServer( call site is inside mainLoop(), not at module top level (0.1928ms)
+? C2 (structural): the startControlServer call is wrapped in try/catch, and the polling loop follows unconditionally (0.0931ms)
+? never-brick: startup failure is not swallowed silently -- "[control] listen failed" logging path exists (0.0756ms)
+? live observation source (C3, structural): getSnapshot is a function (controlSnapshot) whose body references the observation module variable (0.134ms)
+? C3 (structural): controlSnapshot() body has no fs.* calls, no scrapeUsage, and no STOP_PATH reference (0.09ms)
+? watch-loop.js does not re-judge thresholds when wiring control-server (no new 85/90/70/75 literals or state branches around the wiring) (0.1051ms)
+? Phase 2 [SPEC]: 26-day silence fixture restored on boot yields state === crit (2.569ms)
+? Phase 2 [SPEC]: boundary verification -- real log file tail reading and chopped line handling (1.4607ms)
+? Phase 2 [SPEC]: non-existent file, 0-byte file, and corrupted binary bytes yield empty observation without throwing (1.6398ms)
+? Phase 2 [SPEC]: large file (>64KB) reads at most 64KB (65536 bytes) (40.1068ms)
+? Phase 2 [SPEC]: restored observation stringified contains no secrets (.profile, cookie, @) (1.3482ms)
+? Phase 2 [SPEC]: mainLoop structurally integrates restoreObservation at startup before polling loop (0.1195ms)
+? W1: startControlServer(...) is called with both configPath and onConfigChange (0.1608ms)
+? W2: refreshConfig() exists and updates lastCfg/lastConfigSource from readConfig(CONFIG_PATH) (0.1457ms)
+? W3: pollOnce() calls refreshConfig() and does not duplicate config-reading logic (0.1317ms)
+? W4 [SPEC]: existing [config] log strings are byte-for-byte unchanged, and watch-loop.js contains no "[thresholds]" string (0.0653ms)
+? tests 357
+? suites 0
+? pass 357
+? fail 0
+? cancelled 0
+? skipped 0
+? todo 0
+? duration_ms 2764.8626
+
+```
+
