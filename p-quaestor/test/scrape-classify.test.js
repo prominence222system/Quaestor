@@ -16,10 +16,12 @@ const {
   FAILURE_KINDS,
   HINTS
 } = require('../lib/scrape');
+const { ORIGIN, ENGINE } = require('../lib/source');
 
 const cachedAfterLibRequire = !!require.cache[puppeteerPath];
 
 const SCRAPE_SRC = fs.readFileSync(path.join(__dirname, '..', 'lib', 'scrape.js'), 'utf8');
+const SOURCE_SRC = fs.readFileSync(path.join(__dirname, '..', 'lib', 'source.js'), 'utf8');
 
 // Swap require.cache['puppeteer'] for a fake module for the duration of a test.
 // scrape.js does `require('puppeteer')` lazily inside scrapeUsage(), so this
@@ -350,9 +352,19 @@ test('scrapeUsage keeps its existing signature and is still exported', () => {
   assert.strictEqual(scrapeUsage.length, 2);
 });
 
-test('lib/scrape.js references the claude.ai domain exactly once (constant only)', () => {
+test('lib/scrape.js references "claude" 0 times', () => {
   const matches = SCRAPE_SRC.match(/claude/g) || [];
-  assert.strictEqual(matches.length, 1);
+  assert.strictEqual(matches.length, 0);
+});
+
+test('lib/source.js references the claude.ai domain and engine label', () => {
+  const matches = SOURCE_SRC.match(/claude/g) || [];
+  assert.strictEqual(matches.length, 2);
+  const domainMatches = SOURCE_SRC.match(/https:\/\/claude\.ai/g) || [];
+  assert.strictEqual(domainMatches.length, 1);
+  assert.strictEqual(ORIGIN, 'https://claude.ai');
+  assert.strictEqual(ENGINE, 'claude');
+  assert.ok(!/require\s*\(/.test(SOURCE_SRC), 'lib/source.js must have 0 requires');
 });
 
 test('lib/scrape.js does not require puppeteer at the top level (lazy load)', () => {
