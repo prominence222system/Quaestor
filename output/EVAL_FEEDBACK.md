@@ -91,3 +91,9 @@ curl http://127.0.0.1:3210/api/health   # contracts["supervised-v1"] === "1.3.0"
 
 ## Fix Loop Diagnosis
 [fix-diag] attempts=2 identical=1/2 escalated=yes escalation-helped=yes
+
+
+===========================================
+NNN: 013-status-declares-engine-scope
+Started: 2026-09-21T01:30:41Z
+===========================================

@@ -10,3 +10,7 @@
 output/report.html
 output/iterations.json
 
+
+# p-forge runtime artifacts (auto-generated, do not commit)
+.venv.dead-*/
+

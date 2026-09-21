@@ -1,7 +1,8 @@
 # Quaestor — 사용량 감시·차단기
 
-> ⚠️ **폴더·저장소 이름은 아직 `Bellows` 다.** 제품 이름은 2026-08-19 에 **Quaestor** 로 확정됐고,
-> 파일시스템·git 개명은 별도 시스템 스펙이 맡는다. 코드가 새로 내는 식별자(`id`)는 **`quaestor`** 다.
+> ✅ **개명 완료(2026-08-23).** 폴더·git 저장소·런처 전부 `Quaestor` 다. 코드가 내는 `id` 도 `quaestor`.
+> 🔒 **설정·상태 파일명만 옛 이름 그대로다**(`.prominence\bellows-config.json`·`bellows.log`) —
+> 돌고 있는 감시가 설정과 이력을 한꺼번에 잃으므로 개명 대상이 아니다.
 
 ## Project Type
 code
@@ -33,6 +34,7 @@ claude.ai/settings/usage --scrape--> session_pct / weekly_pct
 - Round 8: 010 (engine: claude)
 - Round 9: 011 (engine: agy)
 - Round 10: 012 (engine: claude)
+- Round 11: 013 (engine: agy)
 
 ## Work Verify
 - Smoke: `node p-quaestor/test/run-all.js`
@@ -153,10 +155,22 @@ Agora 022 가 말하듯 상시 울리는 경보는 없는 것보다 나쁘다. *
 🔒 계약이 "Foreman 은 확인 없이 호출한다" 고 못박았으므로 **안전선은 서버 쪽에 둔다.**
 UI 의 확인 대화상자에 기대지 않는다.
 
+## Round 11 이 하는 일
+
+계약이 **어느 엔진 이야기인지 한 번도 말하지 않았다.** 숫자는 전부 `claude.ai` 관측인데
+forge 는 `alternate` 로 엔진을 번갈아 돌린다 — 2026-09-20 실측으로 **전체 스텝의 27%가 agy** 다.
+
+- **013** — `usage`·`allowance` 에 `covers: ["claude"]` 를 싣는다. 계약 1.3.0 → 1.4.0
+
+🔒 **agy 를 재려는 것이 아니다. "우리가 agy 를 모른다"는 사실을 응답에 적는 것이다.**
+agy 잔량은 읽을 API 가 없다(벤더 확인 완료). 모르는 것을 말하지 않으면 소비자는 안다고 읽는다.
+🔒 **추가만** — 기존 필드 불변. Foreman 이 1.3.0 에 핀을 걸고 있고 영향도 판정이 `breaks: false` 다.
+
 ## Constraints
 
-- **Claude CLI 절대 사용 금지** — `claude` 가 `.js` 코드에 grep 매칭 0건이어야 한다(도메인 URL 은 예외).
-  이 제품이 토큰을 쓰면 감시자가 감시 대상이 된다
+- **Claude CLI 절대 사용 금지** — 이 제품이 토큰을 쓰면 감시자가 감시 대상이 된다.
+  🔒 예외는 **`lib/source.js` 한 곳뿐**이다 — 도메인 상수(`ORIGIN`)와 엔진 라벨(`ENGINE`)이 거기 산다(013).
+  그 밖의 `.js` 에서 `claude` grep 매칭은 **0건**이어야 한다. 규칙이 막는 것은 **CLI 호출**이지 문자열이 아니다
 - 의존성 추가 금지 — HTTP 는 `node:http`, 테스트는 `node:test`/`node:assert` 로 충분하다
   (현재 의존성은 puppeteer 하나뿐)
 - 전용 Chrome 프로필(`./.profile/`, gitignore)로 동작. 사용자의 일반 Chrome 을 건드리지 않는다
@@ -175,7 +189,7 @@ UI 의 확인 대화상자에 기대지 않는다.
 ## 실행
 
 ```
-run-bellows.ps1 [-IntervalMinutes 15] [-ChromePath ...] [-ChromeProfileDir ...]
+run-quaestor.ps1 [-IntervalMinutes 15] [-ChromePath ...] [-ChromeProfileDir ...]
 ```
 
 Chrome 을 `--remote-debugging-port=9222` + 전용 프로필로 띄운 뒤 루프를 돈다.
@@ -187,7 +201,7 @@ Chrome 을 `--remote-debugging-port=9222` + 전용 프로필로 띄운 뒤 루�
 Synology (스펙·산출물, scanPath):
   1. Project\products\Quaestor\
     ├─ work\           (이 스펙)   ├─ PROJECT_INTENT.md   ├─ CONTINUATION.md
-    ├─ deploy.json     ├─ run-bellows.ps1   ├─ deploy-bellows.ps1
+    ├─ deploy.json     ├─ run-quaestor.ps1  ├─ deploy-quaestor.ps1
     └─ p-quaestor\ package.json · watch-loop.js · watch-once.js · lib\{config,scrape,extract,observation,control-server,logparse,env}.js
 
 Workspace (빌드·git):

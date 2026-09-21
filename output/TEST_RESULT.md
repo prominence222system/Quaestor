@@ -772,3 +772,9 @@ curl -X PUT http://127.0.0.1:3210/api/thresholds \
 curl http://127.0.0.1:3210/api/status   # usage.thresholds 가 새 값
 curl http://127.0.0.1:3210/api/health   # contracts["supervised-v1"] === "1.3.0"
 ```
+
+
+===========================================
+NNN: 013-status-declares-engine-scope
+Started: 2026-09-21T01:30:41Z
+===========================================
