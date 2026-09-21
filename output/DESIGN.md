@@ -39,3 +39,21 @@ F:\Workspace\Automatic\projects\Quaestor\
   1. `lib/source.js` 신설: 외부 require 없이 순수하게 `ORIGIN`('https://claude.ai')과 `ENGINE`('claude')만을 export 하도록 작성.
   2. `lib/scrape.js` 리팩터링: 자체 정의된 `ORIGIN` 리터럴을 지우고 `const { ORIGIN } = require('./source.js');`로 대체한다.
   3. `test/scrape-classify.test.js` 단언 갱신: 기존 `lib/scrape.js` 파일 내용 중 `/claude/g` 매치 횟수를 0으로 단언하도록 수정하고, 해당 단언 로직을 `lib/source.js`를 대상으로 하여 이관한다 (단, 요구사항의 "강도 동일" 조건과 `ENGINE` 추가로 인한 실제 매치 횟수에 유의하여 테스트 코드 갱신).
+
+## 6. Phase 2 Detailed Design: `usage` 및 `allowance` 객체 확장 및 계약 버전 갱신
+- **목표**: `lib/observation.js`의 `deriveUsage`와 `deriveAllowance` 함수가 `lib/source.js`의 엔진 정보를 활용하여 응답에 `covers: ["claude"]` 필드를 추가하고, API 계약 버전을 1.4.0으로 승격한다.
+- **상세 구현 계획**:
+  1. `lib/observation.js` 갱신:
+     - `lib/source.js`에서 `ENGINE` 상수를 순수하게 require한다.
+     - `deriveUsage`와 `deriveAllowance`가 반환하는 객체 내에 `covers: [ENGINE]` 항목을 추가한다.
+     - 기존의 필드는 하나도 건드리지 않으며(하위 호환성 유지), 관측 이력이 없을 때(null일 때)도 `covers` 필드가 항상 출력되도록 설계한다.
+  2. `lib/control-server.js` 계약 버전 갱신:
+     - `CONTRACTS['supervised-v1']` 상수를 `1.4.0`으로 변경한다.
+     - 상수 선언 위에 `1.3.0 -> 1.4.0: usage·allowance 에 covers 추가 (하위호환)` 주석을 추가한다.
+  3. `test/control-server.test.js` 테스트 갱신 및 검증:
+     - 기존의 버전 핀 테스트(176, 217 라인 단언값 및 169, 210 라인 제목)를 `1.4.0`으로 갱신한다.
+     - 기 존재하는 실서버(127.0.0.1 바인딩) HTTP 엔드포인트 대상 테스트(`GET /api/status`, `GET /api/health`)에 `usage.covers`와 `allowance.covers`가 `deepStrictEqual`인지, 정확히 `["claude"]`인지, 그리고 `agy`가 포함되지 않았는지에 대한 단언을 추가한다.
+- **Integration with previous Phases (Phase 1 통합)**:
+  - Phase 1에서 만든 `lib/source.js`를 의존성으로 끌어들여 엔진 정보를 사용한다. 이 과정에서 `lib/observation.js`는 순수 함수 속성을 잃지 않는다(I/O 없음).
+- **Data flow**:
+  - `lib/source.js` (ENGINE) -> `lib/observation.js` (`deriveUsage`, `deriveAllowance`) -> `lib/control-server.js` (`GET /api/status`, `GET /api/health`) -> Test Validation.
