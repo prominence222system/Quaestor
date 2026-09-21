@@ -57,3 +57,19 @@ F:\Workspace\Automatic\projects\Quaestor\
   - Phase 1에서 만든 `lib/source.js`를 의존성으로 끌어들여 엔진 정보를 사용한다. 이 과정에서 `lib/observation.js`는 순수 함수 속성을 잃지 않는다(I/O 없음).
 - **Data flow**:
   - `lib/source.js` (ENGINE) -> `lib/observation.js` (`deriveUsage`, `deriveAllowance`) -> `lib/control-server.js` (`GET /api/status`, `GET /api/health`) -> Test Validation.
+
+## 7. Phase 3 Detailed Design: 상태 페이지 렌더링 갱신 및 실서버 UI 검증
+- **목표**: `GET /` 호출 시 반환되는 웹 UI 상태 페이지가 `usage.covers` 정보를 통해 사용량 수치가 어느 엔진(`claude`)의 것인지를 하드코딩 없이 동적으로 화면에 표시한다.
+- **상세 구현 계획**:
+  1. `lib/status-page.js` 렌더링 로직 갱신:
+     - `buildStatusPayload`를 거쳐 전달된 페이로드의 `usage.covers` 배열 값을 읽어온다.
+     - 템플릿 리터럴 내에 `esc(payload.usage.covers.join(', '))` 등의 방식으로 안전하게 렌더링한다. (예: "엔진 범위: claude")
+     - 파일 내에 `'claude'` 리터럴이나 `covers.includes('claude')`와 같은 조건부 분기를 절대 추가하지 않는다.
+     - origin URL(`https://claude.ai`)을 렌더링 로직이나 HTML에 삽입하지 않는다.
+  2. `test/control-server.test.js` 실서버 통합 테스트 갱신:
+     - 127.0.0.1에 바인딩된 실서버로 `GET /` 요청을 보내어 응답 HTML 문자열을 가져오는 기존 테스트 경로(`1437`, `1450`, `1464`, `1491` 부근)에 단언을 추가한다.
+     - 반환된 HTML 내에 렌더링된 `covers` 값(예: `claude`)이 시각적으로 포함되어 있는지 검증한다. (순수 렌더러 `renderStatusPage`만 테스트하는 것은 통합 실패를 유발할 수 있으므로 허용하지 않는다)
+- **Integration with previous Phases (Phase 2 통합)**:
+  - Phase 2에서 `usage` 객체에 추가된 `covers` 데이터를 그대로 활용하여 웹 화면에 매핑한다.
+- **Data flow**:
+  - `lib/control-server.js` (페이로드 구성) -> `lib/status-page.js` (`usage.covers` 데이터 렌더링) -> 브라우저(사용자 확인 및 실서버 테스트 통과).
