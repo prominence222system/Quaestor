@@ -176,6 +176,13 @@ function renderStatusPage(payload, opts) {
   const stopLine = fieldValue(fields, 'STOP') || '없음';
   const failureLine = fieldValue(fields, '마지막 실패') || '없음';
 
+  const covers = Array.isArray(usage.covers)
+    ? usage.covers
+    : (Array.isArray(allowance.covers) ? allowance.covers : []);
+  const coversLine = covers.length > 0
+    ? covers.map(function (c) { return esc(c); }).join(', ')
+    : NO_MEASUREMENT;
+
   const html = '' +
     '<!doctype html>\n' +
     '<html lang="ko">\n' +
@@ -192,6 +199,7 @@ function renderStatusPage(payload, opts) {
     '<p class="reason">reason: ' + esc(reason) + '</p>\n' +
     '<section>\n' +
     '<h2>사용량</h2>\n' +
+    '<div class="field">엔진 범위: ' + coversLine + '</div>\n' +
     '<div class="row"><span>세션</span>' + gaugeHtml(usage.session_pct) + '<span>' + esc(formatPct(usage.session_pct)) + ' \u00B7 ' + esc(formatHeadroom(usage.session_headroom)) + '</span></div>\n' +
     '<div class="row"><span>주간</span>' + gaugeHtml(usage.weekly_pct) + '<span>' + esc(formatPct(usage.weekly_pct)) + ' \u00B7 ' + esc(formatHeadroom(usage.weekly_headroom)) + '</span></div>\n' +
     '</section>\n' +

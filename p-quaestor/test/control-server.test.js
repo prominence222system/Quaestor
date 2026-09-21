@@ -1492,6 +1492,22 @@ test('[SPEC] GET / -- real port round trip returns 200 and Content-Type text/htm
     assert.ok((res.headers.get('content-type') || '').includes('text/html; charset=utf-8'));
     const html = await res.text();
     assert.ok(html.startsWith('<!doctype html>'));
+    assert.ok(html.includes('엔진 범위: claude'), 'engine scope (covers) must be rendered in HTML');
+  } finally {
+    await r.close();
+  }
+});
+
+test('013 Phase 3 [SPEC]: GET / over real port renders engine scope (covers) in HTML without hardcoded label', async () => {
+  const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });
+  try {
+    const res = await fetch('http://127.0.0.1:' + r.port + '/');
+    assert.strictEqual(res.status, 200);
+    const html = await res.text();
+    assert.ok(html.includes('엔진 범위: claude'));
+    assert.ok(!html.includes('agy'));
+    assert.ok(!EXTERNAL_URL_010.test(html));
+    assert.ok(!html.includes('https://'));
   } finally {
     await r.close();
   }
@@ -1503,6 +1519,7 @@ test('[SPEC] GET / with an allowed:null snapshot -- fetched HTML has no positive
     const res = await fetch('http://127.0.0.1:' + r.port + '/');
     assert.strictEqual(res.status, 200);
     const html = await res.text();
+    assert.ok(html.includes('엔진 범위: claude'), 'engine scope must be rendered even when allowed:null');
     assert.ok(!html.includes('사용 가능'), 'positive phrase must not appear for allowed:null');
     assert.ok(html.includes('모름'), '"unknown" label must appear for allowed:null');
     assert.ok(!/\bst-allowed\b/.test(html), 'green class token must never appear for allowed:null');
