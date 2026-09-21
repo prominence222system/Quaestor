@@ -1498,16 +1498,66 @@ test('[SPEC] GET / -- real port round trip returns 200 and Content-Type text/htm
   }
 });
 
-test('013 Phase 3 [SPEC]: GET / over real port renders engine scope (covers) in HTML without hardcoded label', async () => {
+// ---- 013 Phase 3: status page covers rendering -----------------------------
+
+test('013 Phase 3 [SPEC]: 127.0.0.1 bound server GET / response HTML renders covers in human-readable form', async () => {
   const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });
   try {
     const res = await fetch('http://127.0.0.1:' + r.port + '/');
     assert.strictEqual(res.status, 200);
     const html = await res.text();
-    assert.ok(html.includes('엔진 범위: claude'));
-    assert.ok(!html.includes('agy'));
-    assert.ok(!EXTERNAL_URL_010.test(html));
-    assert.ok(!html.includes('https://'));
+    assert.ok(html.includes('엔진 범위: claude'), 'engine scope (covers) must be rendered in HTML');
+    assert.ok(!html.includes('agy'), 'must not contain agy');
+  } finally {
+    await r.close();
+  }
+});
+
+test('013 Phase 3 [SPEC]: test/status-page.test.js:230 /claude/gi 0 match assertion passes unmodified', () => {
+  const statusPageSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'status-page.js'), 'utf8');
+  const matches = statusPageSrc.match(/claude/gi) || [];
+  assert.strictEqual(matches.length, 0, 'status-page.js must contain zero occurrences of claude');
+});
+
+test('013 Phase 3 [SPEC]: covers rendering is verified via real HTTP round trip over GET / on 127.0.0.1 (not pure renderer fixture)', async () => {
+  const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });
+  try {
+    const res = await fetch('http://127.0.0.1:' + r.port + '/');
+    assert.strictEqual(res.status, 200);
+    assert.ok((res.headers.get('content-type') || '').includes('text/html; charset=utf-8'));
+    const html = await res.text();
+    assert.ok(html.includes('<div class="field">엔진 범위: claude</div>'), 'integrated GET / route must assemble and render covers in HTML');
+  } finally {
+    await r.close();
+  }
+});
+
+test('013 Phase 3 [DERIVED]: status-page.js safely escapes covers and contains no claude branching or literals', () => {
+  const statusPageSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'status-page.js'), 'utf8');
+  assert.ok(!statusPageSrc.includes("includes('claude')"));
+  assert.ok(!statusPageSrc.includes('=== "claude"'));
+  assert.ok(!statusPageSrc.includes("=== 'claude'"));
+  assert.strictEqual((statusPageSrc.match(/claude/gi) || []).length, 0);
+
+  const { renderStatusPage } = require('../lib/status-page');
+  const payload = {
+    allowance: { allowed: true, reason: 'under-threshold', covers: ['<engine&tag>'] },
+    usage: { session_pct: 10, weekly_pct: 20, covers: ['<engine&tag>'] },
+    fields: []
+  };
+  const html = renderStatusPage(payload);
+  assert.ok(html.includes('엔진 범위: &lt;engine&amp;tag&gt;'), 'covers values must be escaped via esc()');
+  assert.ok(!html.includes('<engine&tag>'), 'raw unescaped tags must not appear');
+});
+
+test('013 Phase 3 [DERIVED]: GET / rendered HTML contains no origin URL substring (https://)', async () => {
+  const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });
+  try {
+    const res = await fetch('http://127.0.0.1:' + r.port + '/');
+    assert.strictEqual(res.status, 200);
+    const html = await res.text();
+    assert.ok(!html.includes('https://'), 'HTML must not contain https://');
+    assert.ok(!EXTERNAL_URL_010.test(html), 'HTML must not contain external URLs');
   } finally {
     await r.close();
   }

@@ -903,3 +903,67 @@ Started: 2026-09-21T01:30:41Z
 - Phase 1에서 신설된 `lib/source.js` 및 `scrape-classify.test.js`의 `/claude/g` 0회 단언, 그리고 이전 라운드(001~012)의 359개 전 테스트가 Phase 2 변경사항과 완벽히 공존함을 확인.
 - 총 362개 테스트 전체가 무회귀(0 regression)로 PASS 함.
 
+# TEST_RESULT — Phase 3: `status-page.js` 가 payload 에서 `covers` 를 그림 + 실서버 `GET /` HTML 검증
+
+## 1. 대상 기능 및 Phase
+- **작업**: 013-status-declares-engine-scope.md
+- **Phase**: Phase 3 — `status-page.js` 가 payload 에서 `covers` 를 그림 + 실서버 `GET /` HTML 검증
+- **대상 모듈**:
+  - `p-quaestor/lib/status-page.js` (수정: payload 내 covers 배열을 추출하여 esc() 후 '엔진 범위: ...' 로 렌더링, 'claude' 리터럴 및 분기 없음)
+  - `p-quaestor/test/control-server.test.js` (수정: 실서버 127.0.0.1 바인딩 환경에서 GET / HTML 응답 대상 전용 검증 테스트 작성)
+  - `p-quaestor/test/status-page.test.js` (수정 없음: 기존 /claude/gi 0회 단언 및 순수 렌더러 검증 통과)
+
+## 2. 수용 기준 검증 결과 (output/ACCEPTANCE.md Phase 3)
+
+| 구분 | 수용 기준 | 결과 | 검증 근거 |
+|---|---|---|---|
+| [SPEC] | 127.0.0.1에 바인딩된 실제 서버의 `GET /` 응답 HTML 내에 범위(`covers` 값)가 사람이 읽을 수 있는 형태로 표시되어야 한다. | **PASS** | `test/control-server.test.js`: `013 Phase 3 [SPEC]: 127.0.0.1 bound server GET / response HTML renders covers in human-readable form` 통과 (`assert.ok(html.includes('엔진 범위: claude'))`) |
+| [SPEC] | `test/status-page.test.js:230`의 `status-page.js` 내 `/claude/gi` 정규식 매치 0회 단언이 수정 없이 그대로 통과해야 한다. | **PASS** | `test/status-page.test.js` 230행의 단언이 일절 수정 없이 그대로 통과하며, `test/control-server.test.js`의 `013 Phase 3 [SPEC]: test/status-page.test.js:230 /claude/gi 0 match assertion passes unmodified`에서도 `matches.length === 0` 검증 통과 |
+| [SPEC] | 순수 렌더러 함수에 픽스처를 넣는 방식이 아닌, 통합 환경(`GET /`)에서 HTTP 왕복을 통해 조립된 실제 HTML을 대상으로 `covers` 렌더링 여부를 검증해야 한다. | **PASS** | `test/control-server.test.js`: `013 Phase 3 [SPEC]: covers rendering is verified via real HTTP round trip over GET / on 127.0.0.1 (not pure renderer fixture)` 통과 (`startControlServer`로 실포트 바인딩 후 `fetch('http://127.0.0.1:' + r.port + '/')`로 수신한 HTML 내 `<div class="field">엔진 범위: claude</div>` 검증) |
+| [DERIVED] | `lib/status-page.js`는 `covers` 값을 출력하기 위해 안전한 이스케이프(`esc()`)만을 수행하며, `'claude'`라는 문자열 리터럴이나 값에 의존하는 어떠한 분기문도 포함하지 않는다. | **PASS** | `test/control-server.test.js`: `013 Phase 3 [DERIVED]: status-page.js safely escapes covers and contains no claude branching or literals` 통과 (소스 코드 내 `claude` 리터럴 0건 및 `includes('claude')` 분기 부재 검증, `<engine&tag>` 주입 시 `&lt;engine&amp;tag&gt;`로 이스케이프됨을 검증) |
+| [DERIVED] | 화면에 origin URL 문자열(`https://`)이 포함되거나 하드코딩되어서는 안 된다. | **PASS** | `test/control-server.test.js`: `013 Phase 3 [DERIVED]: GET / rendered HTML contains no origin URL substring (https://)` 통과 (`assert.ok(!html.includes('https://'))` 및 `EXTERNAL_URL_010` 검증) |
+
+## 3. 전체 테스트 목록 및 실행 결과
+
+### 3.1 control-server 단위/통합 테스트
+실행 명령: `node p-quaestor/test/control-server.test.js`
+결과: **149 tests / 149 pass / 0 fail / 0 error** (duration: ~870ms)
+
+Phase 3 전용 통과 테스트:
+- ✔ 013 Phase 3 [SPEC]: 127.0.0.1 bound server GET / response HTML renders covers in human-readable form
+- ✔ 013 Phase 3 [SPEC]: test/status-page.test.js:230 /claude/gi 0 match assertion passes unmodified
+- ✔ 013 Phase 3 [SPEC]: covers rendering is verified via real HTTP round trip over GET / on 127.0.0.1 (not pure renderer fixture)
+- ✔ 013 Phase 3 [DERIVED]: status-page.js safely escapes covers and contains no claude branching or literals
+- ✔ 013 Phase 3 [DERIVED]: GET / rendered HTML contains no origin URL substring (https://)
+
+### 3.2 status-page 단위 테스트
+실행 명령: `node p-quaestor/test/status-page.test.js`
+결과: **33 tests / 33 pass / 0 fail / 0 error** (duration: ~23ms)
+- ✔ [SPEC] "claude" does not appear anywhere in status-page.js 통과 (230행 수정 없음)
+- ✔ [SPEC] no http:// or https:// resource reference anywhere in the rendered HTML 통과
+
+### 3.3 전체 테스트 스위트 (Work Verify)
+실행 명령: `node p-quaestor/test/run-all.js`
+결과: **367 tests / 367 pass / 0 fail / 0 error** (duration: ~2778ms)
+
+- `control-server.test.js`: 149 tests pass
+- `env.test.js`: 15 tests pass
+- `launcher-rename.test.js`: 7 tests pass
+- `logparse.test.js`: 41 tests pass
+- `observation.test.js`: 47 tests pass
+- `scrape-classify.test.js`: 25 tests pass
+- `status-page.test.js`: 33 tests pass
+- `thresholds-integration.test.js`: 8 tests pass
+- `thresholds.test.js`: 34 tests pass
+- `watch-loop.test.js`: 23 tests pass
+
+## 4. 구현 버그 및 수정 사항
+- **구현 버그**: 없음. `lib/status-page.js`는 payload의 `usage.covers`(또는 `allowance.covers`) 배열을 받아 `esc()` 처리 후 안전하게 `엔진 범위: claude` 형태로 렌더링하도록 작성되었으며, 'claude' 리터럴이나 관련 분기 없이 순수하게 동작함.
+- **테스트 보강**: `output/ACCEPTANCE.md`의 Phase 3 5개 수용기준(SPEC 3개, DERIVED 2개) 각각에 대해 1:1로 대응되는 전용 테스트 5건을 `p-quaestor/test/control-server.test.js`에 명시적으로 추가하여 실서버 127.0.0.1 HTTP 통신 환경 및 소스 검사를 통해 완벽하게 검증함.
+
+## 5. 이전 Phase 및 이전 라운드 통합 검증 결과
+- **Phase 1 통합**: `lib/source.js` 분리 및 `scrape.js` 리팩터링 불변식 유지 확인 (`lib/source.js`에만 `claude.ai` 도메인 1회 등장, `scrape.js` 0회 매치 유지).
+- **Phase 2 통합**: `deriveUsage` 및 `deriveAllowance`의 `covers: ["claude"]` 및 `CONTRACTS` 1.4.0 계약 버전이 실서버 통신에서 완벽히 유지되며, 본 Phase 3의 `GET /` 웹 화면으로 데이터가 온전히 흘러감(Single Judgement Point `buildStatusPayload` 보존).
+- **이전 라운드(001~012) 전체 회귀 없음**: 총 367개 테스트 전건 무회귀(0 regression) 통과 완료.
+
+
