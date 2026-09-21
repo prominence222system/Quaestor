@@ -367,6 +367,23 @@ test('lib/source.js references the claude.ai domain and engine label', () => {
   assert.ok(!/require\s*\(/.test(SOURCE_SRC), 'lib/source.js must have 0 requires');
 });
 
+test('https://claude.ai appears exactly once across all files in lib/ (lib/source.js)', () => {
+  const libDir = path.join(__dirname, '..', 'lib');
+  const files = fs.readdirSync(libDir).filter((f) => f.endsWith('.js'));
+  let totalMatches = 0;
+  for (const f of files) {
+    const content = fs.readFileSync(path.join(libDir, f), 'utf8');
+    const matches = content.match(/https:\/\/claude\.ai/g) || [];
+    totalMatches += matches.length;
+    if (f === 'source.js') {
+      assert.strictEqual(matches.length, 1, 'lib/source.js must contain https://claude.ai');
+    } else {
+      assert.strictEqual(matches.length, 0, `lib/${f} must not contain https://claude.ai`);
+    }
+  }
+  assert.strictEqual(totalMatches, 1, 'https://claude.ai must appear exactly once across lib/');
+});
+
 test('lib/scrape.js does not require puppeteer at the top level (lazy load)', () => {
   assert.ok(
     !/^const\s+puppeteer\s*=\s*require/m.test(SCRAPE_SRC),

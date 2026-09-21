@@ -778,3 +778,67 @@ curl http://127.0.0.1:3210/api/health   # contracts["supervised-v1"] === "1.3.0"
 NNN: 013-status-declares-engine-scope
 Started: 2026-09-21T01:30:41Z
 ===========================================
+
+# TEST_RESULT — Phase 1: `lib/source.js` 신설 + `scrape.js` 가 require + `scrape-classify` 단언 이관
+
+## 1. 대상 기능 및 Phase
+- **작업**: 013-status-declares-engine-scope.md
+- **Phase**: Phase 1 — `lib/source.js` 신설 + `scrape.js` 가 require + `scrape-classify` 단언 이관
+- **대상 모듈**:
+  - `p-quaestor/lib/source.js` (신설)
+  - `p-quaestor/lib/scrape.js` (수정)
+  - `p-quaestor/test/scrape-classify.test.js` (수정)
+
+## 2. 수용 기준 검증 결과 (output/ACCEPTANCE.md Phase 1)
+
+| 구분 | 수용 기준 | 결과 | 검증 근거 |
+|---|---|---|---|
+| [SPEC] | `lib/source.js` 모듈이 `ORIGIN`('https://claude.ai')과 `ENGINE`('claude') 값을 함께 export 해야 한다. | **PASS** | `test/scrape-classify.test.js`: `assert.strictEqual(ORIGIN, 'https://claude.ai')`, `assert.strictEqual(ENGINE, 'claude')` 통과 |
+| [SPEC] | `lib/scrape.js` 소스 코드 내에 정규식 `/claude/g` 매치 횟수가 정확히 0회여야 한다. | **PASS** | `test/scrape-classify.test.js`: `lib/scrape.js references "claude" 0 times` 통과 |
+| [SPEC] | 문자열 `https://claude.ai`는 `lib/` 폴더 내 모든 파일 중에서 정확히 1회(`lib/source.js`)만 등장해야 한다. | **PASS** | `test/scrape-classify.test.js`: `https://claude.ai appears exactly once across all files in lib/ (lib/source.js)` 통과 |
+| [SPEC] | `test/scrape-classify.test.js:353`의 `/claude/g` 매치 단언이 `lib/source.js`를 대상으로 이관되어 강도 저하 없이 통과해야 하며, `lib/scrape.js`에 대한 매치 단언은 0회로 고정되어야 한다. | **PASS** | `SOURCE_SRC.match(/claude/g).length === 2` 및 `SCRAPE_SRC.match(/claude/g).length === 0` 단언 통과 |
+| [DERIVED] | `lib/source.js`는 `fs` 등의 다른 I/O 모듈을 일절 `require`하지 않는 순수한 상태를 유지해야 한다. | **PASS** | `test/scrape-classify.test.js`: `assert.ok(!/require\s*\(/.test(SOURCE_SRC))` 통과 |
+
+## 3. 전체 테스트 목록 및 실행 결과
+
+### 3.1 scrape-classify 단위 테스트
+실행 명령: `node p-quaestor/test/scrape-classify.test.js`
+결과: **25 tests / 25 pass / 0 fail / 0 error** (duration: ~16ms)
+
+- ✔ hintFrom: login path -> login-expired
+- ✔ hintFrom: target origin + non-empty body, no login -> anchor-missing
+- ✔ hintFrom: unknown when evidence is missing or inconclusive
+- ✔ hintFrom: malformed url strings do not throw and fall back to unknown
+- ✔ hintFrom: pure -- does not mutate its input, same input gives same output
+- ✔ HINTS enumerates exactly the three known hint values
+- ✔ collectDiagnostics reproduces all three hints via an injected fake page
+- ✔ collectDiagnostics never throws, even when url()/evaluate() throw or page is null
+- ✔ collectDiagnostics caps textHead at 200 chars
+- ✔ connect() failure classified as chrome-unreachable, existing message preserved
+- ✔ browser.newPage() failure classified as chrome-unreachable, message/stack preserved
+- ✔ page.goto() failure classified as nav-failed
+- ✔ waitForFunction() failure classified as anchor-timeout, with diagnostics collected before close()
+- ✔ waitForFunction() failure with unrecognizable page yields hint unknown, never login-expired by default
+- ✔ page.evaluate() extraction failure classified as invalid-extraction
+- ✔ success path returns usage and only disconnects (never closes) the browser
+- ✔ FAILURE_KINDS has exactly the 5 expected values
+- ✔ HINTS matches the hint vocabulary observation.js recognizes (whitelist round-trip)
+- ✔ err.detail carries url/textHead for diagnosis, but only hint is meant to reach deriveState fields
+- ✔ scrapeUsage keeps its existing signature and is still exported
+- ✔ lib/scrape.js references "claude" 0 times
+- ✔ lib/source.js references the claude.ai domain and engine label
+- ✔ https://claude.ai appears exactly once across all files in lib/ (lib/source.js)
+- ✔ lib/scrape.js does not require puppeteer at the top level (lazy load)
+- ✔ requiring lib/scrape.js does not eagerly load the puppeteer module
+
+### 3.2 전체 테스트 스위트 (Work Verify)
+실행 명령: `node p-quaestor/test/run-all.js`
+결과: **359 tests / 359 pass / 0 fail / 0 error** (duration: ~3085ms)
+
+## 4. 구현 버그 및 수정 사항
+- **구현 버그**: 없음. `lib/source.js`는 I/O 없이 `ORIGIN`과 `ENGINE`을 정확히 export하며, `lib/scrape.js`는 이를 올바르게 require하여 `/claude/g` 매치 0회를 달성함.
+- **테스트 보강**: `output/ACCEPTANCE.md`의 `문자열 https://claude.ai는 lib/ 폴더 내 모든 파일 중에서 정확히 1회(lib/source.js)만 등장해야 한다` 기준을 전용으로 엄격하게 검증하는 테스트(`https://claude.ai appears exactly once across all files in lib/ (lib/source.js)`)를 `test/scrape-classify.test.js`에 추가함.
+
+## 5. 이전 Phase 및 이전 라운드 통합 검증 결과
+- 이전 라운드(001~012)에서 구축된 전체 테스트 스위트(`control-server`, `env`, `launcher-rename`, `logparse`, `observation`, `scrape-classify`, `status-page`, `thresholds`, `thresholds-integration`, `watch-loop`)를 `run-all.js`로 일괄 검증함.
+- 총 359개 테스트 전체가 무회귀(0 regression)로 PASS 함.
