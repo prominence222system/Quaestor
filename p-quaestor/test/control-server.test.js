@@ -166,14 +166,14 @@ test('GET /api/health startedAt is constant across two requests', async () => {
 
 // ---- 011: /api/health contracts field -------------------------------------
 
-test('[SPEC] GET /api/health over real port returns top-level contracts object with contracts["supervised-v1"] === "1.3.0"', async () => {
+test('[SPEC] GET /api/health over real port returns top-level contracts object with contracts["supervised-v1"] === "1.4.0"', async () => {
   const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });
   try {
     const res = await fetch('http://127.0.0.1:' + r.port + '/api/health');
     assert.strictEqual(res.status, 200);
     const body = await res.json();
     assert.ok(body.contracts && typeof body.contracts === 'object');
-    assert.strictEqual(body.contracts['supervised-v1'], '1.3.0');
+    assert.strictEqual(body.contracts['supervised-v1'], '1.4.0');
     assert.strictEqual(typeof body.contracts['supervised-v1'], 'string');
   } finally {
     await r.close();
@@ -207,14 +207,14 @@ test('[SPEC] existing GET /api/health fields (ok, id, version, startedAt) remain
   }
 });
 
-test('[SPEC] software version (0.1.0) and contract version (1.3.0) are distinct axes and have different values', async () => {
+test('[SPEC] software version (0.1.0) and contract version (1.4.0) are distinct axes and have different values', async () => {
   const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });
   try {
     const res = await fetch('http://127.0.0.1:' + r.port + '/api/health');
     const body = await res.json();
     assert.notStrictEqual(body.version, body.contracts['supervised-v1']);
     assert.strictEqual(body.version, '0.1.0');
-    assert.strictEqual(body.contracts['supervised-v1'], '1.3.0');
+    assert.strictEqual(body.contracts['supervised-v1'], '1.4.0');
   } finally {
     await r.close();
   }
@@ -359,6 +359,42 @@ test('Phase 2 [SPEC]: long-term measurement failure (26-day silence / no history
   }
 });
 
+// ---- 013: status declares engine scope (covers: ["claude"]) ---------------
+
+test('013 Phase 2 [SPEC]: GET /api/status over real port returns usage.covers === ["claude"] and allowance.covers deepStrictEqual', async () => {
+  const snap = okSnapshot();
+  const r = await startControlServer({ port: 0, getSnapshot: () => snap });
+  try {
+    const res = await getJson(r.port, '/api/status');
+    assert.strictEqual(res.status, 200);
+    assert.deepStrictEqual(res.body.usage.covers, ['claude']);
+    assert.deepStrictEqual(res.body.allowance.covers, ['claude']);
+    assert.deepStrictEqual(res.body.allowance.covers, res.body.usage.covers);
+    assert.ok(!res.body.usage.covers.includes('agy'));
+    assert.ok(!res.body.allowance.covers.includes('agy'));
+  } finally {
+    await r.close();
+  }
+});
+
+test('013 Phase 2 [SPEC]: GET /api/status without observation history still returns covers: ["claude"] (never null)', async () => {
+  const obs = createObservation();
+  const snap = { observation: obs, ctx: { enabled: true } };
+  const r = await startControlServer({ port: 0, getSnapshot: () => snap });
+  try {
+    const res = await getJson(r.port, '/api/status');
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.usage.session_pct, null);
+    assert.strictEqual(res.body.allowance.allowed, null);
+    assert.deepStrictEqual(res.body.usage.covers, ['claude']);
+    assert.deepStrictEqual(res.body.allowance.covers, ['claude']);
+    assert.ok(!res.body.usage.covers.includes('agy'));
+    assert.ok(!res.body.allowance.covers.includes('agy'));
+  } finally {
+    await r.close();
+  }
+});
+
 // ---- 008: allowance respects measured usage (real port, serialized) ------
 
 test('[008 red-first] real port -- session 97 / weekly 99 over stop 90/85, no STOP, fresh -> allowed:false, reason:over-threshold (JSON round-trip)', async () => {
@@ -439,12 +475,12 @@ test('[008] real port -- STOP active outranks threshold breach (manual-stop, the
   }
 });
 
-test('[008] real port -- allowance key set stays exactly {allowed, confidence, reason} and top-level /api/status keys are unchanged from 007', async () => {
+test('[008] real port -- allowance key set stays exactly {allowed, confidence, covers, reason} and top-level /api/status keys are unchanged from 007', async () => {
   const snap = okSnapshot();
   const r = await startControlServer({ port: 0, getSnapshot: () => snap });
   try {
     const res = await getJson(r.port, '/api/status');
-    assert.deepStrictEqual(Object.keys(res.body.allowance).sort(), ['allowed', 'confidence', 'reason']);
+    assert.deepStrictEqual(Object.keys(res.body.allowance).sort(), ['allowed', 'confidence', 'covers', 'reason']);
     assert.deepStrictEqual(Object.keys(res.body).sort(), ['allowance', 'fields', 'ok', 'state', 'summary', 'updatedAt', 'usage']);
   } finally {
     await r.close();

@@ -40,8 +40,9 @@ const MAX_BODY_BYTES = 65536;   // 64 KiB cap on PUT /api/thresholds request bod
 // 소프트웨어 버전(package.json의 version: "0.1.0")과 계약(인터페이스) 버전("1.3.0")은 서로 다른 축이다.
 // 두 축을 함께 내되 섞지 않는다 (Agora 022 §2/§3 규율).
 // 1.2.0 -> 1.3.0: PUT /api/thresholds 추가 (하위호환 확장).
+// 1.3.0 -> 1.4.0: usage·allowance 에 covers 추가 (하위호환).
 const CONTRACTS = Object.freeze({
-  'supervised-v1': '1.3.0'
+  'supervised-v1': '1.4.0'
 });
 
 let cachedVersion = null;

@@ -3,6 +3,8 @@
 // Pure observation-state module. No I/O, no side effects, no wall-clock reads.
 // Every timestamp is passed in as `now` (epoch ms) by the caller.
 
+const { ENGINE } = require('./source');
+
 const DEFAULT_THRESHOLDS = {
   weekly_stop:     85,
   weekly_release:  70,
@@ -278,7 +280,8 @@ function deriveUsage(obs, thresholds, nowMs) {
     measured_at: measuredAt,
     age_sec: ageSec,
     stale: stale,
-    thresholds: t
+    thresholds: t,
+    covers: [ENGINE]
   };
 }
 
@@ -286,6 +289,7 @@ function deriveAllowance(stopInfo, usage, hasObservation) {
   const u = usage || {};
   const sh = u.session_headroom;
   const wh = u.weekly_headroom;
+  const covers = (u && Array.isArray(u.covers)) ? u.covers.slice() : [ENGINE];
   const measurable =
     Boolean(hasObservation) && typeof sh === 'number' && typeof wh === 'number';
 
@@ -294,7 +298,8 @@ function deriveAllowance(stopInfo, usage, hasObservation) {
     return {
       allowed: null,
       reason: 'unmeasurable',
-      confidence: 'unknown'
+      confidence: 'unknown',
+      covers: covers
     };
   }
 
@@ -304,7 +309,8 @@ function deriveAllowance(stopInfo, usage, hasObservation) {
     return {
       allowed: false,
       reason: isManual ? 'manual-stop' : (stopInfo.reason || 'stop-active'),
-      confidence: 'measured'
+      confidence: 'measured',
+      covers: covers
     };
   }
 
@@ -313,7 +319,8 @@ function deriveAllowance(stopInfo, usage, hasObservation) {
     return {
       allowed: false,
       reason: 'over-threshold',
-      confidence: 'measured'
+      confidence: 'measured',
+      covers: covers
     };
   }
 
@@ -321,7 +328,8 @@ function deriveAllowance(stopInfo, usage, hasObservation) {
   return {
     allowed: true,
     reason: 'under-threshold',
-    confidence: u.stale ? 'stale' : 'measured'
+    confidence: u.stale ? 'stale' : 'measured',
+    covers: covers
   };
 }
 
