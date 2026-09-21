@@ -395,6 +395,23 @@ test('013 Phase 2 [SPEC]: GET /api/status without observation history still retu
   }
 });
 
+test('013 Phase 2 [DERIVED]: GET /api/status retains all existing usage and allowance fields alongside covers', async () => {
+  const snap = okSnapshot();
+  const r = await startControlServer({ port: 0, getSnapshot: () => snap });
+  try {
+    const res = await getJson(r.port, '/api/status');
+    assert.strictEqual(res.status, 200);
+    const expectedUsageKeys = [
+      'age_sec', 'covers', 'measured_at', 'session_headroom', 'session_pct',
+      'session_reset', 'stale', 'thresholds', 'weekly_headroom', 'weekly_pct', 'weekly_reset'
+    ];
+    assert.deepStrictEqual(Object.keys(res.body.usage).sort(), expectedUsageKeys.sort());
+    assert.deepStrictEqual(Object.keys(res.body.allowance).sort(), ['allowed', 'confidence', 'covers', 'reason']);
+  } finally {
+    await r.close();
+  }
+});
+
 // ---- 008: allowance respects measured usage (real port, serialized) ------
 
 test('[008 red-first] real port -- session 97 / weekly 99 over stop 90/85, no STOP, fresh -> allowed:false, reason:over-threshold (JSON round-trip)', async () => {

@@ -842,3 +842,64 @@ Started: 2026-09-21T01:30:41Z
 ## 5. 이전 Phase 및 이전 라운드 통합 검증 결과
 - 이전 라운드(001~012)에서 구축된 전체 테스트 스위트(`control-server`, `env`, `launcher-rename`, `logparse`, `observation`, `scrape-classify`, `status-page`, `thresholds`, `thresholds-integration`, `watch-loop`)를 `run-all.js`로 일괄 검증함.
 - 총 359개 테스트 전체가 무회귀(0 regression)로 PASS 함.
+
+# TEST_RESULT — Phase 2: `deriveUsage`·`deriveAllowance` 에 `covers` + `CONTRACTS` 1.4.0 + 버전 핀 갱신 + 실서버 HTTP 검증
+
+## 1. 대상 기능 및 Phase
+- **작업**: 013-status-declares-engine-scope.md
+- **Phase**: Phase 2 — `deriveUsage`·`deriveAllowance` 에 `covers` + `CONTRACTS` 1.4.0 + 버전 핀 갱신 + 실서버 HTTP 검증
+- **대상 모듈**:
+  - `p-quaestor/lib/observation.js` (수정: deriveUsage 및 deriveAllowance에 covers: [ENGINE] 추가)
+  - `p-quaestor/lib/control-server.js` (수정: CONTRACTS['supervised-v1'] = '1.4.0' 승격 및 주석 추가)
+  - `p-quaestor/test/control-server.test.js` (수정: 1.4.0 버전 핀 갱신, covers 검증, DERIVED 기존 필드 보존 검증)
+
+## 2. 수용 기준 검증 결과 (output/ACCEPTANCE.md Phase 2)
+
+| 구분 | 수용 기준 | 결과 | 검증 근거 |
+|---|---|---|---|
+| [SPEC] | `GET /api/status` 응답에서 `usage.covers` 값이 정확히 `["claude"]` 여야 한다 (`deepStrictEqual`). | **PASS** | `test/control-server.test.js`: `013 Phase 2 [SPEC]: GET /api/status over real port returns usage.covers === ["claude"] and allowance.covers deepStrictEqual` 통과 (`assert.deepStrictEqual(res.body.usage.covers, ['claude'])`) |
+| [SPEC] | 동일한 응답 내에서 `allowance.covers` 값이 `usage.covers` 와 `deepStrictEqual` 로 동일해야 한다. | **PASS** | `test/control-server.test.js`: `assert.deepStrictEqual(res.body.allowance.covers, res.body.usage.covers)` 실서버 HTTP 통신 검증 통과 |
+| [SPEC] | `GET /api/health` 응답의 `contracts['supervised-v1']` 값이 `1.4.0` 이어야 한다. | **PASS** | `test/control-server.test.js`: `[SPEC] GET /api/health over real port returns top-level contracts object with contracts["supervised-v1"] === "1.4.0"` 통과 (`assert.strictEqual(body.contracts['supervised-v1'], '1.4.0')`) |
+| [SPEC] | `GET /api/status` 응답 내 `covers` 배열에 `agy` 문자열이 포함되어서는 안 된다. | **PASS** | `test/control-server.test.js`: `assert.ok(!res.body.usage.covers.includes('agy'))` 및 `assert.ok(!res.body.allowance.covers.includes('agy'))` 통과 |
+| [SPEC] | 관측 이력이 없어서 `session_pct` 등이 `null` 인 경우에도 `usage` 및 `allowance` 의 `covers` 필드는 `null` 이 되지 않고 출력되어야 한다. | **PASS** | `test/control-server.test.js`: `013 Phase 2 [SPEC]: GET /api/status without observation history still returns covers: ["claude"] (never null)` 통과 (`session_pct === null`, `allowed === null` 상태에서도 `covers === ['claude']`) |
+| [SPEC] | `test/control-server.test.js` 의 176, 217행 단언값 및 169, 210행 제목이 `1.4.0` 으로 갱신되어 통과해야 한다. | **PASS** | 169행/210행 제목 및 176행/217행 단언이 `1.4.0`으로 갱신되어 전건 통과 |
+| [SPEC] | 수용기준의 검증은 순수 렌더러가 아닌 127.0.0.1 에 바인딩된 실제 서버에 HTTP 요청을 보내는 기존 테스트 경로 위에서 수행되어야 한다. | **PASS** | `startControlServer({ port: 0, ... })` 로 127.0.0.1 실제 포트에 바인딩 후 실 HTTP 요청(`getJson`/`fetch`)으로 직렬화/역직렬화 검증 완료 |
+| [DERIVED] | 기존 `deriveUsage` 및 `deriveAllowance` 가 반환하던 필드들은 단 하나도 누락되거나 변경되지 않고 모두 유지되어야 한다. | **PASS** | `test/control-server.test.js`: `013 Phase 2 [DERIVED]: GET /api/status retains all existing usage and allowance fields alongside covers` 통과 (usage 11개 키 및 allowance 4개 키 검증) |
+
+## 3. 전체 테스트 목록 및 실행 결과
+
+### 3.1 control-server 단위/통합 테스트
+실행 명령: `node p-quaestor/test/control-server.test.js`
+결과: **144 tests / 144 pass / 0 fail / 0 error** (duration: ~887ms)
+
+주요 Phase 2 통과 테스트:
+- ✔ [SPEC] GET /api/health over real port returns top-level contracts object with contracts["supervised-v1"] === "1.4.0"
+- ✔ [SPEC] software version (0.1.0) and contract version (1.4.0) are distinct axes and have different values
+- ✔ 013 Phase 2 [SPEC]: GET /api/status over real port returns usage.covers === ["claude"] and allowance.covers deepStrictEqual
+- ✔ 013 Phase 2 [SPEC]: GET /api/status without observation history still returns covers: ["claude"] (never null)
+- ✔ 013 Phase 2 [DERIVED]: GET /api/status retains all existing usage and allowance fields alongside covers
+- ✔ [008] real port -- allowance key set stays exactly {allowed, confidence, covers, reason} and top-level /api/status keys are unchanged from 007
+
+### 3.2 전체 테스트 스위트 (Work Verify)
+실행 명령: `node p-quaestor/test/run-all.js`
+결과: **362 tests / 362 pass / 0 fail / 0 error** (duration: ~2812ms)
+
+- `control-server.test.js`: 144 tests pass
+- `env.test.js`: 15 tests pass
+- `launcher-rename.test.js`: 7 tests pass
+- `logparse.test.js`: 41 tests pass
+- `observation.test.js`: 47 tests pass
+- `scrape-classify.test.js`: 25 tests pass
+- `status-page.test.js`: 19 tests pass
+- `thresholds-integration.test.js`: 8 tests pass
+- `thresholds.test.js`: 34 tests pass
+- `watch-loop.test.js`: 22 tests pass
+
+## 4. 구현 버그 및 수정 사항
+- **구현 버그**: 없음. `deriveUsage` 및 `deriveAllowance`에 추가된 `covers`는 `lib/source.js`의 `ENGINE` 상수를 활용하여 순수성을 깨뜨리지 않고(I/O 0건) 안전하게 결합됨.
+- **테스트 보강**: `[DERIVED] 기존 deriveUsage 및 deriveAllowance 가 반환하던 필드들은 단 하나도 누락되거나 변경되지 않고 모두 유지되어야 한다` 기준을 전용으로 엄격하게 검증하는 테스트(`013 Phase 2 [DERIVED]: GET /api/status retains all existing usage and allowance fields alongside covers`)를 `test/control-server.test.js`에 추가하여 `usage` 11개 필드 및 `allowance` 4개 필드의 키 보존을 실포트 HTTP 직렬화 환경에서 검증함.
+
+## 5. 이전 Phase 및 이전 라운드 통합 검증 결과
+- Phase 1에서 신설된 `lib/source.js` 및 `scrape-classify.test.js`의 `/claude/g` 0회 단언, 그리고 이전 라운드(001~012)의 359개 전 테스트가 Phase 2 변경사항과 완벽히 공존함을 확인.
+- 총 362개 테스트 전체가 무회귀(0 regression)로 PASS 함.
+
