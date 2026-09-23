@@ -78,7 +78,8 @@ function normalizeCtx(ctx) {
     enabled:      typeof c.enabled === 'boolean' ? c.enabled : true,
     thresholds:   normalizeThresholds(c.thresholds),
     stop:         c.stop || null,
-    configSource: c.configSource === 'file' ? 'file' : 'default'
+    configSource: c.configSource === 'file' ? 'file' : 'default',
+    agy:          c.agy || null
   };
 }
 
@@ -244,6 +245,24 @@ function deriveState(obs, ctx, now) {
   // 8. config source
   fields.push({ label: '설정 출처', value: c.configSource === 'file' ? '파일' : '기본값' });
 
+  // 9. Gemini weekly remaining
+  // 10. Gemini 5-hour remaining
+  const agy = deriveAgy(c.agy, now);
+  {
+    let val = '모름';
+    if (agy.measured_at !== null && typeof agy.weekly_remaining_pct === 'number') {
+      val = agy.stale ? (agy.weekly_remaining_pct + '% (낡음)') : (agy.weekly_remaining_pct + '%');
+    }
+    fields.push({ label: 'Gemini 주간 잔량', value: val });
+  }
+  {
+    let val = '모름';
+    if (agy.measured_at !== null && typeof agy.five_hour_remaining_pct === 'number') {
+      val = agy.stale ? (agy.five_hour_remaining_pct + '% (낡음)') : (agy.five_hour_remaining_pct + '%');
+    }
+    fields.push({ label: 'Gemini 5시간 잔량', value: val });
+  }
+
   return { state: state, summary: summary, fields: fields };
 }
 
@@ -333,6 +352,79 @@ function deriveAllowance(stopInfo, usage, hasObservation) {
   };
 }
 
+function deriveAgy(snapshot, nowMs) {
+  const snap = snapshot;
+  const now = typeof nowMs === 'number' ? nowMs : null;
+
+  const hasAttempt = Boolean(snap && snap.lastAttempt && typeof snap.lastAttempt === 'object');
+  const lastAttempt = hasAttempt ? snap.lastAttempt : null;
+  const attemptOk = Boolean(lastAttempt && lastAttempt.ok);
+
+  const lastSuccess = (snap && snap.lastSuccess && typeof snap.lastSuccess === 'object')
+    ? snap.lastSuccess
+    : null;
+  const hasSuccess = Boolean(lastSuccess);
+
+  let lastError;
+  let hasValues = false;
+
+  if (!hasAttempt) {
+    lastError = 'not-yet-measured';
+    hasValues = false;
+  } else if (attemptOk) {
+    lastError = null;
+    hasValues = hasSuccess;
+  } else {
+    lastError = (lastAttempt && typeof lastAttempt.kind === 'string' && lastAttempt.kind)
+      ? lastAttempt.kind
+      : 'unknown';
+    hasValues = hasSuccess;
+  }
+
+  let weeklyPct = null;
+  let fiveHourPct = null;
+  let weeklyReset = null;
+  let fiveHourReset = null;
+  let measuredAt = null;
+  let ageSec = null;
+  let stale = true;
+
+  if (hasValues && lastSuccess) {
+    weeklyPct = typeof lastSuccess.weekly_remaining_pct === 'number' ? lastSuccess.weekly_remaining_pct : null;
+    fiveHourPct = typeof lastSuccess.five_hour_remaining_pct === 'number' ? lastSuccess.five_hour_remaining_pct : null;
+
+    if (weeklyPct !== 100 && typeof lastSuccess.weekly_reset_raw === 'string') {
+      weeklyReset = lastSuccess.weekly_reset_raw;
+    }
+    if (fiveHourPct !== 100 && typeof lastSuccess.five_hour_reset_raw === 'string') {
+      fiveHourReset = lastSuccess.five_hour_reset_raw;
+    }
+
+    if (typeof lastSuccess.at === 'string') {
+      measuredAt = lastSuccess.at;
+      const successMs = Date.parse(measuredAt);
+      if (now !== null && !isNaN(successMs)) {
+        const diffMs = now - successMs;
+        ageSec = Math.max(0, Math.floor(diffMs / 1000));
+        stale = diffMs > STALE_WARN_MS;
+      }
+    }
+  }
+
+  return {
+    covers: ['agy'],
+    bucket: 'Gemini Models',
+    weekly_remaining_pct: weeklyPct,
+    five_hour_remaining_pct: fiveHourPct,
+    weekly_reset: weeklyReset,
+    five_hour_reset: fiveHourReset,
+    measured_at: measuredAt,
+    age_sec: ageSec,
+    stale: stale,
+    last_error: lastError
+  };
+}
+
 module.exports = {
   createObservation,
   recordSuccess,
@@ -340,6 +432,7 @@ module.exports = {
   deriveState,
   deriveUsage,
   deriveAllowance,
+  deriveAgy,
   DEFAULT_THRESHOLDS
 };
 

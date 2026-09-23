@@ -10,7 +10,8 @@ const {
   recordFailure,
   deriveState,
   deriveUsage,
-  deriveAllowance
+  deriveAllowance,
+  deriveAgy
 } = require('../lib/observation');
 
 const SRC_PATH = path.join(__dirname, '..', 'lib', 'observation.js');
@@ -239,7 +240,8 @@ test('fields include all required items', () => {
   const labels = r.fields.map((f) => f.label);
   assert.deepStrictEqual(labels, [
     '마지막 성공 측정', '세션 사용량', '주간 사용량', '연속 실패',
-    '마지막 실패', 'STOP', '임계값', '설정 출처'
+    '마지막 실패', 'STOP', '임계값', '설정 출처',
+    'Gemini 주간 잔량', 'Gemini 5시간 잔량'
   ]);
 });
 
@@ -484,6 +486,252 @@ test('stale in deriveUsage is consistent with deriveState criteria', () => {
   const stStaleCrit = deriveState(obsStaleCrit, {}, NOW + 3 * HOUR);
   assert.strictEqual(uStaleCrit.stale, true);
   assert.strictEqual(stStaleCrit.state, 'crit');
+});
+
+// Phase 1 tests for 015: deriveAgy & deriveState Gemini fields
+
+test('[015 Phase 1 SPEC] deriveAgy truth table case 1: no snapshot or no attempt finished', () => {
+  const cases = [undefined, null, {}, { lastAttempt: null, lastSuccess: null }];
+  const expectedKeys = [
+    'covers', 'bucket', 'weekly_remaining_pct', 'five_hour_remaining_pct',
+    'weekly_reset', 'five_hour_reset', 'measured_at', 'age_sec', 'stale', 'last_error'
+  ];
+
+  for (const snap of cases) {
+    const r = deriveAgy(snap, NOW);
+    assert.deepStrictEqual(Object.keys(r), expectedKeys);
+    assert.deepStrictEqual(r.covers, ['agy']);
+    assert.strictEqual(r.bucket, 'Gemini Models');
+    assert.strictEqual(r.weekly_remaining_pct, null);
+    assert.strictEqual(r.five_hour_remaining_pct, null);
+    assert.strictEqual(r.weekly_reset, null);
+    assert.strictEqual(r.five_hour_reset, null);
+    assert.strictEqual(r.measured_at, null);
+    assert.strictEqual(r.age_sec, null);
+    assert.strictEqual(r.stale, true);
+    assert.strictEqual(r.last_error, 'not-yet-measured');
+  }
+});
+
+test('[015 Phase 1 SPEC] deriveAgy truth table case 2: last attempt success', () => {
+  const snap = {
+    lastAttempt: { at: '2026-09-23T06:10:02Z', ok: true, kind: null },
+    lastSuccess: {
+      weekly_remaining_pct: 45,
+      five_hour_remaining_pct: 80,
+      weekly_reset_raw: '2026-09-23T06:57:36Z',
+      five_hour_reset_raw: '2026-09-23T11:10:02Z',
+      at: '2026-09-23T06:10:02Z'
+    },
+    inFlight: false
+  };
+
+  // Fresh: 12 seconds after measurement
+  const freshNow = Date.parse('2026-09-23T06:10:14Z');
+  const fresh = deriveAgy(snap, freshNow);
+  assert.strictEqual(fresh.weekly_remaining_pct, 45);
+  assert.strictEqual(fresh.five_hour_remaining_pct, 80);
+  assert.strictEqual(fresh.weekly_reset, '2026-09-23T06:57:36Z');
+  assert.strictEqual(fresh.five_hour_reset, '2026-09-23T11:10:02Z');
+  assert.strictEqual(fresh.measured_at, '2026-09-23T06:10:02Z');
+  assert.strictEqual(fresh.age_sec, 12);
+  assert.strictEqual(fresh.stale, false);
+  assert.strictEqual(fresh.last_error, null);
+
+  // Stale: 50 minutes after measurement (> 45 min STALE_WARN_MS)
+  const staleNow = Date.parse('2026-09-23T07:00:02Z');
+  const stale = deriveAgy(snap, staleNow);
+  assert.strictEqual(stale.weekly_remaining_pct, 45);
+  assert.strictEqual(stale.age_sec, 50 * 60);
+  assert.strictEqual(stale.stale, true);
+  assert.strictEqual(stale.last_error, null);
+});
+
+test('[015 Phase 1 SPEC] deriveAgy truth table case 3: last attempt failure, previous success exists (preserves success values)', () => {
+  const snap = {
+    lastAttempt: { at: '2026-09-23T06:25:00Z', ok: false, kind: 'timeout' },
+    lastSuccess: {
+      weekly_remaining_pct: 45,
+      five_hour_remaining_pct: 80,
+      weekly_reset_raw: '2026-09-23T06:57:36Z',
+      five_hour_reset_raw: '2026-09-23T11:10:02Z',
+      at: '2026-09-23T06:10:02Z'
+    },
+    inFlight: false
+  };
+
+  // Measured at 06:10:02, attempt failed at 06:25:00, now is 06:25:02 (15 min after success: fresh)
+  const nowMs = Date.parse('2026-09-23T06:25:02Z');
+  const r = deriveAgy(snap, nowMs);
+  assert.strictEqual(r.weekly_remaining_pct, 45);
+  assert.strictEqual(r.five_hour_remaining_pct, 80);
+  assert.strictEqual(r.weekly_reset, '2026-09-23T06:57:36Z');
+  assert.strictEqual(r.five_hour_reset, '2026-09-23T11:10:02Z');
+  assert.strictEqual(r.measured_at, '2026-09-23T06:10:02Z');
+  assert.strictEqual(r.age_sec, 15 * 60);
+  assert.strictEqual(r.stale, false);
+  assert.strictEqual(r.last_error, 'timeout');
+});
+
+test('[015 Phase 1 SPEC] deriveAgy truth table case 4: last attempt failure, no previous success', () => {
+  const snap = {
+    lastAttempt: { at: '2026-09-23T06:25:00Z', ok: false, kind: 'spawn-failed' },
+    lastSuccess: null,
+    inFlight: false
+  };
+
+  const nowMs = Date.parse('2026-09-23T06:25:02Z');
+  const r = deriveAgy(snap, nowMs);
+  assert.strictEqual(r.weekly_remaining_pct, null);
+  assert.strictEqual(r.five_hour_remaining_pct, null);
+  assert.strictEqual(r.weekly_reset, null);
+  assert.strictEqual(r.five_hour_reset, null);
+  assert.strictEqual(r.measured_at, null);
+  assert.strictEqual(r.age_sec, null);
+  assert.strictEqual(r.stale, true);
+  assert.strictEqual(r.last_error, 'spawn-failed');
+});
+
+test('[015 Phase 1 SPEC] deriveAgy 100% reset sentinel rule: 100% bucket reset is null', () => {
+  const snap = {
+    lastAttempt: { at: '2026-09-23T06:10:02Z', ok: true, kind: null },
+    lastSuccess: {
+      weekly_remaining_pct: 45,
+      five_hour_remaining_pct: 100,
+      weekly_reset_raw: '2026-09-23T06:57:36Z',
+      five_hour_reset_raw: '2030-05-05T05:05:05Z',
+      at: '2026-09-23T06:10:02Z'
+    }
+  };
+
+  const r = deriveAgy(snap, Date.parse('2026-09-23T06:10:14Z'));
+  assert.strictEqual(r.five_hour_remaining_pct, 100);
+  assert.strictEqual(r.five_hour_reset, null, '100% five hour reset must be null');
+  assert.strictEqual(r.weekly_reset, '2026-09-23T06:57:36Z', 'non-100% weekly reset must be present');
+
+  // Reverse case: weekly is 100%, five_hour is not
+  const snap2 = {
+    lastAttempt: { at: '2026-09-23T06:10:02Z', ok: true, kind: null },
+    lastSuccess: {
+      weekly_remaining_pct: 100,
+      five_hour_remaining_pct: 50,
+      weekly_reset_raw: '2030-01-01T00:00:00Z',
+      five_hour_reset_raw: '2026-09-23T11:10:02Z',
+      at: '2026-09-23T06:10:02Z'
+    }
+  };
+  const r2 = deriveAgy(snap2, Date.parse('2026-09-23T06:10:14Z'));
+  assert.strictEqual(r2.weekly_remaining_pct, 100);
+  assert.strictEqual(r2.weekly_reset, null, '100% weekly reset must be null');
+  assert.strictEqual(r2.five_hour_reset, '2026-09-23T11:10:02Z');
+});
+
+test('[015 Phase 1 SPEC] deriveAgy unmeasured bucket yields null pct (never 0 or 100)', () => {
+  const rNoSnap = deriveAgy(null, NOW);
+  assert.strictEqual(rNoSnap.weekly_remaining_pct, null);
+  assert.strictEqual(rNoSnap.five_hour_remaining_pct, null);
+
+  const rFailed = deriveAgy({ lastAttempt: { ok: false, kind: 'timeout' }, lastSuccess: null }, NOW);
+  assert.strictEqual(rFailed.weekly_remaining_pct, null);
+  assert.strictEqual(rFailed.five_hour_remaining_pct, null);
+});
+
+test('[015 Phase 1 SPEC] deriveState fields: Gemini rows formatting (모름, N%, N% (낡음))', () => {
+  const obs = recordSuccess(createObservation(), { session_pct: 10, weekly_pct: 20 }, NOW);
+
+  // 1. Without ctx.agy: both are '모름'
+  const rNone = deriveState(obs, {}, NOW);
+  const wNone = rNone.fields.find((f) => f.label === 'Gemini 주간 잔량');
+  const fNone = rNone.fields.find((f) => f.label === 'Gemini 5시간 잔량');
+  assert.ok(wNone && fNone);
+  assert.strictEqual(wNone.value, '모름');
+  assert.strictEqual(fNone.value, '모름');
+
+  // 2. Fresh agy: '45%' and '100%'
+  const freshAgy = {
+    lastAttempt: { at: new Date(NOW).toISOString(), ok: true },
+    lastSuccess: {
+      weekly_remaining_pct: 45,
+      five_hour_remaining_pct: 100,
+      weekly_reset_raw: '2026-09-23T06:57:36Z',
+      five_hour_reset_raw: '2030-05-05T05:05:05Z',
+      at: new Date(NOW).toISOString()
+    }
+  };
+  const rFresh = deriveState(obs, { agy: freshAgy }, NOW + 10 * 1000);
+  const wFresh = rFresh.fields.find((f) => f.label === 'Gemini 주간 잔량');
+  const fFresh = rFresh.fields.find((f) => f.label === 'Gemini 5시간 잔량');
+  assert.strictEqual(wFresh.value, '45%');
+  assert.strictEqual(fFresh.value, '100%');
+
+  // 3. Stale agy: '45% (낡음)' and '100% (낡음)'
+  const rStale = deriveState(obs, { agy: freshAgy }, NOW + 50 * MIN);
+  const wStale = rStale.fields.find((f) => f.label === 'Gemini 주간 잔량');
+  const fStale = rStale.fields.find((f) => f.label === 'Gemini 5시간 잔량');
+  assert.strictEqual(wStale.value, '45% (낡음)');
+  assert.strictEqual(fStale.value, '100% (낡음)');
+
+  // 4. 0% remaining: '0%' and '0% (낡음)'
+  const zeroAgy = {
+    lastAttempt: { at: new Date(NOW).toISOString(), ok: true },
+    lastSuccess: {
+      weekly_remaining_pct: 0,
+      five_hour_remaining_pct: 0,
+      weekly_reset_raw: '2026-09-23T06:57:36Z',
+      five_hour_reset_raw: '2026-09-23T11:10:02Z',
+      at: new Date(NOW).toISOString()
+    }
+  };
+  const rZeroFresh = deriveState(obs, { agy: zeroAgy }, NOW + 10 * 1000);
+  assert.strictEqual(rZeroFresh.fields.find((f) => f.label === 'Gemini 주간 잔량').value, '0%');
+  assert.strictEqual(rZeroFresh.fields.find((f) => f.label === 'Gemini 5시간 잔량').value, '0%');
+
+  const rZeroStale = deriveState(obs, { agy: zeroAgy }, NOW + 50 * MIN);
+  assert.strictEqual(rZeroStale.fields.find((f) => f.label === 'Gemini 주간 잔량').value, '0% (낡음)');
+  assert.strictEqual(rZeroStale.fields.find((f) => f.label === 'Gemini 5시간 잔량').value, '0% (낡음)');
+});
+
+test('[015 Phase 1 SPEC] deriveState independence: ctx.agy presence and failure does not affect state, summary, usage, allowance', () => {
+  const obs = recordSuccess(createObservation(), { session_pct: 10, weekly_pct: 20 }, NOW);
+  const ctxWithout = { enabled: true, thresholds: { weekly_stop: 85, session_stop: 90 }, stop: null };
+  const ctxWithFailedAgy = Object.assign({}, ctxWithout, {
+    agy: {
+      lastAttempt: { at: new Date(NOW).toISOString(), ok: false, kind: 'timeout' },
+      lastSuccess: null
+    }
+  });
+
+  const r1 = deriveState(obs, ctxWithout, NOW);
+  const r2 = deriveState(obs, ctxWithFailedAgy, NOW);
+
+  assert.strictEqual(r1.state, r2.state);
+  assert.strictEqual(r1.summary, r2.summary);
+
+  const u1 = deriveUsage(obs, ctxWithout.thresholds, NOW);
+  const u2 = deriveUsage(obs, ctxWithFailedAgy.thresholds, NOW);
+  assert.deepStrictEqual(u1, u2);
+
+  const a1 = deriveAllowance(ctxWithout.stop, u1, true);
+  const a2 = deriveAllowance(ctxWithFailedAgy.stop, u2, true);
+  assert.deepStrictEqual(a1, a2);
+});
+
+test('[015 Phase 1 SPEC] deriveAgy is pure and does not mutate input snapshot', () => {
+  const snap = {
+    lastAttempt: { at: '2026-09-23T06:10:02Z', ok: true },
+    lastSuccess: {
+      weekly_remaining_pct: 45,
+      five_hour_remaining_pct: 80,
+      weekly_reset_raw: '2026-09-23T06:57:36Z',
+      five_hour_reset_raw: '2026-09-23T11:10:02Z',
+      at: '2026-09-23T06:10:02Z'
+    }
+  };
+  const snapJson = JSON.stringify(snap);
+  const r1 = deriveAgy(snap, NOW);
+  const r2 = deriveAgy(snap, NOW);
+  assert.deepStrictEqual(r1, r2);
+  assert.strictEqual(JSON.stringify(snap), snapJson);
 });
 
 
