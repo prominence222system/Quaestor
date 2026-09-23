@@ -1,5 +1,6 @@
 ## Implementation Phases
 | Phase | Feature | Status |
 |-------|---------|--------|
-| 1 | `lib/agy-usage.js` 신설 — 인자 고정(`AGY_ARGS`) · 주입 가능 실행기 · 엄격한 `parseUsage` · `measureAgy`(실패 kind 5종 · 자체 마감 · never-reject) · `createAgyMonitor`(in-flight 가드 · 성공값 보존) + 가짜 agy 자식 프로세스 테스트 | DONE |
-| 2 | `watch-loop.js` 연결(`pollOnce()` 첫 동작 · `await` 없음 · `claude` 0회) + `[agy]` 로그 형식 확정 + `logparse` 비오염 테스트(`logparse.test.js` 추가만) | DONE |
+| 1 | `lib/observation.js` 에 `deriveAgy` 로직 추가 및 `deriveState` 의 Gemini 행 반환 처리 | CURRENT |
+| 2 | `watch-loop.js` 에 스냅샷 전달 구현 및 `lib/control-server.js` 최상위 `agy` 블록, 1.5.0 계약 갱신 | PENDING |
+| 3 | `lib/status-page.js` 에 문자열 `agy` 오염 없이 HTML 렌더링되도록 Gemini 구역 신설 | PENDING |
