@@ -1,38 +1,31 @@
 ## Verdict
 NEXT
 
-## Verdict Criteria (current work file only)
-- NEXT: a phase REMAINS WITHIN the current work file (not for other work files)
-- FIX: Current Phase has bugs or missing features
-- REDESIGN: Fundamental design issues require architecture change
-- INTEGRATE: ALL phases of the current work file are DONE, need an integration test
-- PASS: the current work file is complete (all its phases DONE, tests pass); forge advances to the next work file
-
 ## Redesign Needed
 NO
 
 ## Current Phase Evaluation
-- Phase: 1
-- Feature: `lib/observation.js` 에 `deriveAgy` 로직 추가 및 `deriveState` 의 Gemini 행 반환 처리
+- Phase: 2
+- Feature: `watch-loop.js` 에 스냅샷 전달 구현 및 `lib/control-server.js` 최상위 `agy` 블록, 1.5.0 계약 갱신
 - Complete: yes
-- Issues found: 없음
+- Issues found: None
 
 ## Work Detail
 - Files created/modified:
-  - `p-quaestor/lib/observation.js`: `deriveAgy` 순수 함수 신설, `deriveState` 내 `fields` 끝에 Gemini 행(`Gemini 주간 잔량`, `Gemini 5시간 잔량`) 추가, `normalizeCtx` 에 `agy` 필드 추가
-  - `p-quaestor/test/observation.test.js`: 진리표 4가지 케이스 검증, 100% 리셋 센티넬 규칙, 미측정 시 null pct 검증, `fields` 문자열 포맷팅(모름/N%/N% (낡음)), `deriveState` 독립성 및 순수성 검증 추가, 허가된 라벨 배열 끝에 두 행 추가
+  - `p-quaestor/watch-loop.js`: `controlSnapshot()` 의 반환 `ctx` 에 `agy: agyMonitor.snapshot()` 추가
+  - `p-quaestor/lib/control-server.js`: `/api/status` 응답 최상위에 `agy` 블록 추가, `CONTRACTS['supervised-v1']` 버전을 `1.5.0` 으로 갱신
+  - `p-quaestor/test/watch-loop.test.js`: `controlSnapshot()` 의 `agy` 주입 구조 테스트 추가
+  - `p-quaestor/test/control-server.test.js`: 허가된 4곳의 최상위 키 집합(`'agy'`) 및 계약 버전(`1.5.0`) 검증 갱신, 실서버 기반의 Phase 2 [SPEC] 테스트 4건 추가
 - Key changes summary:
-  - 014 모니터의 스냅샷을 소비하는 `deriveAgy` 순수 함수를 외부 모듈 의존성(`child_process`, `./agy-usage` 등) 없이 구현함.
-  - 진리표 4가지 상황(미측정, 최신 성공, 성공 후 실패, 실패 이력 없음) 및 100% 잔량 버킷의 리셋 시각 null 처리 규칙을 정확히 만족.
-  - `deriveState` 내부에서 기존 8개 행 뒤에 9번째(`Gemini 주간 잔량`), 10번째(`Gemini 5시간 잔량`) 행을 문자열 형식으로 덧붙여 하위호환 및 `test/control-server.test.js` 의 deepStrictEqual 비교를 보존함.
-  - `ctx.agy` 주입 여부나 실패 상태가 기존의 `state`, `summary`, `usage`, `allowance` 에 전혀 영향을 주지 않는 독립성을 유지함.
-  - 전체 단위/통합 테스트 415/415 pass 및 회귀 0건 확인.
+  - `watch-loop.js` 에서 이미 인스턴스화되어 백그라운드 폴링 중인 `agyMonitor` 의 `snapshot()` 결과를 제어 서버 스냅샷 컨텍스트(`ctx.agy`)로 안정적으로 전달함
+  - `lib/control-server.js` 에서 `deriveAgy(snap.ctx && snap.ctx.agy, nowMs)` 순수 함수를 호출하여 최상위 `agy` 블록을 생성하고, 기존 `usage`/`allowance`/`fields` 등 하위 호환성을 완벽히 보존함
+  - `supervised-v1` 계약 버전을 `1.5.0` 으로 상향하고, 실서버 HTTP 호출 테스트 및 전체 420개 테스트 스위트 100% 통과(회귀 0건)를 달성함
 
 ## Issues
-- 없음
+- None
 
 ## Good Points
-- 순수 함수 설계 규율 준수: `lib/observation.js` 가 외부 모듈, 파일 시스템, 월클락 타임 등에 의존하지 않고 전달받은 스냅샷과 시간 인자만을 사용해 결정론적으로 동작함.
-- 수용 기준(Acceptance Criteria) 7개 항목 전부에 대해 1:1 대응하는 명시적 단위 테스트를 작성하여 철저히 검증함.
-- `deriveState` 의 불변식(상태 및 판정 독립성, 기존 필드 순서 유지)을 완벽하게 지켰으며, 001~014 전 라운드 회귀 0건을 달성함.
-- 다음 Phase(Phase 2: `watch-loop.js` 스냅샷 전달, `control-server.js` 최상위 `agy` 블록 및 1.5.0 계약 갱신)의 범위를 미리 건드리지 않고 Phase 1 경계를 엄격히 준수함.
+- `control-server.js` 및 `watch-loop.js` 내에 금지된 `claude` 문자열(주석/변수명 포함) 0회 규칙을 완벽하게 준수함
+- `test/control-server.test.js` 에서 사전에 허가된 키 집합 및 버전 단언 편집 외에 어떠한 테스트도 임의로 수정/삭제하지 않았으며, 특히 `usage.covers` 와 `allowance.covers` 격리 단언이 그대로 통과됨
+- `ctx.agy` 에 실패 상태가 주입되어도 기존 필드(`usage`, `allowance`, `state`, `summary`)가 `ctx.agy` 부재 시와 완전히 동일함(`deepStrictEqual`)을 실서버 바인딩 환경에서 빈틈없이 검증함
+- 100% 잔량 시 리셋 센티넬이 `null` 로 정규화되어 응답에 노출되지 않음을 실제 HTTP 응답에서 단언함
