@@ -13,3 +13,12 @@
 - [SPEC] 독립성 보장: `ctx.agy` 가 실패 상태(`last_error: "timeout"`, 성공 이력 없음)일 때 반환되는 `usage`, `allowance`, `state`, `summary` 가 `ctx.agy` 가 없을 때와 실서버 환경에서 `deepStrictEqual` 임을 확인한다.
 - [SPEC] `GET /api/health` 응답의 `contracts["supervised-v1"]` 값이 `1.5.0` 이어야 한다.
 - [SPEC] 지정된 4곳의 `test/control-server.test.js` 테스트 편집(최상위 키 배열 추가 및 버전 갱신) 외에 기존 테스트 회귀가 0건이어야 하며, 특히 `usage.covers` 와 `allowance.covers` 에 `agy`가 포함되지 않음을 단언하는 기존 테스트들이 통과되어야 한다.
+
+## Phase 3 Acceptance Criteria
+- [SPEC] 실서버 `GET /` HTML 에 Gemini 구역이 존재하며, 부분문자열 `agy` 가 전혀 포함되지 않는다.
+- [SPEC] `lib/status-page.js` 의 자동 새로고침 시그니처나 class/id 에 `agy` 를 사용하지 않고, 기존 `st-*` 클래스 토큰을 재사용하지 않는다.
+- [SPEC] Gemini 구역에 값이 없을 때는 `0%` 가 아닌 `모름` 으로 노출되며, 리셋 시각은 값이 `null` 이 아닐 때만 렌더링된다.
+- [SPEC] 스냅샷의 `five_hour_remaining_pct = 100` 이고 `five_hour_reset_raw = "2030-05-05T05:05:05Z"` 일 때, `GET /` HTML 어디에도 `2030-05-05` 해당 시각 문자열이 노출되지 않음을 보증한다.
+- [SPEC] `lib/status-page.js` 코드 내에서 부분문자열 `/claude/gi` 매칭 건수가 0회로 유지되며, `https://` 부분문자열도 추가되지 않는다.
+- [SPEC] `agy.last_error` 값(예: `timeout`)이 화면 렌더링 시 "시간 초과" 등 한국어로 풀어서 노출된다.
+- [DERIVED] 루트 `<main>` 요소의 `class`, `style`, `data-sig` 속성을 변경하지 않고 구역을 삽입한다.

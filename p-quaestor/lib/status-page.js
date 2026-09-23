@@ -183,7 +183,7 @@ function renderStatusPage(payload, opts) {
     ? covers.map(function (c) { return esc(c); }).join(', ')
     : NO_MEASUREMENT;
 
-  const html = '' +
+  let html = '' +
     '<!doctype html>\n' +
     '<html lang="ko">\n' +
     '<head>\n' +
@@ -223,7 +223,43 @@ function renderStatusPage(payload, opts) {
     '<section>\n' +
     '<h2>감시 상태</h2>\n' +
     '<div class="field">' + esc(state || NO_MEASUREMENT) + ' \u00B7 ' + esc(summary || NO_MEASUREMENT) + '</div>\n' +
-    '</section>\n' +
+    '</section>\n';
+
+  const geminiPayload = (p.agy && typeof p.agy === 'object') ? p.agy : null;
+  let geminiHtml = '';
+  if (geminiPayload) {
+    const isStale = geminiPayload.stale === true;
+    const staleFlagG = isStale ? '<span class="stale-flag">낡은 값</span>' : '';
+    const errMap = {
+      'not-yet-measured': '측정 전',
+      'not-installed': '실행 파일 없음',
+      'timeout': '시간 초과',
+      'exit-nonzero': '실패(종료 코드)',
+      'parse-failed': '형식 불일치',
+      'spawn-failed': '실행 실패'
+    };
+    let errText = null;
+    if (geminiPayload.last_error) {
+      errText = errMap[geminiPayload.last_error] || geminiPayload.last_error;
+    }
+    const wPct = typeof geminiPayload.weekly_remaining_pct === 'number' ? (geminiPayload.weekly_remaining_pct + '%') : '모름';
+    const fPct = typeof geminiPayload.five_hour_remaining_pct === 'number' ? (geminiPayload.five_hour_remaining_pct + '%') : '모름';
+    const wReset = typeof geminiPayload.weekly_reset === 'string' ? (' (리셋: ' + esc(geminiPayload.weekly_reset) + ')') : '';
+    const fReset = typeof geminiPayload.five_hour_reset === 'string' ? (' (리셋: ' + esc(geminiPayload.five_hour_reset) + ')') : '';
+    const mLine = geminiPayload.measured_at 
+      ? (esc(geminiPayload.measured_at) + ' (' + esc(formatAge(geminiPayload.age_sec)) + ')')
+      : '모름';
+
+    geminiHtml = '<section>\n' +
+      '<h2>Gemini</h2>\n' +
+      '<div class="row"><span>주간 잔량</span>' + gaugeHtml(geminiPayload.weekly_remaining_pct) + '<span>' + esc(wPct) + wReset + '</span></div>\n' +
+      '<div class="row"><span>5시간 잔량</span>' + gaugeHtml(geminiPayload.five_hour_remaining_pct) + '<span>' + esc(fPct) + fReset + '</span></div>\n' +
+      '<div class="field">마지막 측정: ' + mLine + staleFlagG + '</div>\n' +
+      (errText ? '<div class="field">상태: ' + esc(errText) + '</div>\n' : '') +
+      '</section>\n';
+  }
+
+  html += geminiHtml +
     '</main>\n' +
     '<script>' + scriptBlock(pollMs) + '</script>\n' +
     '</body>\n' +
