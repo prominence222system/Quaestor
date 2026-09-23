@@ -1,63 +1,48 @@
 ## Verdict
-PASS
+NEXT
 
 ## Verdict Criteria (current work file only)
-- PASS: 013-status-declares-engine-scope.md 의 모든 Phase(Phase 1, 2, 3) 구현 및 검증이 완료되었으며, smoke 및 테스트 스위트 전건 통과
-- `node p-quaestor/test/run-all.js` 실행 결과: 367 tests / 367 pass / 0 fail / 0 error (exitCode 0)
-- `output/ACCEPTANCE.md` 에 정의된 Phase 3 수용 기준 5종([SPEC] 3종, [DERIVED] 2종) 및 전체 수용 기준이 전수 충족됨
-- 127.0.0.1 실포트에 바인딩된 HTTP 통신(`GET /`, `GET /api/status`, `GET /api/health`) 기반으로 엔진 범위 렌더링 및 계약 버전(1.4.0) 무회귀 검증 완료
-- `test/status-page.test.js:230` 및 `test/watch-loop.test.js:71` 무수정 통과 및 `status-page.js` 내 'claude' 리터럴/분기 0건 유지
-
-## Redesign Needed
-NO
+- NEXT: a phase REMAINS WITHIN the current work file (not for other work files)
+- FIX: Current Phase has bugs or missing features
+- REDESIGN: Fundamental design issues require architecture change
+- INTEGRATE: ALL phases of the current work file are DONE, need an integration test
+- PASS: the current work file is complete (all its phases DONE, tests pass); forge advances to the next work file
 
 ## Current Phase Evaluation
-- Phase: 3
-- Feature: `status-page.js` 가 payload 에서 `covers` 를 그림 + 실서버 `GET /` HTML 검증
+- Phase: 1
+- Feature: `lib/agy-usage.js` 신설 — 인자 고정 · 주입 실행기 · 엄격한 파서 · `measureAgy`(실패 kind 5종 · 자체 마감 · never-reject) · `createAgyMonitor`
 - Complete: yes
 - Issues found: 없음
 
+## Acceptance-Criteria Integrity Check
+- `output/ACCEPTANCE.md` Phase 1 섹션의 [SPEC]/[DERIVED] 항목을 전부 훑어 `p-quaestor/test/agy-usage.test.js` 의 대응 테스트를 하나씩 대조했다 — 모든 항목에 이름이 붙은 테스트가 있다(파이프/콘솔 실측 벡터, 순서 역전, 센티넬 리크 검사, 인자 고정의 프로세스 경계 검증, 실패 5종 분류, hint 비관여, 타임아웃 3.5s 이내, in-flight 가드, lastSuccess 보존, 로그 형식, `claude.ai`/버킷명 소스 위생).
+- 삭제되거나 약화된 [SPEC] 항목 없음(이 NNN 의 첫 라운드라 비교할 이전 버전이 없음).
+- 커밋 이력(`db63f3c` design → `bb38075` implement → `449adad` test) 확인 결과 Phase 1 산출물(`lib/agy-usage.js`, `test/agy-usage.test.js`, `test/fixtures/fake-agy.js`) 3개 파일만 추가됐고 그 외 파일은 무수정 — DESIGN.md 의 "Phase 1 이 건드리지 않는 것" 목록과 일치.
+
 ## Work Detail
-- Files created/modified:
-  - `p-quaestor/lib/status-page.js`: `renderStatusPage`에서 payload의 `usage.covers`(또는 `allowance.covers`) 배열을 읽어, 안전한 `esc()` 처리를 거쳐 `<div class="field">엔진 범위: ...</div>` 형태로 렌더링 추가. 소스 코드 내 `'claude'` 리터럴이나 분기문은 일절 추가하지 않고 payload 기반으로 순수 렌더링.
-  - `p-quaestor/test/control-server.test.js`: 127.0.0.1 실제 포트에 바인딩된 통합 환경에서 `GET /` 호출 시 HTML 내 `엔진 범위: claude` 렌더링 여부, `agy` 부재, `https://` 오리진 URL 미노출, `status-page.js` 내 claude 0회 검증, `esc()` 특수문자 이스케이프 검증, `allowed: null` 상태에서도 엔진 범위 렌더링 유지 등 5건의 전용 검증 테스트 추가.
-- Key changes summary:
-  - 웹 상태 페이지(`GET /`)가 하드코딩이나 분기 없이 API 응답의 `covers` 정보를 동적으로 받아 사용자에게 표시하도록 구현함.
-  - 외부 CDN이나 요청 없이 loopback 환경에서 읽기 전용 및 인라인 스타일을 유지하면서 사용자가 직관적으로 어떤 엔진의 사용량인지 알 수 있도록 함.
-  - `output/ACCEPTANCE.md`의 Phase 3 전 항목을 127.0.0.1 실서버 HTTP 왕복 테스트로 철저히 검증하여 "격리 통과·통합 실패" 위험을 원천 차단함.
+- Files created: `p-quaestor/lib/agy-usage.js`(244줄), `p-quaestor/test/agy-usage.test.js`(476줄, 신규 35개 테스트), `p-quaestor/test/fixtures/fake-agy.js`(71줄, 진짜 자식 프로세스 픽스처).
+- Files modified: 없음.
+- 독립 재실행 `node p-quaestor/test/run-all.js` (timeout 300s) 결과 **402 tests / 402 pass / 0 fail / 0 cancelled**, exitCode 정상 — `TEST_RESULT.md` 의 402/402 숫자와 일치, 회귀 0 확인.
+- 핵심 설계 요소가 코드에 실제로 반영됨을 직접 읽어 확인:
+  - `AGY_ARGS = Object.freeze(['-p','/usage'])` — 유일한 인자 상수, freeze 됨.
+  - `parseUsage`: TAB 우선 → 공백 2칸 이상 폴백, `Gemini Models` 허용목록, metric 문자열 정확 일치 배정, 0~100·ISO 정규식 검증, 같은 metric 다른 값이면 전체 `{ok:false}`.
+  - `classify()`: 동기 throw/EINVAL→`spawn-failed`, ENOENT→`not-installed`, killed→`timeout`, 숫자 exit≠0→`exit-nonzero`, exit0+파싱실패→`parse-failed` — DESIGN.md D5 표와 순서까지 일치.
+  - `measureAgy`: 자체 마감 타이머(`timeoutMs+2000`) + `settled` 플래그로 이중 resolve 방지, `unref()` 처리.
+  - `createAgyMonitor`: in-flight 가드, `lastSuccess` 실패로 안 지워짐, `snapshot()` 매번 새 객체, 로그 포맷 `[agy] gemini weekly_left=..% five_hour_left=..%` / `[agy] fail kind=..`.
+  - 로그 줄에 `session=`/`weekly=`/`[poll error]` 부분문자열 없음(`weekly_left=` 사용) — 005 의 `logparse.js` 비오염 조건 충족.
+- 가짜 agy 스크립트가 `process.argv` 불일치 시 exit 3 하는 계약을 실제로 구현 — 인자 고정이 진짜 프로세스 경계를 넘어 검증됨.
 
 ## Issues
-- 없음
+- 없음.
 
 ## Good Points
-- `status-page.js` 내에 `'claude'` 문자열 리터럴이나 `covers.includes('claude')`와 같은 특정 엔진에 종속된 분기를 일절 넣지 않고, `covers.map(c => esc(c)).join(', ')` 방식으로 순수하게 payload를 투영하여 향후 엔진 확장에 유연하게 대응함.
-- `test/status-page.test.js:230`의 `/claude/gi` 0건 불변식을 한 글자도 수정하지 않고 완벽하게 통과시킴.
-- 순수 함수 렌더러에 가짜 픽스처를 넣는 방식에 안주하지 않고, 127.0.0.1에 바인딩된 실제 서버를 띄워 `GET /`의 HTTP 응답 헤더 및 바디 전체를 가져와 검증하는 엄격한 통합 테스트를 구축함.
-- `allowed: null`과 같이 사용량 관측이 없는 상태에서도 엔진 범위(`covers`)는 항상 사용자 화면에 표시되어 "무엇을 재는가"와 "얼마나 쟀는가"의 의미가 정확하게 전달됨.
-- 이전 라운드(001~012) 및 Phase 1, Phase 2의 모든 기능에 대해 0 회귀(367/367 PASS)를 달성함.
+- 실측 바이트(TAB 구분 파이프 / 공백정렬+`Quota:` 콘솔)를 그대로 픽스처에 박아 순수 파서 테스트뿐 아니라 진짜 `child_process`·진짜 파이프를 거치는 경계 테스트까지 갖춤 — "격리 통과·통합 실패"를 놓치지 않는 설계 의도가 코드에 그대로 반영됨.
+- 센티넬 픽스처(`37%`/`2031-01-01`, `23%`/`2032-02-02`)로 `Claude and GPT models` 지갑 분리를 기계적으로 증명.
+- `hint` 를 판정에서 완전히 배제(같은 로그인 문구가 exit0/exit1 에 따라 다른 kind 로 갈리는 것을 직접 테스트)해 문구 의존 취약점을 피함.
+- `measureAgy`/`createAgyMonitor` 어디서도 예외가 새지 않도록 동기 throw·reject·이중 콜백·throw 하는 log 콜백까지 전부 커버.
 
-## How to Run
-
-```bash
-# 전체 테스트 실행 (🔒 npm 사용 금지 -- node 직접 호출)
-node p-quaestor/test/run-all.js
-```
-
-Quaestor 감시자 실행 및 상태 페이지 확인:
-```bash
-# Chrome 원격 디버깅 포트(9222)가 열린 상태에서 Quaestor 실행
-.\run-quaestor.ps1
-
-# 브라우저 또는 curl로 웹 상태 페이지 접속 (엔진 범위: claude 확인)
-curl http://127.0.0.1:3210/
-# 브라우저에서 열기: http://127.0.0.1:3210/
-
-# /api/status 및 /api/health 확인
-curl http://127.0.0.1:3210/api/status
-# -> usage.covers 및 allowance.covers에 ["claude"] 포함 확인
-curl http://127.0.0.1:3210/api/health
-# -> contracts["supervised-v1"] === "1.4.0" 확인
-```
+## Next Phase
+- Phase 2: `watch-loop.js` 에 `agyMonitor.poll()` 한 줄 연결(claude 경로의 5개 조기 `return` 보다 앞, `await` 없음, `claude` 문자열 0회) + `lib/logparse.js` 비오염 회귀 테스트 추가(기존 테스트 편집 없이 새 테스트만).
 
 
 ===========================================

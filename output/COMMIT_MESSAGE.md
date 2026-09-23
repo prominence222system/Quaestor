@@ -1,8 +1,7 @@
-feat: /api/status 및 상태 페이지에 엔진 범위(claude) 선언 추가
+chore: 014 Phase 1 agy 측정 모듈 평가, 회귀 0 확인 후 Phase 2 진행
 
-Quaestor가 모니터링하는 사용량 수치가 claude 전용임에도 API 응답에
-엔진 정보가 없어, forge처럼 claude와 agy를 교대로 사용하는 소비자에서
-agy 실행 직전 잘못된 허가(allowed: true) 판정을 내릴 수 있는 위험을
-해소하기 위함이다. 계약 1.4.0을 통해 'covers에 명시되지 않은 엔진은
-모른다'는 규칙을 응답과 상태 페이지에 구조화하여 오판을 방지하고
-하위 호환성을 유지한다.
+lib/agy-usage.js와 가짜 agy 자식 프로세스 테스트가 ACCEPTANCE.md의
+Phase 1 [SPEC]/[DERIVED] 기준을 전부 충족함을 독립 재실행으로 재확인했다.
+node p-quaestor/test/run-all.js가 402/402 통과(회귀 0)이고 구현 커밋 이후
+버그가 발견되지 않아 코드 변경 없이 다음 phase(watch-loop.js 연결)로
+넘어간다.
