@@ -1,6 +1,5 @@
 ## Implementation Phases
 | Phase | Feature | Status |
 |-------|---------|--------|
-| 1 | `lib/source.js` 신설 + `scrape.js` 가 require + `scrape-classify` 단언 이관 | DONE |
-| 2 | `deriveUsage`·`deriveAllowance` 에 `covers` + `CONTRACTS` 1.4.0 + 버전 핀 갱신 + 실서버 HTTP 검증 | DONE |
-| 3 | `status-page.js` 가 payload 에서 `covers` 를 그림 + 실서버 `GET /` HTML 검증 | DONE |
+| 1 | `lib/agy-usage.js` 신설 — 인자 고정(`AGY_ARGS`) · 주입 가능 실행기 · 엄격한 `parseUsage` · `measureAgy`(실패 kind 5종 · 자체 마감 · never-reject) · `createAgyMonitor`(in-flight 가드 · 성공값 보존) + 가짜 agy 자식 프로세스 테스트 | CURRENT |
+| 2 | `watch-loop.js` 연결(`pollOnce()` 첫 동작 · `await` 없음 · `claude` 0회) + `[agy]` 로그 형식 확정 + `logparse` 비오염 테스트(`logparse.test.js` 추가만) | PENDING |

@@ -58,3 +58,9 @@ curl http://127.0.0.1:3210/api/status
 curl http://127.0.0.1:3210/api/health
 # -> contracts["supervised-v1"] === "1.4.0" 확인
 ```
+
+
+===========================================
+NNN: 014-measure-agy-gemini-quota
+Started: 2026-09-23T01:55:28Z
+===========================================

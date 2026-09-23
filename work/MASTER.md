@@ -35,6 +35,8 @@ claude.ai/settings/usage --scrape--> session_pct / weekly_pct
 - Round 9: 011 (engine: agy)
 - Round 10: 012 (engine: claude)
 - Round 11: 013 (engine: agy)
+- Round 12: 014 (engine: claude)
+- Round 13: 015 (engine: agy)
 
 ## Work Verify
 - Smoke: `node p-quaestor/test/run-all.js`
@@ -163,14 +165,38 @@ forge 는 `alternate` 로 엔진을 번갈아 돌린다 — 2026-09-20 실측으
 - **013** — `usage`·`allowance` 에 `covers: ["claude"]` 를 싣는다. 계약 1.3.0 → 1.4.0
 
 🔒 **agy 를 재려는 것이 아니다. "우리가 agy 를 모른다"는 사실을 응답에 적는 것이다.**
-agy 잔량은 읽을 API 가 없다(벤더 확인 완료). 모르는 것을 말하지 않으면 소비자는 안다고 읽는다.
+Quaestor 는 `claude.ai` 만 긁으므로 agy 잔량을 **모른다.** 모르는 것을 말하지 않으면 소비자는 안다고 읽는다.
+🔴 **2026-09-22 정정: 여기 적혀 있던 "agy 잔량은 읽을 API 가 없다(벤더 확인 완료)" 는 거짓이었다.**
+`agy -p "/usage"` 가 버킷별 잔량 %와 리셋 시각을 낸다. 013 의 `covers: ["claude"]` 결정 자체는
+그대로 옳다 — 다만 근거가 바뀐다: agy 는 **읽을 수 없어서** 범위 밖인 게 아니라
+**이 제품이 안 재서** 범위 밖이다.
 🔒 **추가만** — 기존 필드 불변. Foreman 이 1.3.0 에 핀을 걸고 있고 영향도 판정이 `breaks: false` 다.
+
+## Round 12·13 이 하는 일
+
+🔴 **013 의 전제가 뒤집혔다.** "agy 잔량은 읽을 API 가 없다" 는 **관측 실패를 기능 부재로 승격시킨 오판**이었다.
+2026-09-22 사용자가 `agy` 에서 `/usage` 를 치자 잔량이 그냥 나왔고, 2026-09-23 `node` 의 `execFile` 로
+**파이프(비대화형) 호출이 된다는 것까지** 실측했다(3/3, 회당 약 6초, 3회 연속 호출에서 % 불변).
+
+- **014** — **측정**. `agy -p "/usage"` 를 매 폴 부르고, 엄격하게 읽고, 기억하고, 로그에 남긴다. 응답은 안 바꾼다
+- **015** — **노출**. 최상위 `agy` 블록 · `fields` 의 Gemini 행 · 상태 페이지 구역 · 계약 1.4.0 → 1.5.0
+
+🔒 **둘로 나눈 이유**: 한 NNN 에 담으면 phase 가 4개 한계에 걸린다. 014 가 깨지면 015 가 그 위에 서지 않게 라운드를 가른다.
+🔒 **Foreman 에 보이는 길은 `fields` 뿐이다.** Foreman 은 `/api/status` 최상위 키를 화이트리스트로 거르므로 새 `agy` 블록은
+떨어진다. 반면 `fields[]` 는 그대로 통과시켜 그린다 — 그래서 사람이 볼 값은 `fields` 에도 싣는다.
+🔒 **읽는 버킷은 `Gemini Models` 뿐이다.** `Claude and GPT models` 는 Antigravity 안의 Claude 할당량이라 **claude.ai 와 다른 지갑**이다.
+🔒 **차단기는 안 건드린다.** 측정과 표시만이다. agy 가 바닥나면 무엇을 멈출지는 별도 결정이다.
+🔒 **로그 형식이 함정이다**: `logparse.js` 의 `weekRe = /weekly=(\d+...)%/` 가 agy 줄의 `weekly=` 를 claude 로 복원한다.
+agy 줄은 `weekly_left=` 를 쓴다.
 
 ## Constraints
 
 - **Claude CLI 절대 사용 금지** — 이 제품이 토큰을 쓰면 감시자가 감시 대상이 된다.
   🔒 예외는 **`lib/source.js` 한 곳뿐**이다 — 도메인 상수(`ORIGIN`)와 엔진 라벨(`ENGINE`)이 거기 산다(013).
   그 밖의 `.js` 에서 `claude` grep 매칭은 **0건**이어야 한다. 규칙이 막는 것은 **CLI 호출**이지 문자열이 아니다
+- 🔒 **CLI 호출의 유일한 예외: `agy -p "/usage"`**(014). 모델 턴이 아닌 **조회**라 토큰을 쓰지 않는다.
+  인자는 `lib/agy-usage.js` 의 `AGY_ARGS = ['-p', '/usage']` 로 **고정**이고, 다른 인자를 받는 경로를 만들지 않는다.
+  프롬프트를 넘기는 순간 이 제품이 감시 대상이 된다
 - 의존성 추가 금지 — HTTP 는 `node:http`, 테스트는 `node:test`/`node:assert` 로 충분하다
   (현재 의존성은 puppeteer 하나뿐)
 - 전용 Chrome 프로필(`./.profile/`, gitignore)로 동작. 사용자의 일반 Chrome 을 건드리지 않는다
