@@ -326,3 +326,42 @@ test('W4 [SPEC]: existing [config] log strings are byte-for-byte unchanged, and 
   assert.ok(!SRC.includes('[thresholds]'), 'recording the [thresholds] line is control-server.js\'s job, not watch-loop.js\'s');
 });
 
+// ---- 014 §2: agy monitor wiring (structural -- see hermeticity note at top) --
+
+test('014 §2: createAgyMonitor( is called exactly once, at module scope (not inside pollOnce())', () => {
+  const matches = SRC.match(/createAgyMonitor\s*\(/g) || [];
+  assert.strictEqual(matches.length, 1, 'createAgyMonitor( must appear exactly once in watch-loop.js');
+  const pollMatch = SRC.match(/async function pollOnce\(\)[\s\S]*?\r?\n\}\r?\n/);
+  assert.ok(pollMatch, 'expected a pollOnce() function');
+  assert.ok(!/createAgyMonitor\(/.test(pollMatch[0]), 'createAgyMonitor( must not be called inside pollOnce()');
+});
+
+test('014 §2: pollOnce() calls agyMonitor.poll() right after refreshConfig(), unawaited, ahead of every early return', () => {
+  const pollMatch = SRC.match(/async function pollOnce\(\)[\s\S]*?\r?\n\}\r?\n/);
+  assert.ok(pollMatch, 'expected a pollOnce() function');
+  const body = pollMatch[0];
+
+  assert.ok(/agyMonitor\.poll\(\)/.test(body), 'pollOnce() must call agyMonitor.poll()');
+  assert.ok(!/await\s+agyMonitor\.poll\(\)/.test(body), 'agyMonitor.poll() must not be awaited (fire-and-forget)');
+
+  const refreshIdx = body.indexOf('refreshConfig()');
+  const pollCallIdx = body.indexOf('agyMonitor.poll()');
+  const returnIdxs = [];
+  const returnRe = /return;/g;
+  let m;
+  while ((m = returnRe.exec(body)) !== null) returnIdxs.push(m.index);
+
+  assert.ok(refreshIdx >= 0, 'expected refreshConfig() call in pollOnce()');
+  assert.ok(pollCallIdx >= 0, 'expected agyMonitor.poll() call in pollOnce()');
+  assert.ok(returnIdxs.length >= 5, 'expected the 5 early-return branches in pollOnce() (scrape fail / invalid extraction / disabled / manual stop / held stop)');
+  assert.ok(refreshIdx < pollCallIdx, 'agyMonitor.poll() must come after refreshConfig()');
+  for (const idx of returnIdxs) {
+    assert.ok(pollCallIdx < idx, 'agyMonitor.poll() must come before every early return; in pollOnce()');
+  }
+});
+
+test('014 §2: watch-loop.js requires createAgyMonitor from ./lib/agy-usage', () => {
+  assert.ok(/require\(\s*['"]\.\/lib\/agy-usage['"]\s*\)/.test(SRC), 'watch-loop.js must require ./lib/agy-usage');
+  assert.ok(/createAgyMonitor/.test(SRC), 'watch-loop.js must reference createAgyMonitor');
+});
+
