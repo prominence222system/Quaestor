@@ -98,3 +98,23 @@ test('empty lines or lines without valid events return null', () => {
   assert.strictEqual(parseLogTail(null), null);
   assert.strictEqual(parseLogTail(['[start] bellows watcher. interval=15m']), null);
 });
+
+test('014: agy success/failure log lines mixed into the tail do not change parseLogTail() output (no contamination)', () => {
+  const claudeLines = [
+    '2026-07-28T11:58:12.472Z session=24% weekly=24%',
+    '2026-07-28T12:13:00.000Z [poll error] scrape failed: timeout kind=nav-failed'
+  ];
+  const mixedLines = [
+    '2026-09-23T06:57:00.000Z [agy] gemini weekly_left=45% five_hour_left=100%',
+    claudeLines[0],
+    '2026-09-23T06:58:00.000Z [agy] fail kind=timeout',
+    claudeLines[1],
+    '2026-09-23T06:59:00.000Z [agy] fail kind=exit-nonzero hint=login-required'
+  ];
+
+  const pure = parseLogTail(claudeLines);
+  const withAgy = parseLogTail(mixedLines);
+
+  assert.deepStrictEqual(withAgy, pure);
+  assert.deepStrictEqual(pure.lastUsage, { session_pct: 24, weekly_pct: 24 });
+});

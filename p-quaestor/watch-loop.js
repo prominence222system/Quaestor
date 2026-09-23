@@ -7,6 +7,7 @@ const { createObservation, recordSuccess, recordFailure } = require('./lib/obser
 const { startControlServer } = require('./lib/control-server');
 const { parseLogTail } = require('./lib/logparse');
 const { envRaw } = require('./lib/env');
+const { createAgyMonitor } = require('./lib/agy-usage');
 
 const PROFILE_DIR  = path.resolve(envRaw('PROFILE_DIR') || './.profile');
 const INTERVAL_MIN = parseInt(envRaw('INTERVAL_MIN') || '15', 10);
@@ -48,6 +49,10 @@ function log(msg) {
   const ts = new Date().toISOString();
   fs.appendFileSync(LOG_PATH, ts + ' ' + msg + '\n');
 }
+
+// Gemini quota monitor -- created once. Its poll()/logic lives entirely in
+// lib/agy-usage.js; this file only calls .poll() (see work/014 §2).
+const agyMonitor = createAgyMonitor({ log: log });
 
 function readStopJson() {
   if (!fs.existsSync(STOP_PATH)) return null;
@@ -106,6 +111,7 @@ function refreshConfig() {
 
 async function pollOnce() {
   const cfg = refreshConfig();
+  agyMonitor.poll(); // fire-and-forget: no await, ahead of every early return below
 
   log('[poll start]');
   let usage = null;
