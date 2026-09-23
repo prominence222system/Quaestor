@@ -361,3 +361,124 @@ test('esc() escapes all five HTML-significant characters', () => {
   assert.strictEqual(esc(`&<>"'`), '&amp;&lt;&gt;&quot;&#39;');
   assert.strictEqual(esc(42), '42');
 });
+
+// ---- 015 Phase 3: status page Gemini section -----------------------------
+
+function agyPayload(overrides) {
+  const p = clone(basePayload());
+  p.agy = Object.assign({
+    covers: ['agy'],
+    bucket: 'Gemini Models',
+    weekly_remaining_pct: 45,
+    five_hour_remaining_pct: 100,
+    weekly_reset: '2026-09-23T06:57:36Z',
+    five_hour_reset: null,
+    measured_at: '2026-09-23T06:10:02Z',
+    age_sec: 12,
+    stale: false,
+    last_error: null
+  }, overrides || {});
+  return p;
+}
+
+test('[SPEC] 015 Phase 3: renderStatusPage with agy block renders Gemini section with zero occurrences of "agy"', () => {
+  const p = agyPayload();
+  const html = renderStatusPage(p);
+  assert.ok(html.includes('<h2>Gemini</h2>'), 'must contain Gemini heading');
+  assert.ok(html.includes('주간 잔량'), 'must contain weekly remaining');
+  assert.ok(html.includes('5시간 잔량'), 'must contain 5-hour remaining');
+  assert.ok(!html.includes('agy'), 'rendered HTML must contain zero occurrences of "agy"');
+});
+
+test('[SPEC] 015 Phase 3: Gemini section with null measurements renders "모름" and no bare "0%"', () => {
+  const p = agyPayload({
+    weekly_remaining_pct: null,
+    five_hour_remaining_pct: null,
+    weekly_reset: null,
+    five_hour_reset: null,
+    measured_at: null,
+    age_sec: null,
+    stale: true,
+    last_error: 'not-yet-measured'
+  });
+  const html = renderStatusPage(p);
+  const geminiMatch = html.match(/<section>[\s\S]*?<h2>Gemini<\/h2>[\s\S]*?<\/section>/);
+  assert.ok(geminiMatch, 'expected Gemini section');
+  const geminiHtml = geminiMatch[0];
+  assert.ok(!BARE_ZERO_PCT.test(geminiHtml), 'no bare 0% in Gemini section: ' + geminiHtml);
+  assert.ok(geminiHtml.includes('모름'), 'must show "모름" for unmeasured buckets');
+  assert.ok(!geminiHtml.includes(' (리셋:'), 'no reset time rendered when null');
+  assert.ok(geminiHtml.includes('상태: 측정 전'), 'last_error rendered in Korean');
+});
+
+test('[SPEC] 015 Phase 3: 100% reset sentinel -- five_hour_reset null does not render reset text', () => {
+  const p = agyPayload({
+    five_hour_remaining_pct: 100,
+    five_hour_reset: null,
+    weekly_reset: '2026-09-23T06:57:36Z'
+  });
+  const html = renderStatusPage(p);
+  const geminiMatch = html.match(/<section>[\s\S]*?<h2>Gemini<\/h2>[\s\S]*?<\/section>/);
+  assert.ok(geminiMatch);
+  const geminiHtml = geminiMatch[0];
+  assert.ok(geminiHtml.includes(' (리셋: 2026-09-23T06:57:36Z)'), 'weekly reset must be rendered');
+  assert.ok(!geminiHtml.includes('2030-05-05'), 'sentinel 2030-05-05 must not appear');
+});
+
+test('[SPEC] 015 Phase 3: agy.last_error translated into Korean phrases', () => {
+  const cases = [
+    { code: 'not-yet-measured', text: '측정 전' },
+    { code: 'not-installed', text: '실행 파일 없음' },
+    { code: 'timeout', text: '시간 초과' },
+    { code: 'exit-nonzero', text: '실패(종료 코드)' },
+    { code: 'parse-failed', text: '형식 불일치' },
+    { code: 'spawn-failed', text: '실행 실패' },
+    { code: 'unknown', text: '알 수 없음' }
+  ];
+  for (const c of cases) {
+    const p = agyPayload({ last_error: c.code });
+    const html = renderStatusPage(p);
+    assert.ok(html.includes('상태: ' + c.text), 'expected "상태: ' + c.text + '" for ' + c.code);
+  }
+
+  const pNull = agyPayload({ last_error: null });
+  const htmlNull = renderStatusPage(pNull);
+  const geminiMatch = htmlNull.match(/<section>[\s\S]*?<h2>Gemini<\/h2>[\s\S]*?<\/section>/);
+  assert.ok(!geminiMatch[0].includes('상태:'), 'status line omitted when last_error is null');
+});
+
+test('[SPEC] 015 Phase 3: Gemini section reuses zero st-* class tokens and leaves root <main> intact', () => {
+  const p = agyPayload({
+    stale: true,
+    measured_at: '2026-09-23T06:10:02Z',
+    age_sec: 3600
+  });
+  // base usage is fresh (stale: false, allowed: true)
+  p.usage.stale = false;
+  p.allowance.allowed = true;
+
+  const html = renderStatusPage(p);
+  const geminiMatch = html.match(/<section>[\s\S]*?<h2>Gemini<\/h2>[\s\S]*?<\/section>/);
+  assert.ok(geminiMatch);
+  const geminiHtml = geminiMatch[0];
+
+  assert.ok(!/\bst-[a-z0-9_-]+\b/.test(geminiHtml), 'Gemini section must not contain st-* class tokens');
+  assert.ok(geminiHtml.includes('(낡음)'), 'staleness is expressed as text in Gemini section');
+
+  // Root main class must not have st-stale because usage.stale is false
+  const mainMatch = html.match(/<main class="([^"]+)"/);
+  assert.ok(mainMatch);
+  assert.ok(!mainMatch[1].includes('st-stale'), 'root <main> must not be tainted by agy staleness');
+});
+
+test('[DERIVED] 015 Phase 3: signature() is unaffected by agy property changes', () => {
+  const p1 = agyPayload();
+  const sig1 = signature(p1);
+  const p2 = agyPayload({
+    weekly_remaining_pct: 10,
+    five_hour_remaining_pct: 20,
+    last_error: 'timeout'
+  });
+  const sig2 = signature(p2);
+  assert.strictEqual(sig1, sig2, 'signature must not be affected by agy changes');
+});

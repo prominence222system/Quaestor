@@ -2573,3 +2573,128 @@ test('015 Phase 2 [SPEC]: real server GET /api/health returns contracts["supervi
   }
 });
 
+// ---- 015 Phase 3: real server GET / Gemini section ------------------------
+
+test('015 Phase 3 [SPEC]: real server GET / HTML contains Gemini section and zero occurrences of "agy"', async () => {
+  const snap = okSnapshot();
+  snap.ctx.agy = {
+    lastAttempt: { at: '2026-09-23T06:10:02Z', ok: true },
+    lastSuccess: {
+      weekly_remaining_pct: 45,
+      five_hour_remaining_pct: 90,
+      weekly_reset_raw: '2026-09-23T06:57:36Z',
+      five_hour_reset_raw: '2026-09-23T11:00:00Z',
+      at: '2026-09-23T06:10:02Z'
+    }
+  };
+  const r = await startControlServer({ port: 0, getSnapshot: () => snap });
+  try {
+    const res = await fetch('http://127.0.0.1:' + r.port + '/');
+    assert.strictEqual(res.status, 200);
+    const html = await res.text();
+    assert.ok(html.includes('<h2>Gemini</h2>'), 'must contain Gemini heading');
+    assert.ok(html.includes('주간 잔량'), 'must contain weekly remaining');
+    assert.ok(html.includes('5시간 잔량'), 'must contain 5-hour remaining');
+    assert.ok(!html.includes('agy'), 'rendered HTML must not contain "agy"');
+  } finally {
+    await r.close();
+  }
+});
+
+test('015 Phase 3 [SPEC]: real server GET / HTML with null agy measurements renders "모름" and no bare "0%"', async () => {
+  const snap = okSnapshot();
+  const r = await startControlServer({ port: 0, getSnapshot: () => snap });
+  try {
+    const res = await fetch('http://127.0.0.1:' + r.port + '/');
+    assert.strictEqual(res.status, 200);
+    const html = await res.text();
+    const geminiMatch = html.match(/<section>[\s\S]*?<h2>Gemini<\/h2>[\s\S]*?<\/section>/);
+    assert.ok(geminiMatch);
+    const geminiHtml = geminiMatch[0];
+    assert.ok(geminiHtml.includes('모름'), 'Gemini section must render "모름"');
+    assert.ok(!/(?<!\d)0%(?!\d)/.test(geminiHtml), 'Gemini section must not have bare 0%');
+  } finally {
+    await r.close();
+  }
+});
+
+test('015 Phase 3 [SPEC]: real server 100% reset sentinel -- 2030-05-05 never appears in GET / HTML', async () => {
+  const snap = okSnapshot();
+  snap.ctx.agy = {
+    lastAttempt: { at: '2026-09-23T06:10:02Z', ok: true },
+    lastSuccess: {
+      weekly_remaining_pct: 45,
+      five_hour_remaining_pct: 100,
+      weekly_reset_raw: '2030-06-06T06:06:06Z',
+      five_hour_reset_raw: '2030-05-05T05:05:05Z',
+      at: '2026-09-23T06:10:02Z'
+    }
+  };
+  const r = await startControlServer({ port: 0, getSnapshot: () => snap });
+  try {
+    const res = await fetch('http://127.0.0.1:' + r.port + '/');
+    assert.strictEqual(res.status, 200);
+    const html = await res.text();
+    assert.ok(!html.includes('2030-05-05'), 'five_hour 100% reset sentinel 2030-05-05 must never appear in HTML');
+    assert.ok(html.includes('2030-06-06'), 'weekly reset sentinel 2030-06-06 must appear in HTML');
+  } finally {
+    await r.close();
+  }
+});
+
+test('015 Phase 3 [SPEC]: real server GET / renders agy.last_error in Korean (e.g. timeout -> "시간 초과")', async () => {
+  const snap = okSnapshot();
+  snap.ctx.agy = {
+    lastAttempt: { at: '2026-09-23T06:10:02Z', ok: false, kind: 'timeout' },
+    lastSuccess: null
+  };
+  const r = await startControlServer({ port: 0, getSnapshot: () => snap });
+  try {
+    const res = await fetch('http://127.0.0.1:' + r.port + '/');
+    assert.strictEqual(res.status, 200);
+    const html = await res.text();
+    assert.ok(html.includes('상태: 시간 초과'), 'timeout error must be rendered in Korean');
+  } finally {
+    await r.close();
+  }
+});
+
+test('015 Phase 3 [SPEC]: status-page.js contains zero occurrences of "claude" and no "https://"', () => {
+  const statusPageSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'status-page.js'), 'utf8');
+  assert.strictEqual((statusPageSrc.match(/claude/gi) || []).length, 0, 'status-page.js must have 0 occurrences of claude');
+  assert.ok(!statusPageSrc.includes('https://'), 'status-page.js must not contain https://');
+});
+
+test('015 Phase 3 [DERIVED]: root <main> element classes and data-sig are untouched by agy state', async () => {
+  const snapFresh = okSnapshot();
+  const snapStaleAgy = okSnapshot();
+  snapStaleAgy.ctx.agy = {
+    lastAttempt: { at: '2026-09-23T06:10:02Z', ok: false, kind: 'timeout' },
+    lastSuccess: {
+      weekly_remaining_pct: 45,
+      five_hour_remaining_pct: 90,
+      at: '2026-08-01T00:00:00Z'
+    }
+  };
+
+  const r1 = await startControlServer({ port: 0, getSnapshot: () => snapFresh });
+  const r2 = await startControlServer({ port: 0, getSnapshot: () => snapStaleAgy });
+  try {
+    const html1 = await (await fetch('http://127.0.0.1:' + r1.port + '/')).text();
+    const html2 = await (await fetch('http://127.0.0.1:' + r2.port + '/')).text();
+
+    const mainClass1 = html1.match(/<main class="([^"]+)"/)[1];
+    const mainClass2 = html2.match(/<main class="([^"]+)"/)[1];
+    assert.strictEqual(mainClass1, mainClass2, 'root <main> classes must be identical');
+    assert.ok(!mainClass2.includes('st-stale'), 'stale agy must not mark <main> as st-stale');
+
+    const sig1 = html1.match(/data-sig="([^"]+)"/)[1];
+    const sig2 = html2.match(/data-sig="([^"]+)"/)[1];
+    assert.strictEqual(sig1, sig2, 'data-sig must be identical between fresh and stale agy');
+  } finally {
+    await r1.close();
+    await r2.close();
+  }
+});
+
+

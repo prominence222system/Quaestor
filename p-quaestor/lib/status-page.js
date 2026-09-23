@@ -228,15 +228,16 @@ function renderStatusPage(payload, opts) {
   const geminiPayload = (p.agy && typeof p.agy === 'object') ? p.agy : null;
   let geminiHtml = '';
   if (geminiPayload) {
-    const isStale = geminiPayload.stale === true;
-    const staleFlagG = isStale ? '<span class="stale-flag">낡은 값</span>' : '';
+    const isStale = geminiPayload.stale === true && Boolean(geminiPayload.measured_at);
+    const staleText = isStale ? ' (낡음)' : '';
     const errMap = {
       'not-yet-measured': '측정 전',
       'not-installed': '실행 파일 없음',
       'timeout': '시간 초과',
       'exit-nonzero': '실패(종료 코드)',
       'parse-failed': '형식 불일치',
-      'spawn-failed': '실행 실패'
+      'spawn-failed': '실행 실패',
+      'unknown': '알 수 없음'
     };
     let errText = null;
     if (geminiPayload.last_error) {
@@ -254,7 +255,7 @@ function renderStatusPage(payload, opts) {
       '<h2>Gemini</h2>\n' +
       '<div class="row"><span>주간 잔량</span>' + gaugeHtml(geminiPayload.weekly_remaining_pct) + '<span>' + esc(wPct) + wReset + '</span></div>\n' +
       '<div class="row"><span>5시간 잔량</span>' + gaugeHtml(geminiPayload.five_hour_remaining_pct) + '<span>' + esc(fPct) + fReset + '</span></div>\n' +
-      '<div class="field">마지막 측정: ' + mLine + staleFlagG + '</div>\n' +
+      '<div class="field">마지막 측정: ' + mLine + staleText + '</div>\n' +
       (errText ? '<div class="field">상태: ' + esc(errText) + '</div>\n' : '') +
       '</section>\n';
   }
