@@ -525,3 +525,194 @@ const exec = (file, args, opts, cb) => execFile(process.execPath, [FAKE, ...args
 | Windows `.cmd`/`.bat` 동기 throw | `shell:false` 고정 + ① 이 동기 throw 를 `spawn-failed` 로 흡수 |
 | `watch-loop.js` 에 `claude` 유입 | 로직 전부를 `lib/agy-usage.js` 에 두고 호출 한 줄만 남긴다 |
 | 진짜 agy 실행으로 CI 실패 | 모든 실행 경로에 가짜 스크립트를 주입. 기본값은 반환값만 단언 |
+
+---
+
+## 9. Phase 2 상세 설계 — `watch-loop.js` 배선 · 로그 형식 · `logparse` 비오염
+
+> Phase 1 이 **잴 수 있는 부품**을 만들었다. Phase 2 는 그 부품을 **돌고 있는 루프에 꽂고**,
+> 그 부품이 내는 로그 줄이 **005 의 재기동 복원을 오염시키지 않음**을 기계적으로 증명한다.
+> 🔒 이 Phase 도 `/api/status` 응답 · `fields` · 상태 페이지 · 계약 버전을 건드리지 않는다.
+
+### 9-1. 이 Phase 가 건드리는 파일 (전부)
+
+| 파일 | 성격 | 변경 |
+|---|---|---|
+| `watch-loop.js` | 수정 | require 1줄 · 모듈 스코프 생성 1줄 · `pollOnce()` 안 호출 1줄 |
+| `test/watch-loop.test.js` | **추가만** | 014 §2 구조 검사 테스트 신규 3개 |
+| `test/logparse.test.js` | **추가만** | 비오염 `deepStrictEqual` 테스트 신규 1개 |
+| `lib/logparse.js` | 🔒 **무수정** | 정규식 한 글자도 바꾸지 않는다 |
+| `lib/agy-usage.js` | 🔒 **무수정** | Phase 1 에서 완성. 로그 문자열도 이미 그 안에 있다 |
+
+🔒 **기존 테스트 편집 0.** 두 테스트 파일 모두 **파일 끝에 블록을 덧붙일 뿐** 기존 `test(...)` 를
+수정·삭제하지 않는다. Phase 1 과 같은 규율이다.
+
+### 9-2. 배선 — `watch-loop.js` 의 정확히 세 지점
+
+#### (a) require — 파일 상단 require 블록 끝
+
+```js
+const { createAgyMonitor } = require('./lib/agy-usage');
+```
+
+🔒 `measureAgy` · `parseUsage` · `AGY_ARGS` 는 **가져오지 않는다.** watch-loop 이 아는 것은
+`createAgyMonitor` 하나뿐이어야 하고, 그래야 로직이 lib 밖으로 새지 않는다(D10).
+
+#### (b) 생성 — 모듈 스코프, `log()` 정의 **직후**, 정확히 1회
+
+```js
+const agyMonitor = createAgyMonitor({ log: log });
+```
+
+- 🔒 **`log()` 함수 선언 뒤여야 한다** — `log` 는 `function` 선언이라 호이스팅되지만,
+  독자가 "무엇이 주입되는가" 를 위에서 아래로 읽을 수 있게 선언 직후에 둔다.
+- 🔒 **`pollOnce()` 안에서 만들면 안 된다.** 폴마다 새 모니터가 생기면
+  `lastSuccess`(성공값 보존)도 in-flight 가드도 **매 폴 리셋**되어 D8 의 두 규율이 동시에 무너진다.
+  → `createAgyMonitor(` 가 소스 전체에서 **정확히 1회**, 그리고 `pollOnce()` 본문 밖임을 테스트로 못박는다.
+- `measure` · `nowFn` 은 주입하지 않는다 — 운영 기본값(`measureAgy` + `resolveAgyFile()` + 45초)이 그대로 쓰인다.
+
+#### (c) 호출 — `pollOnce()` 의 `refreshConfig()` 바로 다음 줄
+
+```js
+async function pollOnce() {
+  const cfg = refreshConfig();
+  agyMonitor.poll();          // 🔒 await 없음. 아래 5개 조기 return 전부보다 앞
+  log('[poll start]');
+  ...
+}
+```
+
+🔒 **위치의 근거(스펙 §2)** — `pollOnce()` 에는 claude 경로의 조기 `return` 이 **5곳** 있다:
+
+| # | 분기 | 줄 성격 |
+|---|---|---|
+| ① | 스크레이프 실패 | `[poll error] scrape failed:` |
+| ② | 추출 실패 | `[poll error] invalid extraction:` |
+| ③ | 설정 비활성 | `[config] disabled, ...` |
+| ④ | 수동 STOP | `[stop] manual STOP active, ...` |
+| ⑤ | 자동 STOP 유지 | `[stop] holding STOP (...)` |
+
+agy 호출을 그 뒤에 두면 **claude 측정이 죽어 있거나 STOP 이 걸려 있는 동안 agy 는 영영 안 잰다** —
+바로 agy 숫자가 제일 필요한 때다. ③④⑤ 는 *정상 운영 중에도 매 폴 발생하는* 분기라
+"예외적 상황" 이라고 넘길 수 없다.
+
+🔒 **`await` 하지 않는 근거** — agy 호출은 회당 약 6초, 타임아웃 45초다. `await` 하면
+`scrapeUsage()` 착수와 STOP.json 판정이 **최대 45초 늦어진다.** 차단기의 응답성이 측정 부가기능보다
+우선한다. `.poll()` 은 D8 에 의해 **동기적으로 즉시 반환**하므로 `await` 가 애초에 필요 없다.
+
+🔒 **`try/catch` 로 감싸지 않는다** — `.poll()` 이 절대 throw 하지 않는 것이 Phase 1 의 계약이다
+(ACCEPTANCE Phase 1). 여기서 다시 감싸면 그 계약이 지켜지는지 아무도 모르게 된다.
+이중 안전망은 이미 `mainLoop()` 의 `catch (e) { log('[poll uncaught] ...') }` 에 있다.
+
+### 9-3. 데이터 흐름 — claude 경로와 **완전 독립**
+
+```
+setInterval 대신 while(true) 루프
+  └ pollOnce()
+      ├ refreshConfig()                     ← 설정 갱신 (기존)
+      │
+      ├ agyMonitor.poll() ─────────────┐    ← 🔴 Phase 2 가 추가한 유일한 동작
+      │   (동기 반환, 즉시 다음 줄로)    │
+      │                                 │  [별도 타임라인 · 약 6초]
+      ├ log('[poll start]')             │
+      ├ scrapeUsage() … deriveDesired() │
+      └ STOP.json 쓰기/지우기            │
+                                        ▼
+                             measureAgy → 결과 → 모니터 상태 갱신
+                                        └ log('[agy] ...')  ← append 1줄
+                                                 │
+                                                 ▼
+                                    .prominence\bellows.log
+```
+
+🔒 **두 타임라인이 같은 파일에 쓴다.** `log()` 는 `fs.appendFileSync` 라 각 호출이 원자적 append 이고,
+Node 는 단일 스레드라 한 줄이 다른 줄 중간에 끼어 들어갈 수 없다. **줄 순서는 보장되지 않지만
+줄 자체는 온전하다** — 그리고 `parseLogTail` 은 줄 단위로 읽으므로 순서 섞임이 문제되지 않는다
+(agy 줄은 어차피 건너뛰어진다).
+
+🔒 **폴 간격(15분) ≫ agy 타임아웃(45초)** 이므로 정상 운영에서 in-flight 가드가 걸릴 일은 없다.
+가드는 agy 가 매달려 있는 병리적 상황에서 **자식 프로세스가 쌓이는 것**을 막는 안전장치다.
+
+### 9-4. 로그 형식 — 🔒 `logparse` 비오염이 제1 제약
+
+로그 줄을 만드는 코드는 `lib/agy-usage.js` 의 `formatLogLine()` 하나뿐이다(Phase 1 완성).
+Phase 2 는 그 형식이 **005 의 복원기를 오염시키지 않음을 증명**한다.
+
+```
+[agy] gemini weekly_left=45% five_hour_left=100%
+[agy] fail kind=timeout
+[agy] fail kind=exit-nonzero hint=login-required
+```
+
+`lib/logparse.js` 가 한 줄을 처리하는 순서와, agy 줄이 각 관문에서 어떻게 떨어지는가:
+
+| 관문 | `logparse.js` | agy 줄의 운명 |
+|---|---|---|
+| 1 | `isoRe` — 줄 앞에 ISO 타임스탬프 | **통과**(`log()` 가 ts 를 붙인다). 여기서 막는 설계에 기대지 않는다 |
+| 2 | `sessRe = /session=(\d+...)%/` | ✂ **불매칭** — agy 줄에 `session=` 이 없다 |
+| 3 | `weekRe = /weekly=(\d+...)%/` | ✂ **불매칭** — `weekly_left=` 의 `weekly` 다음 글자는 `_` 다 |
+| 4 | 성공 판정 = `sessMatch && weekMatch` | ✂ 둘 다 필요하므로 **성공 이벤트로 오인되지 않음** |
+| 5 | `line.indexOf('[poll error]')` | ✂ **부분문자열 없음** → 실패 이벤트로도 오인되지 않음 |
+| → | `totalValidEvents` | 🔒 **증가하지 않는다** — agy 줄은 통째로 건너뛰어진다 |
+
+🔒 **가장 위험한 실수는 `weekly=45%`** 다. 그러면 재기동 때 **Gemini 45% 가 claude 주간 사용량으로
+복원된다** — 예외도 경고도 없이, 그냥 틀린 숫자가 화면에 뜬다. `weekly_left=` 는 그 한 글자(`_`)로
+관문 3 을 막는다.
+
+🔒 **금지 부분문자열(agy 줄에 있으면 안 됨)**: `session=` · `weekly=` · `[poll error]`.
+🔒 **reset 시각은 로그에 싣지 않는다**(D9) — 사람이 읽을 두 숫자면 충분하고, 센티넬 오염 검사 표면이 줄어든다.
+🔒 **기존 claude 로그 줄 형식은 한 글자도 바꾸지 않는다**(`session=..% weekly=..%`, `[poll error] ...`,
+`[restore] ...`, `[config] ...`, `[stop] ...`, `[release] ...`, `[hold] ...`).
+
+### 9-5. 검증 설계
+
+#### (a) `watch-loop.js` 배선 — **구조 검사**로 한다
+
+🔒 `watch-loop.test.js` 는 헤더에 적힌 대로 `pollOnce()` 를 **실제로 돌리지 않는다** — 돌리면
+**진짜 `STOP.json` 과 진짜 `bellows.log`** 를 건드리고 Chrome 연결을 시도한다. 그래서 기존
+W1~W3 과 동일하게 **소스 텍스트를 정규식으로 읽는** 구조 검사를 쓴다.
+
+| 검사 | 단언 |
+|---|---|
+| S1 | `createAgyMonitor(` 가 소스 전체에 **정확히 1회**, 그리고 `pollOnce()` 본문 **밖** |
+| S2 | `pollOnce()` 본문에 `agyMonitor.poll()` 이 있고, **`await` 가 붙어 있지 않다** |
+| S3 | `pollOnce()` 본문에서 `agyMonitor.poll()` 의 인덱스가 `refreshConfig()` **뒤**이고, **5개 이상의 `return;` 전부보다 앞** |
+| S4 | `require('./lib/agy-usage')` 로 `createAgyMonitor` 를 가져온다 |
+
+🔒 S3 는 "5곳 이상" 을 단언한다 — 조기 return 이 **늘어나도** 이 검사가 계속 유효하고,
+누군가 agy 호출을 아래로 옮기면 즉시 깨진다.
+
+🔒 **기존 W3**(`pollOnce()` 본문을 `/async function pollOnce\(\)[\s\S]*?\r?\n\}\r?\n/` 로 잘라내는
+정규식)을 깨지 않는다 — 추가되는 것이 **한 줄 호출**뿐이라 본문 구조가 그대로다.
+
+🔒 **`claude` 0회 검사**(기존 테스트)를 통과해야 한다 — 추가하는 세 줄과 주석 어디에도
+그 문자열이 없다. 주석은 `Gemini quota monitor` 처럼 쓴다.
+
+#### (b) `logparse` 비오염 — `deepStrictEqual` 대조
+
+```
+L      = [ claude 성공 줄, [poll error] 줄, ... ]            (순수 claude tail)
+L_agy  = L 에 agy 성공 줄 · agy 실패 줄(kind·hint 포함)을 섞은 것
+```
+
+🔒 **`assert.deepStrictEqual(parseLogTail(L_agy), parseLogTail(L))`** —
+`lastSuccessAt` · `lastUsage` · `consecutiveFailures` · `lastFailure` 네 필드가 **모두** 같아야 한다.
+🔒 **대조(negative control)**: 같은 테스트에서 `parseLogTail(L).lastUsage` 가 L 안의 claude 값을
+실제로 복원함을 단언한다 — 양쪽이 똑같이 `null` 이라서 통과하는 가짜 성공을 막는다.
+
+섞는 agy 줄은 **실제 형식 그대로**여야 한다: 성공 1줄 + `kind=` 만 있는 실패 1줄 +
+`kind=` `hint=` 둘 다 있는 실패 1줄. 🔒 `hint=login-required` 줄은 `logparse` 의 `hintRe`/`kindRe`
+가 잡을 **모양을 갖췄지만** 관문 5(`[poll error]` 부분문자열)에서 떨어진다 — 이 조합이 가장 위험하므로
+반드시 포함한다.
+
+🔒 위치를 섞는다: agy 줄을 claude 성공 줄 **뒤**에도 두어, 오염되면 `consecutiveFailures` 나
+`lastUsage` 가 반드시 달라지게 한다.
+
+### 9-6. Phase 2 가 건드리지 않는 것
+
+- `lib/logparse.js` · `lib/agy-usage.js` · `lib/control-server.js` · `lib/status-page.js` · `lib/config.js` — **무수정**
+- `deriveDesired()` · STOP.json 스키마 · 히스테리시스 · 수동 STOP 우선 — 🔒 **근처도 가지 않는다**
+- `/api/status` 응답 · `fields` · 상태 페이지 · `contracts` 버전(`1.3.0` 유지) — **무변경**(015 의 몫)
+- 기존 테스트 파일의 기존 `test(...)` 블록 — **편집 0**
+
+🔒 **수정 전에는 9-5 의 S1~S4 와 비오염 테스트가 전부 FAIL 한다**(배선도 신규 테스트도 없다).

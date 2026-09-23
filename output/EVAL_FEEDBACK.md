@@ -1,6 +1,5 @@
 ## Verdict
-PASS
-
+NEXT
 ## Verdict Criteria (current work file only)
 - NEXT: a phase REMAINS WITHIN the current work file (not for other work files)
 - FIX: Current Phase has bugs or missing features
@@ -64,3 +63,10 @@ NO
 - 실서비스 확인(선택): `run-quaestor.ps1` 로 워처 기동 후 `.prominence\bellows.log` 에서 1분 안에
   `[agy] gemini weekly_left=..% five_hour_left=..%` 또는 `[agy] fail kind=..` 줄이 생기는지 확인.
   `not-installed` 가 나오면 환경변수 `QUAESTOR_AGY_EXE` 에 `agy` 실행파일 경로를 지정한다.
+
+
+## Phase Guard
+PROGRESS.md still has unfinished phase(s): 2:CURRENT. Eval returned PASS but promotion was deferred so the run advances to the next phase instead. Record this deferral in Korean in the next EVAL_FEEDBACK.md under "## Phase Guard".
+
+## Verdict
+NEXT

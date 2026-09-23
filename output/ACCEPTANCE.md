@@ -60,3 +60,36 @@
 - [SPEC] 구현 전에는 위 파서·`measureAgy`·모니터 기준이 전부 FAIL 해야 한다(모듈이 존재하지 않는다).
 - [DERIVED] 가짜 agy 픽스처는 `test/fixtures/` 하위에 두고 `.test.js` 로 끝나지 않아 `test/run-all.js` 가 테스트로 오인하지 않아야 한다.
 - [DERIVED] `process.env` 를 건드리는 테스트는 `try/finally` 로 원상복구해 다른 테스트 파일을 오염시키지 않아야 한다.
+
+## Phase 2 Acceptance Criteria
+
+### `watch-loop.js` 배선 — 위치와 방식 (외부 참조: work/014 §2)
+- [SPEC] `watch-loop.js` 가 `./lib/agy-usage` 에서 `createAgyMonitor` 를 require 해야 한다.
+- [SPEC] 모니터를 **정확히 한 번** 만들어야 한다 — `createAgyMonitor(` 가 `watch-loop.js` 소스 전체에 1회만 나타나고, `pollOnce()` 본문 **안에서는 호출되지 않아야** 한다.
+- [SPEC] `pollOnce()` 본문이 `agyMonitor.poll()` 을 호출하되 **`await` 없이** 호출해야 한다.
+- [SPEC] `pollOnce()` 본문에서 `agyMonitor.poll()` 호출 위치가 `refreshConfig()` **뒤**이면서 claude 경로의 **조기 `return` 5곳(스크레이프 실패 · 추출 실패 · 설정 비활성 · 수동 STOP · 자동 STOP 유지) 전부보다 앞**이어야 한다.
+- [SPEC] `watch-loop.js` 소스에 문자열 `claude` 가 **0회**여야 한다 — 이번에 추가하는 코드·주석 포함(기존 테스트가 이를 고정한다).
+- [DERIVED] 모니터 생성은 모듈 스코프에서 `log` 만 주입하고(`{ log: log }`), `measure`·`nowFn` 은 주입하지 않아 운영 기본값(`measureAgy` · `resolveAgyFile()` · 45초 타임아웃)이 쓰여야 한다.
+- [DERIVED] `agyMonitor.poll()` 호출을 `try/catch` 로 감싸지 않는다 — never-throw 는 Phase 1 의 계약이고, 이중 안전망은 기존 `[poll uncaught]` 핸들러가 담당한다.
+- [DERIVED] 배선 검증은 **구조 검사**(소스 텍스트 정규식)로 한다 — `pollOnce()` 를 실제로 실행해 진짜 `STOP.json`·`bellows.log`·Chrome 에 접근하지 않아야 한다.
+- [DERIVED] 기존 W3 테스트가 쓰는 `pollOnce()` 본문 추출 정규식이 계속 매칭되어야 한다(본문에 추가되는 것은 한 줄 호출뿐).
+
+### 로그 형식 — `logparse` 비오염 (외부 참조: work/014 §3, `lib/logparse.js:24-25`)
+- [SPEC] agy 성공 줄은 `[agy] gemini weekly_left=<w>% five_hour_left=<f>%`, 실패 줄은 `[agy] fail kind=<kind>`(+`hint` 가 있으면 ` hint=<hint>`) 형식이어야 한다.
+- [SPEC] agy 가 남기는 로그 줄에는 부분문자열 `session=` · `weekly=` · `[poll error]` 가 **하나도 없어야** 한다.
+- [SPEC] `parseLogTail(L)` 과 `parseLogTail(L 에 agy 성공 줄·실패 줄을 섞은 것)` 이 **`deepStrictEqual`** 이어야 한다(`lastSuccessAt`·`lastUsage`·`consecutiveFailures`·`lastFailure` 네 필드 모두).
+- [SPEC] 대조 검증: 같은 테스트에서 `parseLogTail(L)` 이 L 안의 claude 성공 줄을 실제로 복원해야 한다(`lastUsage` 가 `null` 이 아니고 기대 값과 일치) — 양쪽이 똑같이 비어서 통과하는 가짜 성공을 배제한다.
+- [SPEC] 기존 claude 로그 줄 형식(`session=..% weekly=..%`, `[poll error] ...`, `[restore] ...`, `[config] ...`, `[stop] ...`, `[release] ...`, `[hold] ...`)은 **한 글자도 바뀌지 않아야** 한다.
+- [DERIVED] 섞는 agy 줄에는 `kind=` 만 있는 실패 줄과 `kind=`·`hint=` 가 모두 있는 실패 줄을 **둘 다** 포함하고, claude 성공 줄 **뒤쪽**에도 배치해 오염 시 `consecutiveFailures`·`lastUsage` 가 반드시 달라지게 해야 한다.
+- [DERIVED] agy 줄은 `totalValidEvents` 를 증가시키지 않아야 한다 — 성공 이벤트로도 실패 이벤트로도 집계되지 않는다.
+- [DERIVED] reset 시각은 로그 줄에 싣지 않는다.
+
+### 무변경 · 회귀 (외부 참조: work/014 "Acceptance 8", MASTER 불변 조항)
+- [SPEC] `lib/logparse.js` 는 **무수정**이어야 한다 — 정규식 한 글자도 바꾸지 않는다.
+- [SPEC] `lib/agy-usage.js` 는 Phase 2 에서 **무수정**이어야 한다(로그 포맷 코드는 Phase 1 에서 완성됐다).
+- [SPEC] 기존 테스트 파일의 기존 `test(...)` 블록 **편집 0** — `watch-loop.test.js`·`logparse.test.js` 에는 **추가만** 한다.
+- [SPEC] `deriveDesired()` · STOP.json 의 위치·이름·스키마 · 히스테리시스 · 수동 STOP 우선 규칙이 **무변경**이어야 한다.
+- [SPEC] `/api/status` 응답 · `fields` · 상태 페이지 · `/api/health` 의 `contracts["supervised-v1"]`(`1.3.0`)이 **무변경**이어야 한다 — 노출은 015 의 몫이다.
+- [SPEC] `node p-quaestor/test/run-all.js` 가 **회귀 0**, `exitCode 0` 으로 통과해야 한다.
+- [SPEC] 구현 전에는 배선 구조 검사 4종과 `logparse` 비오염 테스트가 전부 FAIL 해야 한다.
+- [DERIVED] `TEST_RESULT.md` 에 적는 테스트 **파일 수·통과 수**는 `run-all.js` 실행 로그의 실제 값과 일치해야 한다(직전 라운드에 파일 수 오기가 있었다).
