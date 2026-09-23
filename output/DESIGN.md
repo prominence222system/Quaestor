@@ -47,3 +47,21 @@ Quaestor는 Claude와 Gemini의 토큰 사용량을 감시하고, 한도에 도�
 
 3. **테스트 수정**:
    - `test/observation.test.js:236-244`에서 확인하는 라벨 배열의 맨 끝에 `'Gemini 주간 잔량'`과 `'Gemini 5시간 잔량'`을 순서대로 추가하여, 10개 행 모두가 올바르게 나오는지 검증하도록 업데이트함.
+
+## 상세 설계: Phase 2 (`watch-loop.js` 및 `lib/control-server.js`)
+
+**목표**: 제어 루프에서 스냅샷을 전달하고, HTTP API(`/api/status`, `/api/health`)에 `agy` 블록과 계약 버전 업데이트 적용
+
+1. **`watch-loop.js` 수정**:
+   - `controlSnapshot()` 함수가 반환하는 `ctx` 객체에 `agy: agyMonitor.snapshot()`을 덧붙임. 기존 키들은 절대 변경하지 않음.
+   - 이 파일 내에 `claude`라는 문자열(변수명, 주석 포함)이 새로 유입되지 않도록 엄격히 통제함.
+
+2. **`lib/control-server.js` 수정**:
+   - `/api/status` 응답의 최상위 객체에 `agy` 필드를 추가하고 값으로 `deriveAgy(snap.ctx && snap.ctx.agy, nowMs)`의 결과를 할당함.
+   - `usage.covers` 와 `allowance.covers` 값은 계속 `["claude"]` 로 유지하여 기존 하위 호환성을 보장함.
+   - 파일 내 `CONTRACTS` 상수의 `supervised-v1` 값을 `1.4.0`에서 `1.5.0`으로 상향하고, 상수 위 주석에 `1.4.0 -> 1.5.0: 최상위 agy 블록 추가 (하위호환)`을 명시함.
+   - 테스트(`test/control-server.test.js`)의 단언을 깨뜨리지 않기 위해 파일 내에 문자열 `claude`가 추가되지 않도록 유지함.
+
+3. **테스트 수정 (`test/control-server.test.js`)**:
+   - `:231`, `:501`, `:1632`, `:2425` 위치의 최상위 키 집합 검증 배열에 `'agy'` 원소를 추가함.
+   - `:169`, `:176` 및 `:210`, `:217` 위치의 테스트 제목과 단언값에서 계약 버전을 `1.4.0`에서 `1.5.0`으로 모두 변경함.
