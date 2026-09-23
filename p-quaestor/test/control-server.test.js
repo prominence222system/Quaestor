@@ -166,14 +166,14 @@ test('GET /api/health startedAt is constant across two requests', async () => {
 
 // ---- 011: /api/health contracts field -------------------------------------
 
-test('[SPEC] GET /api/health over real port returns top-level contracts object with contracts["supervised-v1"] === "1.4.0"', async () => {
+test('[SPEC] GET /api/health over real port returns top-level contracts object with contracts["supervised-v1"] === "1.5.0"', async () => {
   const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });
   try {
     const res = await fetch('http://127.0.0.1:' + r.port + '/api/health');
     assert.strictEqual(res.status, 200);
     const body = await res.json();
     assert.ok(body.contracts && typeof body.contracts === 'object');
-    assert.strictEqual(body.contracts['supervised-v1'], '1.4.0');
+    assert.strictEqual(body.contracts['supervised-v1'], '1.5.0');
     assert.strictEqual(typeof body.contracts['supervised-v1'], 'string');
   } finally {
     await r.close();
@@ -207,14 +207,14 @@ test('[SPEC] existing GET /api/health fields (ok, id, version, startedAt) remain
   }
 });
 
-test('[SPEC] software version (0.1.0) and contract version (1.4.0) are distinct axes and have different values', async () => {
+test('[SPEC] software version (0.1.0) and contract version (1.5.0) are distinct axes and have different values', async () => {
   const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });
   try {
     const res = await fetch('http://127.0.0.1:' + r.port + '/api/health');
     const body = await res.json();
     assert.notStrictEqual(body.version, body.contracts['supervised-v1']);
     assert.strictEqual(body.version, '0.1.0');
-    assert.strictEqual(body.contracts['supervised-v1'], '1.4.0');
+    assert.strictEqual(body.contracts['supervised-v1'], '1.5.0');
   } finally {
     await r.close();
   }
@@ -228,7 +228,7 @@ test('[SPEC] GET /api/status response remains completely unchanged (no regressio
     const res = await fetch('http://127.0.0.1:' + r.port + '/api/status');
     assert.strictEqual(res.status, 200);
     const body = await res.json();
-    assert.deepStrictEqual(Object.keys(body).sort(), ['allowance', 'fields', 'ok', 'state', 'summary', 'updatedAt', 'usage']);
+    assert.deepStrictEqual(Object.keys(body).sort(), ['agy', 'allowance', 'fields', 'ok', 'state', 'summary', 'updatedAt', 'usage']);
     assert.strictEqual(body.state, expected.state);
     assert.strictEqual(body.summary, expected.summary);
     assert.deepStrictEqual(body.fields, expected.fields);
@@ -498,7 +498,7 @@ test('[008] real port -- allowance key set stays exactly {allowed, confidence, c
   try {
     const res = await getJson(r.port, '/api/status');
     assert.deepStrictEqual(Object.keys(res.body.allowance).sort(), ['allowed', 'confidence', 'covers', 'reason']);
-    assert.deepStrictEqual(Object.keys(res.body).sort(), ['allowance', 'fields', 'ok', 'state', 'summary', 'updatedAt', 'usage']);
+    assert.deepStrictEqual(Object.keys(res.body).sort(), ['agy', 'allowance', 'fields', 'ok', 'state', 'summary', 'updatedAt', 'usage']);
   } finally {
     await r.close();
   }
@@ -1629,7 +1629,7 @@ test('[SPEC] regression: GET /api/health and GET /api/status are byte-identical 
 
     const status = await getJson(r.port, '/api/status');
     assert.strictEqual(status.status, 200);
-    assert.deepStrictEqual(Object.keys(status.body).sort(), ['allowance', 'fields', 'ok', 'state', 'summary', 'updatedAt', 'usage']);
+    assert.deepStrictEqual(Object.keys(status.body).sort(), ['agy', 'allowance', 'fields', 'ok', 'state', 'summary', 'updatedAt', 'usage']);
     assert.strictEqual(status.body.state, expected.state);
     assert.strictEqual(status.body.summary, expected.summary);
     assert.deepStrictEqual(status.body.fields, expected.fields);
@@ -2422,7 +2422,7 @@ test('[SPEC] regression: GET /api/status fields/summary/state/allowance/usage sh
   const r = await startControlServer({ port: 0, authToken: TOKEN012, configPath: p, getSnapshot: () => snap });
   try {
     const res = await getJson(r.port, '/api/status', { headers: { Authorization: 'Bearer ' + TOKEN012 } });
-    assert.deepStrictEqual(Object.keys(res.body).sort(), ['allowance', 'fields', 'ok', 'state', 'summary', 'updatedAt', 'usage']);
+    assert.deepStrictEqual(Object.keys(res.body).sort(), ['agy', 'allowance', 'fields', 'ok', 'state', 'summary', 'updatedAt', 'usage']);
     assert.strictEqual(res.body.state, expected.state);
     assert.strictEqual(res.body.summary, expected.summary);
   } finally {
@@ -2481,3 +2481,95 @@ test('[DERIVED] handlePutThresholds reads the wall clock exactly once (Date.now(
   assert.strictEqual(nowCalls.length, 1, 'expected exactly one Date.now() read (outside comments) in handlePutThresholds');
   assert.ok(/validateThresholdRequest\([^)]*Date\.now\(\)\)/.test(putSection), 'Date.now() must be passed straight into validateThresholdRequest');
 });
+
+// ---- 015 Phase 2: /api/status top-level agy block and contracts 1.5.0 -------
+
+test('015 Phase 2 [SPEC]: real server GET /api/status returns top-level agy block with exact 1.5.0 key set', async () => {
+  const snap = okSnapshot();
+  const r = await startControlServer({ port: 0, getSnapshot: () => snap });
+  try {
+    const res = await getJson(r.port, '/api/status');
+    assert.strictEqual(res.status, 200);
+    assert.ok(res.body.agy && typeof res.body.agy === 'object');
+    const expectedKeys = [
+      'age_sec', 'bucket', 'covers', 'five_hour_remaining_pct', 'five_hour_reset',
+      'last_error', 'measured_at', 'stale', 'weekly_remaining_pct', 'weekly_reset'
+    ];
+    assert.deepStrictEqual(Object.keys(res.body.agy).sort(), expectedKeys.sort());
+    assert.deepStrictEqual(res.body.agy.covers, ['agy']);
+    assert.strictEqual(res.body.agy.bucket, 'Gemini Models');
+  } finally {
+    await r.close();
+  }
+});
+
+test('015 Phase 2 [SPEC]: real server 100% reset sentinel -- five_hour_reset is null and absent from /api/status response', async () => {
+  const snap = okSnapshot();
+  snap.ctx.agy = {
+    lastAttempt: { at: '2026-09-23T06:10:02Z', ok: true },
+    lastSuccess: {
+      weekly_remaining_pct: 45,
+      five_hour_remaining_pct: 100,
+      weekly_reset_raw: '2030-06-06T06:06:06Z',
+      five_hour_reset_raw: '2030-05-05T05:05:05Z',
+      at: '2026-09-23T06:10:02Z'
+    }
+  };
+  const r = await startControlServer({ port: 0, getSnapshot: () => snap });
+  try {
+    const res = await httpRequest(r.port, '/api/status');
+    assert.strictEqual(res.body.agy.five_hour_reset, null);
+    assert.strictEqual(res.body.agy.weekly_reset, '2030-06-06T06:06:06Z');
+    assert.ok(!res.text.includes('2030-05-05'), 'five_hour sentinel 2030-05-05 must not appear in /api/status');
+    assert.ok(res.text.includes('2030-06-06'), 'weekly sentinel 2030-06-06 must appear in /api/status');
+  } finally {
+    await r.close();
+  }
+});
+
+test('015 Phase 2 [SPEC]: independence over real server -- ctx.agy in failure state does not affect usage, allowance, state, summary', async () => {
+  const obs = recordSuccess(createObservation(), { session_pct: 10, weekly_pct: 20 }, Date.now());
+  const snapWithout = { observation: obs, ctx: { enabled: true, thresholds: { weekly_stop: 85, session_stop: 90 }, stop: null } };
+  const snapWithFailedAgy = {
+    observation: obs,
+    ctx: {
+      enabled: true,
+      thresholds: { weekly_stop: 85, session_stop: 90 },
+      stop: null,
+      agy: {
+        lastAttempt: { at: new Date().toISOString(), ok: false, kind: 'timeout' },
+        lastSuccess: null
+      }
+    }
+  };
+
+  const r1 = await startControlServer({ port: 0, getSnapshot: () => snapWithout });
+  const r2 = await startControlServer({ port: 0, getSnapshot: () => snapWithFailedAgy });
+  try {
+    const res1 = await getJson(r1.port, '/api/status');
+    const res2 = await getJson(r2.port, '/api/status');
+
+    assert.strictEqual(res1.status, 200);
+    assert.strictEqual(res2.status, 200);
+
+    assert.deepStrictEqual(res1.body.usage, res2.body.usage);
+    assert.deepStrictEqual(res1.body.allowance, res2.body.allowance);
+    assert.strictEqual(res1.body.state, res2.body.state);
+    assert.strictEqual(res1.body.summary, res2.body.summary);
+  } finally {
+    await r1.close();
+    await r2.close();
+  }
+});
+
+test('015 Phase 2 [SPEC]: real server GET /api/health returns contracts["supervised-v1"] === "1.5.0"', async () => {
+  const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });
+  try {
+    const res = await getJson(r.port, '/api/health');
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.contracts['supervised-v1'], '1.5.0');
+  } finally {
+    await r.close();
+  }
+});
+

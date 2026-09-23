@@ -198,7 +198,8 @@ function controlSnapshot() {
       enabled:      lastCfg ? lastCfg.enabled : true,
       thresholds:   lastCfg ? lastCfg.thresholds : undefined,
       stop:         lastStop,
-      configSource: lastConfigSource
+      configSource: lastConfigSource,
+      agy:          agyMonitor.snapshot()
     }
   };
 }

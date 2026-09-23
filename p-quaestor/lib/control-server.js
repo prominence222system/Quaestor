@@ -26,7 +26,7 @@
 const http = require('node:http');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
-const { deriveState, deriveUsage, deriveAllowance } = require('./observation');
+const { deriveState, deriveUsage, deriveAllowance, deriveAgy } = require('./observation');
 const { renderStatusPage } = require('./status-page');
 const { readConfig } = require('./config');
 const { validateThresholdRequest, mergeIntoConfig, formatThresholdLog } = require('./thresholds');
@@ -41,8 +41,9 @@ const MAX_BODY_BYTES = 65536;   // 64 KiB cap on PUT /api/thresholds request bod
 // 두 축을 함께 내되 섞지 않는다 (Agora 022 §2/§3 규율).
 // 1.2.0 -> 1.3.0: PUT /api/thresholds 추가 (하위호환 확장).
 // 1.3.0 -> 1.4.0: usage·allowance 에 covers 추가 (하위호환).
+// 1.4.0 -> 1.5.0: 최상위 agy 블록 추가 (하위호환)
 const CONTRACTS = Object.freeze({
-  'supervised-v1': '1.4.0'
+  'supervised-v1': '1.5.0'
 });
 
 let cachedVersion = null;
@@ -148,6 +149,7 @@ function buildStatusPayload(ctx) {
       summary: st.summary,
       state: st.state,
       fields: st.fields,
+      agy: deriveAgy(snap.ctx && snap.ctx.agy, nowMs),
       updatedAt: new Date().toISOString()
     };
   } catch (e) {

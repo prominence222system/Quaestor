@@ -365,3 +365,13 @@ test('014 §2: watch-loop.js requires createAgyMonitor from ./lib/agy-usage', ()
   assert.ok(/createAgyMonitor/.test(SRC), 'watch-loop.js must reference createAgyMonitor');
 });
 
+// ---- 015 Phase 2: controlSnapshot agy wiring (structural) ----------------
+
+test('015 Phase 2 [SPEC]: controlSnapshot() returns ctx with agy key populated by agyMonitor.snapshot()', () => {
+  const snapshotMatch = SRC.match(/function controlSnapshot\(\)[\s\S]*?\n\}/);
+  assert.ok(snapshotMatch, 'expected a controlSnapshot() function');
+  const block = snapshotMatch[0];
+  assert.ok(/agy\s*:\s*agyMonitor\.snapshot\(\)/.test(block), 'controlSnapshot() ctx must include agy: agyMonitor.snapshot()');
+});
+
+
