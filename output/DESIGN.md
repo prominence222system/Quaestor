@@ -318,17 +318,163 @@ Phase 1 은 **새 파일 3개만** 만든다. 기존 파일 수정 0건이므로
 
 ---
 
-## 8. Phase 2 개요 (상세 설계는 Phase 1 완료 후 갱신)
+## 8. Phase 2 상세 설계 — `lib/status-page.js` 파비콘 · 머리글 마크 · CSS
 
-- `lib/status-page.js`: `require('./brand')`, `<head>` 의 `<title>` 줄 **바로 다음**에 `<link rel="icon">`,
-  `'<h1>Quaestor</h1>\n'` → `'<div class="brand">' + MARK_INLINE + '<h1>Quaestor</h1></div>\n'`,
-  `styleBlock()` 에 D6 의 선택자 3개 추가
-- `test/status-page.test.js` 에 렌더 단위 테스트 **추가만**
-- `test/control-server.test.js` 에 실제 포트 경계 테스트 **추가만** — `startControlServer({ port: 0, … })`,
-  015 의 `ctx.agy` 스냅샷 픽스처를 써서 Gemini 구역이 함께 렌더되는 상태에서도
-  HTML 에 `agy`·`http://`·`https://` 가 0개임을 확인
-- 🔒 **경계 테스트의 반증 가능성 확인**: `lib/status-page.js` 만 HEAD(`55f14ed`) 상태로 되돌린 뒤
-  새 경계 테스트를 돌려 **실패함을 눈으로 확인**하고 복원한다. 통과만 하는 테스트는 아무것도 증명하지 않는다
+### 8-0. 이 Phase 의 위치
+
+Phase 1 이 만든 상수를 **처음으로 소비**하는 구간이고, 기존 단언 8종(§4 D3 의 표)과
+맞부딪히는 **유일한** 구간이다.
+
+🔒 **손대는 소스 파일은 `lib/status-page.js` 하나뿐이다.** `lib/control-server.js` ·
+`lib/brand.js` · `assets/icon.svg` · `watch-loop.js` · 런처 `.ps1` 은 무수정이다.
+라우팅도 계약도 이 Phase 의 범위가 아니다 — 렌더러가 내놓는 **문자열**만 바뀐다.
+
+### 8-1. 변경점 — 한 파일 · 네 지점
+
+| # | 위치 | 전 | 후 |
+|---|---|---|---|
+| 1 | 모듈 상단(상수 선언부 앞) | — | `const { MARK_INLINE, FAVICON_HREF } = require('./brand');` |
+| 2 | `renderStatusPage()` 의 `<head>` | `<title>…</title>\n` | 그 **바로 다음 줄**에 `<link rel="icon" type="image/svg+xml" href="' + FAVICON_HREF + '">\n` |
+| 3 | `renderStatusPage()` 의 `<main>` 첫 자식 | `'<h1>Quaestor</h1>\n'` | `'<div class="brand">' + MARK_INLINE + '<h1>Quaestor</h1></div>\n'` |
+| 4 | `styleBlock()` 반환 문자열 꼬리 | `'.field{margin:4px 0}'` 로 끝 | 그 뒤에 선택자 **3개를 이어 붙임**(§8-5) |
+
+네 지점 모두 **무조건 실행**이다. 분기 · payload 읽기 · 판정이 없다.
+
+### 8-2. import 표기 — 구조분해 2개만 가져온다
+
+```
+const { MARK_INLINE, FAVICON_HREF } = require('./brand');
+```
+
+🔒 `ICON_SVG` 와 `MARK_BODY` 는 **가져오지 않는다.** 렌더러가 쓰지 않기 때문이기도 하지만,
+더 중요한 이유는 `ICON_SVG` 가 HTML 에 직접 실리면 `xmlns` 의 `http://` 때문에 기존 단언
+(`status-page.test.js:151`, `control-server.test.js:1613`)이 **즉시 깨진다**는 것이다.
+렌더 경로가 손에 쥘 수 있는 재료를 `MARK_INLINE`(`xmlns` 없음)과 `FAVICON_HREF`(base64) 둘로
+제한하면 — **잘못 쓸 재료를 애초에 쥐어주지 않는 배치**가 된다. 방어는 규율이 아니라 구조가 한다.
+
+`./brand` 는 상대경로이므로 `status-page.test.js:160` 의 "npm 패키지 `require` 0개" 단언을 통과한다.
+이 Phase 가 추가하는 `require` 는 이 한 줄이 전부다.
+
+### 8-3. `<head>` — `<title>` 바로 다음인 이유
+
+1. **작업 파일이 지정한 위치다**(§Scope 3) — [SPEC].
+2. **검증 가능한 순서가 된다.** 테스트가 `indexOf('</title>') < indexOf(link)` 로 위치를
+   단언할 수 있다. "어딘가 `<head>` 안에" 보다 강한 진술이다.
+3. `<style>` **앞**이므로 파비콘 해석이 인라인 CSS 파싱 뒤로 밀리지 않는다.
+
+`sendHtml()` 은 `Content-Type: text/html; charset=utf-8` 과 `Cache-Control: no-store` 만
+보내고 **CSP 헤더가 없다**(§4 D5 실측) — `data:` URI 파비콘이 정책에 막히지 않는다.
+
+### 8-4. 머리글 — `<h1>` 을 지우지 않고 **감싼다**
+
+```
+<div class="brand"><svg class="mark" … aria-hidden="true" focusable="false">…6 shapes…</svg><h1>Quaestor</h1></div>
+```
+
+- 🔒 `<h1>Quaestor</h1>` 이 **부분문자열로 그대로 남는다.** 치환이 아니라 감싸기이므로
+  이 문자열을 보는 기존/신규 단언이 모두 성립한다.
+- 🔒 바로 윗줄 `<main class="…" data-sig="…"…>` 은 **한 글자도 바뀌지 않는다.**
+  `signature()` 를 수정하지 않으므로 `data-sig` 값도, 그것을 비교하는 자동 새로고침 동작도 불변이다.
+- 접근성: 접근 가능 이름은 `<h1>` 텍스트가 제공하고 마크는 `aria-hidden="true"` 로 감춰진다 —
+  **중복 낭독 0**. Phase 1 이 `MARK_BODY` 에서 `<title>` 을 뺀 이유가 여기서 값을 한다(§7-1).
+
+### 8-5. CSS — 추가 3개 · 기존 선택자 무수정
+
+기존 규칙 뒤에 이어 붙이는 선택자는 정확히 셋이다.
+
+| 선택자 | 선언 | 역할 |
+|---|---|---|
+| `.brand` | `display:flex;align-items:center;gap:8px;margin:0 0 16px` | 마크와 제목을 한 줄에 세로 중앙 정렬하고, **예전 `h1` 이 지던 아래 여백을 인계**한다 |
+| `.brand h1` | `margin:0` | 자기 마진을 0 으로 — flex 항목의 마진 박스가 중앙 정렬을 틀어놓지 못하게 한다 |
+| `.mark` | `flex-shrink:0` | 제목이 길어져도 마크가 찌그러지지 않는다 |
+
+**세로 리듬 보존 산술**: 전에는 `h1{margin:0 0 16px}` 이 머리글 아래 16px 을 만들었다.
+이제 `.brand` 가 같은 16px 을 만들고 `.brand h1` 이 0 을 만든다 — **합계가 동일**하므로
+아래 badge · section 의 위치가 픽셀 단위로 그대로다.
+🔒 기존 `h1{font-size:1.1rem;margin:0 0 16px;color:#57606a}` 규칙은 **값 하나도 바꾸지 않는다.**
+덮어쓰기는 더 구체적인 선택자로 한다 — `.brand h1`(0,1,1)이 `h1`(0,0,1)을 이기고, 소스 순서상으로도 뒤다.
+
+**§4 D6 초안과의 차이 — 최종 값은 여기 것이 정본이다.**
+
+| 항목 | D6 초안 | 최종 | 사유 |
+|---|---|---|---|
+| `.mark` | `flex:0 0 auto;display:block` | `flex-shrink:0` | **계산값이 같다.** flex 항목의 `flex-grow` 기본값은 0, `flex-basis` 기본값은 `auto` 이므로 남은 한 축만 명시하면 충분하고, flex 항목은 blockification 되므로 `display:block` 은 적용될 일이 없는 **무효 선언**이었다 |
+| `.brand` 의 `gap` | `10px` | `8px` | 순수 시각 조정. 외부 참조가 없는 [DERIVED] 값이다 |
+
+🔒 **`st-` 접두어 금지(015 단언) 준수**: `.brand` · `.mark` 둘 다 `\bst-[a-z0-9_-]+\b` 에 걸리지 않는다.
+🔒 `.st-allowed` · `.st-stale` 를 정적 `<style>` 에 쓰지 않는다는 010 의 규율도 그대로다 —
+새 선택자 셋 중 어느 것도 상태를 말하지 않는다.
+
+### 8-6. 데이터 흐름 — 로고는 payload 를 읽지 않는다
+
+전체 흐름은 §5 와 같고, 이 Phase 가 더하는 것은 **payload 에 의존하지 않는 두 상수**뿐이다.
+
+```
+buildStatusPayload(ctx) ──▶ renderStatusPage(payload)
+                                │
+                                ├─ FAVICON_HREF   (상수 · payload 무관)
+                                ├─ MARK_INLINE    (상수 · payload 무관)
+                                └─ signature(payload) ──▶ data-sig   ← 016 이전과 동일한 계산
+```
+
+따라서:
+- `allowance.allowed` 가 `true`/`false`/`null` 중 무엇이든 로고는 **똑같이** 그려진다.
+  로고는 상태를 말하지 않는다 — 상태를 말하는 것은 badge 하나뿐이라는 010 의 규율을 유지한다.
+- `usage`·`agy`·`state` 가 없거나 망가져도 로고 렌더는 던지지 않는다(문자열 상수 연결뿐).
+- `payload.error` 로 500 이 나가는 경로는 애초에 HTML 을 만들지 않으므로 **완전히 무영향**이다.
+
+### 8-7. 테스트 배치 — 두 층으로 나눈다
+
+| 파일 | 성격 | 잡는 실패 |
+|---|---|---|
+| `test/status-page.test.js` (추가만) | 포트 없는 **순수 렌더** | 문자열 조립이 틀렸다 |
+| `test/control-server.test.js` (추가만) | `startControlServer({ port: 0 })` **실제 왕복** | 조립은 맞는데 서버가 그것을 내보내지 않는다 |
+
+두 실패는 서로 다르다. 렌더러 반환값만 보면 "서버가 이 렌더러를 부르긴 하는가" 를 증명하지 못하고,
+실제 포트만 보면 실패 시 원인이 라우팅인지 조립인지 가려지지 않는다.
+
+실제 포트 층이 단언하는 것(수용 기준 6):
+
+1. `GET /` → 200, HTML 에 `<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,` 가 있고
+   **HTML 에서 잘라낸** href 를 디코드하면 `ICON_SVG` 와 같다
+2. HTML 에 `<div class="brand"><svg class="mark"` 와 `<h1>Quaestor</h1>` 가 있다
+3. HTML 에 `http://` · `https://` · `agy` 가 0개
+4. `GET /favicon.ico` → 404 이고 본문이 JSON 으로 파싱된다(새 경로 없음)
+5. `GET /api/health` 의 `contracts["supervised-v1"]` 가 `1.5.0` 그대로
+
+🔒 **3번은 015 의 `ctx.agy` 스냅샷 픽스처를 채운 상태에서 확인한다.** 파비콘·마크 추가분과
+Gemini 구역이 **함께 렌더된 HTML** 을 봐야 하기 때문이다. 그리고 0개를 단언하기 **전에**
+`<h2>Gemini</h2>` 가 실제로 있음을 먼저 단언한다 — 그러지 않으면 "구역이 안 그려져서 `agy` 가 0개"
+라는 **공허한 통과**가 가능하다. 빈 픽스처로 0개를 세는 것은 아무것도 재지 않는다.
+
+### 8-8. 🔒 반증 가능성 — 통과만 하는 테스트는 근거가 아니다
+
+실제 포트 경계 테스트는 **HEAD `55f14ed` 에서 반드시 실패해야 한다.** 그 시점의 HTML 에는
+`<link rel="icon">` 도 `<div class="brand">` 도 없으므로 단언 1·2 가 즉시 깨진다.
+`lib/status-page.js` 만 그 상태로 되돌려 실패를 **눈으로 확인**한 뒤 복원하는 절차를 밟는다.
+
+### 8-9. Phase 2 가 기존 432개를 깨지 않는 이유
+
+기존 테스트 파일 2개에 **추가만** 하고 한 줄도 수정하지 않는다. 새로 렌더되는 문자열이
+기존 단언 8종(§4 D3 표)에 편입되지만 전부 clear 임이 Phase 1 에서 바이트로 확인됐고,
+Phase 2 는 그 확인된 상수를 **그대로** 실을 뿐 새 문자열을 만들지 않는다.
+유일한 신규 문자열은 `<link rel="icon" …>` 껍데기와 `<div class="brand">` 껍데기,
+그리고 CSS 선택자 3개인데 셋 다 `http`·`agy`·`claude`·`st-` 를 담지 않는다.
+
+**실측(2026-09-24 재확인)**: `node p-quaestor/test/run-all.js` →
+432(기준선) + 14(Phase 1) + 10(Phase 2) = **456 tests / 456 pass / 0 fail / exitCode 0**.
+
+### 8-10. 현황 기록
+
+Phase 2 의 구현·테스트·평가는 이미 랜딩했고(`94b70b8` implement → `37fa9f4` test →
+`a20d2d0` eval → `d809303` fix → `c8c2278` test → `be6972c` eval), 직전 eval 은
+"Issues found: 없음" 으로 완료를 확인했다. 직전 라운드의 FIX 지적(경계 테스트가 015 의 agy
+픽스처를 쓰지 않아 로고 추가분과 Gemini 구역의 **조합**을 한 번도 검증하지 못했다는 문제)은
+§8-7 의 규율로 해소되어 `control-server.test.js:2736` 에 반영돼 있다.
+
+남아 있던 결손은 **설계 산출물 쪽**이었다 — 본 §8 의 상세 설계와 `output/ACCEPTANCE.md` 의
+Phase 2 기준 블록이 비어 있었다. 이 문서가 그것을 채운다. Phase Guard 가 지적한
+`PROGRESS.md` 의 `2:PENDING` 표시는 구현 결손이 아니라 **상태 표기 미갱신**이다.
 
 ---
 

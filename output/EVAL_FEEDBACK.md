@@ -1,6 +1,5 @@
 ## Verdict
-PASS
-
+NEXT
 ## Verdict Criteria (current work file only)
 - NEXT: a phase REMAINS WITHIN the current work file (not for other work files)
 - FIX: Current Phase has bugs or missing features
@@ -36,3 +35,10 @@ NO
 - `assets/icon.svg`를 `brand.js`가 직접 읽지 않아(순수성 유지, never-brick) 파일 부재가 서버 기동을 막지 않게 했고, 두 표현의 동일성은 테스트가 sha256으로 잇는다.
 - 이전 FIX 라운드에서 지적된 "실제 포트 테스트가 Gemini 구역과 로고 추가분의 조합을 검증하지 않는다"는 구체적 결함을 제안된 조치대로 정확히 수정했다 — 반증 가능성(HEAD 55f14ed 에서 실패함을 확인) 절차도 유지됨.
 - 기존 테스트 446개를 한 줄도 건드리지 않고 추가만 했고, `<h1>Quaestor</h1>` 부분문자열·`data-sig`·`<main>` class·계약 버전 등 잠긴 불변식을 전부 유지했다.
+
+
+## Phase Guard
+PROGRESS.md still has unfinished phase(s): 2:PENDING. Eval returned PASS but promotion was deferred so the run advances to the next phase instead. Record this deferral in Korean in the next EVAL_FEEDBACK.md under "## Phase Guard".
+
+## Verdict
+NEXT
