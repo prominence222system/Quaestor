@@ -2697,4 +2697,76 @@ test('015 Phase 3 [DERIVED]: root <main> element classes and data-sig are untouc
   }
 });
 
+// ---- 016 Phase 2: real server favicon + header mark boundary --------------
+// [SPEC] This test must fail on HEAD 55f14ed, where GET / has no
+// <link rel="icon"> and no <div class="brand">. A test that only ever
+// passes proves nothing -- see work/016 §6.
+
+test('016 Phase 2 [SPEC]: real server GET / carries a base64 favicon <link> that decodes to lib/brand.js ICON_SVG', async () => {
+  const { ICON_SVG } = require('../lib/brand');
+  const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });
+  try {
+    const res = await fetch('http://127.0.0.1:' + r.port + '/');
+    assert.strictEqual(res.status, 200);
+    const html = await res.text();
+    const prefix = '<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,';
+    assert.ok(html.includes(prefix), 'expected the base64 favicon <link> tag');
+    const hrefMatch = html.match(/<link rel="icon" type="image\/svg\+xml" href="([^"]+)">/);
+    assert.ok(hrefMatch);
+    const b64prefix = 'data:image/svg+xml;base64,';
+    const decoded = Buffer.from(hrefMatch[1].slice(b64prefix.length), 'base64').toString('utf8');
+    assert.strictEqual(decoded, ICON_SVG);
+  } finally {
+    await r.close();
+  }
+});
+
+test('016 Phase 2 [SPEC]: real server GET / HTML contains the header brand mark and the unchanged "<h1>Quaestor</h1>" substring', async () => {
+  const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });
+  try {
+    const res = await fetch('http://127.0.0.1:' + r.port + '/');
+    const html = await res.text();
+    assert.ok(html.includes('<div class="brand"><svg class="mark"'), 'expected header brand mark');
+    assert.ok(html.includes('<h1>Quaestor</h1>'));
+  } finally {
+    await r.close();
+  }
+});
+
+test('016 Phase 2 [SPEC]: real server GET / HTML still has zero http://, https://, agy substrings after the logo additions', async () => {
+  const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });
+  try {
+    const res = await fetch('http://127.0.0.1:' + r.port + '/');
+    const html = await res.text();
+    assert.ok(!html.includes('http://'), html);
+    assert.ok(!html.includes('https://'), html);
+    assert.ok(!html.toLowerCase().includes('agy'), html);
+  } finally {
+    await r.close();
+  }
+});
+
+test('016 Phase 2 [SPEC]: real server GET /favicon.ico is still a JSON 404 -- no new route was added', async () => {
+  const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });
+  try {
+    const res = await getJson(r.port, '/favicon.ico');
+    assert.strictEqual(res.status, 404);
+    assert.strictEqual(res.body.ok, false);
+    assert.ok(!res.text.includes('<html'));
+  } finally {
+    await r.close();
+  }
+});
+
+test('016 Phase 2 [SPEC]: real server GET /api/health contracts["supervised-v1"] is still "1.5.0" (contract unchanged by the logo work)', async () => {
+  const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });
+  try {
+    const res = await getJson(r.port, '/api/health');
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.contracts['supervised-v1'], '1.5.0');
+  } finally {
+    await r.close();
+  }
+});
+
 

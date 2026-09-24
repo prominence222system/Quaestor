@@ -19,6 +19,8 @@
 // - Korean text below is UI-facing display copy (page labels), the one
 //   exception to English-only code/comments in this project.
 
+const { MARK_INLINE, FAVICON_HREF } = require('./brand');
+
 const DEFAULT_POLL_MS = 30000;
 
 const ESCAPE_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -109,7 +111,10 @@ function styleBlock() {
     '.gauge{background:#e6e9ec;border-radius:6px;height:8px;flex:1;margin:0 12px;overflow:hidden}' +
     '.gauge-fill{background:#57606a;height:100%}' +
     '.stale-flag{color:#9a6700;font-weight:700;margin-left:8px}' +
-    '.field{margin:4px 0}';
+    '.field{margin:4px 0}' +
+    '.brand{display:flex;align-items:center;gap:8px;margin:0 0 16px}' +
+    '.brand h1{margin:0}' +
+    '.mark{flex-shrink:0}';
 }
 
 function scriptBlock(pollMs) {
@@ -190,11 +195,12 @@ function renderStatusPage(payload, opts) {
     '<meta charset="utf-8">\n' +
     '<meta name="viewport" content="width=device-width, initial-scale=1">\n' +
     '<title>Quaestor \u2014 사용량</title>\n' +
+    '<link rel="icon" type="image/svg+xml" href="' + FAVICON_HREF + '">\n' +
     '<style>' + styleBlock() + '</style>\n' +
     '</head>\n' +
     '<body>\n' +
     '<main class="' + esc(wrapClasses.join(' ')) + '" data-sig="' + esc(sig) + '"' + wrapStyle + '>\n' +
-    '<h1>Quaestor</h1>\n' +
+    '<div class="brand">' + MARK_INLINE + '<h1>Quaestor</h1></div>\n' +
     '<div class="badge"' + badgeStyle + '>' + esc(label) + '</div>\n' +
     '<p class="reason">reason: ' + esc(reason) + '</p>\n' +
     '<section>\n' +

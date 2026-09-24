@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const { renderStatusPage, esc, formatPct, formatAge, statusClass, signature } = require('../lib/status-page');
+const { ICON_SVG, FAVICON_HREF } = require('../lib/brand');
 
 const SRC_PATH = path.join(__dirname, '..', 'lib', 'status-page.js');
 const SRC = fs.readFileSync(SRC_PATH, 'utf8');
@@ -469,6 +470,51 @@ test('[SPEC] 015 Phase 3: Gemini section reuses zero st-* class tokens and leave
   const mainMatch = html.match(/<main class="([^"]+)"/);
   assert.ok(mainMatch);
   assert.ok(!mainMatch[1].includes('st-stale'), 'root <main> must not be tainted by agy staleness');
+});
+
+// ---- 016 Phase 2: favicon + header mark -----------------------------------
+
+test('[SPEC] 016: <head> carries a base64 SVG favicon link right after <title>, decoding back to ICON_SVG', () => {
+  const html = renderStatusPage(basePayload());
+  const linkPrefix = '<link rel="icon" type="image/svg+xml" href="' + FAVICON_HREF + '">';
+  assert.ok(html.includes(linkPrefix), 'expected the exact favicon <link> tag');
+  const titleIdx = html.indexOf('</title>');
+  const linkIdx = html.indexOf(linkPrefix);
+  assert.ok(titleIdx !== -1 && linkIdx !== -1 && linkIdx > titleIdx, 'favicon link must come after <title>');
+
+  const hrefMatch = html.match(/<link rel="icon" type="image\/svg\+xml" href="([^"]+)">/);
+  assert.ok(hrefMatch);
+  const prefix = 'data:image/svg+xml;base64,';
+  assert.ok(hrefMatch[1].startsWith(prefix));
+  const decoded = Buffer.from(hrefMatch[1].slice(prefix.length), 'base64').toString('utf8');
+  assert.strictEqual(decoded, ICON_SVG);
+});
+
+test('[SPEC] 016: <main> contains <div class="brand"><svg class="mark" ... and the "<h1>Quaestor</h1>" substring is unchanged', () => {
+  const html = renderStatusPage(basePayload());
+  assert.ok(html.includes('<div class="brand"><svg class="mark"'), 'expected brand wrapper immediately followed by the inline mark');
+  assert.ok(html.includes('<h1>Quaestor</h1>'), 'the literal <h1>Quaestor</h1> substring must survive unchanged');
+  assert.ok(html.includes('<div class="brand"><svg class="mark" viewBox="0 0 64 64" width="28" height="28" aria-hidden="true" focusable="false">'));
+});
+
+test('[SPEC] 016: rendered HTML with the favicon/mark additions still has zero http://, https://, agy substrings', () => {
+  const p = agyPayload();
+  const html = renderStatusPage(p);
+  assert.ok(!html.includes('http://'), html);
+  assert.ok(!html.includes('https://'), html);
+  assert.ok(!html.toLowerCase().includes('agy'), html);
+});
+
+test('[SPEC] 016: GET /favicon.ico is not a route added by this renderer (status-page.js has no favicon.ico route logic)', () => {
+  assert.ok(!SRC.includes('favicon.ico'));
+});
+
+test('[DERIVED] 016: new .brand/.mark CSS selectors are added without touching any existing selector value', () => {
+  const html = renderStatusPage(basePayload());
+  assert.ok(/\.brand\{[^}]*\}/.test(html));
+  assert.ok(/\.mark\{[^}]*\}/.test(html));
+  // pre-existing selectors untouched
+  assert.ok(html.includes('.badge{display:inline-block;padding:8px 20px;border-radius:999px;font-weight:700;font-size:1.2rem;background:#6e7781;color:#fff}'));
 });
 
 test('[DERIVED] 015 Phase 3: signature() is unaffected by agy property changes', () => {
