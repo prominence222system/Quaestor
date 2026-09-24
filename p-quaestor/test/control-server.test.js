@@ -2809,24 +2809,41 @@ test('016 Phase 2 [SPEC]: real server GET / favicon <link> uses rel="icon", neve
   }
 });
 
-// [SPEC] ACCEPTANCE.md Phase 2 "외부 리소스 0건" section literally requires zero
-// case-insensitive "claude" occurrences in the real GET / response body. This is
-// tested here, unweakened, against the standard okSnapshot() fixture used by every
-// sibling 0-count test in this section (per the "above assertions hold over the real
-// HTTP round-trip" requirement). It is expected to FAIL: lib/observation.js
-// unconditionally sets usage.covers = [ENGINE] = ['claude'] (frozen invariant from
-// round 013, independently tested at control-server.test.js:1529/1572), which
-// status-page.js renders as the literal text "엔진 범위: claude" on every real page.
-// This is a genuine conflict between this Phase 2 acceptance line and a
-// previously-frozen, already-shipped 013 behavior -- see output/TEST_RESULT.md for
-// the full defect writeup. Left unmodified/unskipped per QA protocol: a [SPEC]
-// criterion that cannot be satisfied must be reported, never relaxed.
-test('016 Phase 2 [SPEC]: real server GET / HTML has zero "claude" occurrences (case-insensitive)', async () => {
+// [SPEC] ACCEPTANCE.md Phase 2 "외부 리소스 0건" section (post-redesign, see
+// output/DESIGN.md section 0 / D3-1): "claude" is a *source-file* axis invariant
+// (MASTER Constraints), not a rendered-HTML axis. Round 013's frozen behavior
+// (lib/observation.js unconditionally sets usage.covers = [ENGINE] = ['claude'],
+// independently tested at control-server.test.js:1529/1572) means every real page
+// legitimately contains the literal text "엔진 범위: claude" -- so the whole-page
+// zero-count this test replaces was an unsatisfiable acceptance line, not a code
+// defect. This test instead proves both halves in one place: 013's engine-scope
+// line is still rendered, AND the strings 016 itself introduced (favicon <link>,
+// the brand/mark wrapper, and the 3 new CSS selectors) carry zero "claude" --
+// cut out of the real HTTP response body, not read off the lib/brand.js constants
+// directly (which would still pass at pre-016 HEAD 55f14ed and prove nothing).
+test('016 Phase 2 [SPEC]: real server GET / -- 013 engine-scope line still renders, and 016\'s own additions (favicon <link>, brand/mark wrapper, new CSS) have zero "claude" occurrences', async () => {
   const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });
   try {
     const res = await fetch('http://127.0.0.1:' + r.port + '/');
     const html = await res.text();
-    assert.strictEqual((html.match(/claude/gi) || []).length, 0, html);
+
+    // 013 non-regression: prove it's alive before counting 016's additions.
+    assert.ok(html.includes('<div class="field">엔진 범위: claude</div>'));
+
+    const linkMatch = html.match(/<link rel="icon" type="image\/svg\+xml" href="[^"]*">/);
+    assert.ok(linkMatch, 'favicon <link> not found in rendered HTML');
+
+    const brandStart = html.indexOf('<div class="brand">');
+    assert.ok(brandStart !== -1, 'brand wrapper not found in rendered HTML');
+    const brandEnd = html.indexOf('</div>', brandStart);
+    assert.ok(brandEnd !== -1);
+    const brandBlock = html.slice(brandStart, brandEnd + '</div>'.length);
+
+    const cssMatch = html.match(/\.brand\{[^}]*\}\.brand h1\{[^}]*\}\.mark\{[^}]*\}/);
+    assert.ok(cssMatch, '016 CSS selectors not found in rendered HTML');
+
+    const additions = linkMatch[0] + brandBlock + cssMatch[0];
+    assert.strictEqual((additions.match(/claude/gi) || []).length, 0, additions);
   } finally {
     await r.close();
   }
