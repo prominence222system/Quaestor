@@ -2734,10 +2734,22 @@ test('016 Phase 2 [SPEC]: real server GET / HTML contains the header brand mark 
 });
 
 test('016 Phase 2 [SPEC]: real server GET / HTML still has zero http://, https://, agy substrings after the logo additions', async () => {
-  const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });
+  const snap = okSnapshot();
+  snap.ctx.agy = {
+    lastAttempt: { at: '2026-09-23T06:10:02Z', ok: true },
+    lastSuccess: {
+      weekly_remaining_pct: 45,
+      five_hour_remaining_pct: 90,
+      weekly_reset_raw: '2026-09-23T06:57:36Z',
+      five_hour_reset_raw: '2026-09-23T11:00:00Z',
+      at: '2026-09-23T06:10:02Z'
+    }
+  };
+  const r = await startControlServer({ port: 0, getSnapshot: () => snap });
   try {
     const res = await fetch('http://127.0.0.1:' + r.port + '/');
     const html = await res.text();
+    assert.ok(html.includes('<h2>Gemini</h2>'), 'Gemini section must be rendered alongside the favicon/mark');
     assert.ok(!html.includes('http://'), html);
     assert.ok(!html.includes('https://'), html);
     assert.ok(!html.toLowerCase().includes('agy'), html);

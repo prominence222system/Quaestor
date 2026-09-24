@@ -1,12 +1,12 @@
 # SMOKE_RESULT
 
-Generated: 2026-09-23 11:58:10
+Generated: 2026-09-24 23:17:39
 
 ## File Checks
 - All file checks passed
 
 ## Key Files
-- All key files present
+- key-files: regenerated 0 excluded (build|.gradle|.kotlin|obj|bin), checked 3 -- all present
 
 ## Build Commands
 - No build commands defined
@@ -18,40 +18,42 @@ Generated: 2026-09-23 11:58:10
 - deploy-quaestor.ps1 (-DryRun): PASS (exit 0) -- exited 0
 
 ## Declared Smoke (MASTER.md ## Work Verify)
-- EXECUTED_PASS: `node p-quaestor/test/run-all.js` (cwd: F:\Workspace\Automatic\projects\Quaestor, exit 0, 4.6s)
+- EXECUTED_PASS: `node p-quaestor/test/run-all.js` (cwd: F:\Workspace\Automatic\projects\Quaestor, exit 0, 4.7s)
 ```
- (0.0838ms)
-✔ live observation source (C3, structural): getSnapshot is a function (controlSnapshot) whose body references the observation module variable (0.1932ms)
-✔ C3 (structural): controlSnapshot() body has no fs.* calls, no scrapeUsage, and no STOP_PATH reference (0.1269ms)
-✔ watch-loop.js does not re-judge thresholds when wiring control-server (no new 85/90/70/75 literals or state branches around the wiring) (0.151ms)
-✔ Phase 2 [SPEC]: 26-day silence fixture restored on boot yields state === crit (3.9088ms)
-✔ Phase 2 [SPEC]: boundary verification -- real log file tail reading and chopped line handling (1.6183ms)
-✔ Phase 2 [SPEC]: non-existent file, 0-byte file, and corrupted binary bytes yield empty observation without throwing (2.0252ms)
-✔ Phase 2 [SPEC]: large file (>64KB) reads at most 64KB (65536 bytes) (39.5929ms)
-✔ Phase 2 [SPEC]: restored observation stringified contains no secrets (.profile, cookie, @) (1.6161ms)
-✔ Phase 2 [SPEC]: mainLoop structurally integrates restoreObservation at startup before polling loop (0.1608ms)
-✔ W1: startControlServer(...) is called with both configPath and onConfigChange (0.2287ms)
-✔ W2: refreshConfig() exists and updates lastCfg/lastConfigSource from readConfig(CONFIG_PATH) (0.1552ms)
-✔ W3: pollOnce() calls refreshConfig() and does not duplicate config-reading logic (0.1324ms)
-✔ W4 [SPEC]: existing [config] log strings are byte-for-byte unchanged, and watch-loop.js contains no "[thresholds]" string (0.064ms)
-✔ 014 §2: createAgyMonitor( is called exactly once, at module scope (not inside pollOnce()) (0.1029ms)
-✔ 014 §2: pollOnce() calls agyMonitor.poll() right after refreshConfig(), unawaited, ahead of every early return (0.1483ms)
-✔ 014 §2: watch-loop.js requires createAgyMonitor from ./lib/agy-usage (0.0901ms)
-✔ 015 Phase 2 [SPEC]: controlSnapshot() returns ctx with agy key populated by agyMonitor.snapshot() (0.0902ms)
-ℹ tests 432
+s (0.0586ms)
+✔ live observation source (C3, structural): getSnapshot is a function (controlSnapshot) whose body references the observation module variable (0.1392ms)
+✔ C3 (structural): controlSnapshot() body has no fs.* calls, no scrapeUsage, and no STOP_PATH reference (0.0899ms)
+✔ watch-loop.js does not re-judge thresholds when wiring control-server (no new 85/90/70/75 literals or state branches around the wiring) (0.1032ms)
+✔ Phase 2 [SPEC]: 26-day silence fixture restored on boot yields state === crit (2.637ms)
+✔ Phase 2 [SPEC]: boundary verification -- real log file tail reading and chopped line handling (1.9073ms)
+✔ Phase 2 [SPEC]: non-existent file, 0-byte file, and corrupted binary bytes yield empty observation without throwing (1.8577ms)
+✔ Phase 2 [SPEC]: large file (>64KB) reads at most 64KB (65536 bytes) (40.7041ms)
+✔ Phase 2 [SPEC]: restored observation stringified contains no secrets (.profile, cookie, @) (1.4364ms)
+✔ Phase 2 [SPEC]: mainLoop structurally integrates restoreObservation at startup before polling loop (0.1387ms)
+✔ W1: startControlServer(...) is called with both configPath and onConfigChange (0.1663ms)
+✔ W2: refreshConfig() exists and updates lastCfg/lastConfigSource from readConfig(CONFIG_PATH) (0.151ms)
+✔ W3: pollOnce() calls refreshConfig() and does not duplicate config-reading logic (0.1381ms)
+✔ W4 [SPEC]: existing [config] log strings are byte-for-byte unchanged, and watch-loop.js contains no "[thresholds]" string (0.0667ms)
+✔ 014 §2: createAgyMonitor( is called exactly once, at module scope (not inside pollOnce()) (0.1106ms)
+✔ 014 §2: pollOnce() calls agyMonitor.poll() right after refreshConfig(), unawaited, ahead of every early return (0.1533ms)
+✔ 014 §2: watch-loop.js requires createAgyMonitor from ./lib/agy-usage (0.0896ms)
+✔ 015 Phase 2 [SPEC]: controlSnapshot() returns ctx with agy key populated by agyMonitor.snapshot() (0.1443ms)
+ℹ tests 456
 ℹ suites 0
-ℹ pass 432
+ℹ pass 456
 ℹ fail 0
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 4515.3423
+ℹ duration_ms 4603.039
 
 ```
 
 ## BOM Policy
 - Scanned: 12 file(s) (required-class: 0)
-- No BOM policy violation (12 file(s) scanned)
+- WARN: ACCEPTANCE.md UNEXPECTED_BOM (generated artifact must not carry a BOM)
+- WARN: DESIGN.md UNEXPECTED_BOM (generated artifact must not carry a BOM)
+- WARN: PROGRESS.md UNEXPECTED_BOM (generated artifact must not carry a BOM)
 
 ## Targets
 - Execution-class targets: 2
