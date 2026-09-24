@@ -70,10 +70,15 @@
 - [SPEC] 렌더된 HTML 이 기존 외부 URL 가드 정규식 `/(src|href)\s*=\s*["']https?:\/\/|@import\s+["']?https?:\/\/|fetch\(\s*["']https?:\/\//i` 에 매칭되지 않는다.
 - [SPEC] 렌더된 HTML 에 `agy` 가 대소문자 무시 **0개**다(015 단언 유지).
 - [SPEC] 그 `agy` 0건 확인은 **Gemini 구역이 실제로 렌더된 상태**에서 이루어진다 — 015 형식의 `ctx.agy` 스냅샷 픽스처를 채우고, 0개를 세기 **전에** `<h2>Gemini</h2>` 가 HTML 에 있음을 먼저 단언한다. 빈 픽스처로 센 0건은 근거가 아니다.
-- [SPEC] 렌더된 HTML 에 `claude` 가 대소문자 무시 0개다.
+- **[CHANGED]** [SPEC] **016 이 새로 싣는 문자열**(`FAVICON_HREF` 의 base64 페이로드 · `<link rel="icon" …>` 껍데기 · `MARK_INLINE` · 새 CSS 선택자 3개)에 `claude` 가 대소문자 무시 **0개**다. 🔒 **실제 포트 경계 테스트에서는 그 조각들을 렌더된 HTML 에서 찾아 잘라낸 뒤 거기서 센다** — `brand.js` 의 상수를 직접 세면 HEAD `55f14ed` 에서도 통과해 반증력을 잃는다(DESIGN §8-8). 상수를 직접 세는 것은 Phase 1 단위 테스트의 몫이다.
+- **[CHANGED]** [SPEC] 🔒 **렌더된 HTML *전체*에 대해서는 `claude` 0건을 요구하지 않는다.** 013 이 `<div class="field">엔진 범위: claude</div>` 를 **반드시** 싣기 때문이다(`lib/source.js:4` `ENGINE='claude'` → `observation.js:303/311` 이 `covers` 를 무조건 `[ENGINE]` 로 채움 → `status-page.js:208` 이 렌더, 동결 테스트 `control-server.test.js:1529`·`1572`). MASTER Constraints 의 `claude` 0건은 **`.js` 소스 파일 축**이며(기존 단언 `status-page.test.js:231`·`control-server.test.js:2664` 가 지킨다) HTML 축이 아니다. DESIGN §4 D3-1 참조.
+- **[CHANGED]** [SPEC] 013 무회귀: 렌더된 HTML 에 `<div class="field">엔진 범위: claude</div>` 가 **있다.** 016 은 `covers` 계산도 그 렌더 줄도 건드리지 않는다.
+- **[CHANGED]** [SPEC] `lib/status-page.js` 소스에 `claude` 가 대소문자 무시 0개이고, `lib/brand.js` 소스도 마찬가지다(소스 축 — 완화 금지).
 
 ### 경계 — 실제 포트 왕복
-- [SPEC] `startControlServer({ port: 0, … })` 로 띄운 실제 서버의 `GET /` 가 200 을 내고, 위 파비콘·머리글·0건 단언이 **HTTP 왕복을 거친 응답 본문**에서 성립한다(렌더러 반환값이 아니라 네트워크로 받은 문자열).
+- **[CHANGED]** [SPEC] `startControlServer({ port: 0, … })` 로 띄운 실제 서버의 `GET /` 가 200 을 내고, 위 파비콘·머리글·0건 단언이 **HTTP 왕복을 거친 응답 본문**에서 성립한다(렌더러 반환값이 아니라 네트워크로 받은 문자열). 🔒 여기서 "0건 단언" 은 `http://`·`https://`·`agy`·`st-*` 넷과 위의 **016 추가분 한정** `claude` 단언을 가리킨다 — **HTML 전체의 `claude` 0건은 포함하지 않는다.**
+- **[CHANGED]** [SPEC] 그 같은 응답 본문에서 `엔진 범위: claude` 가 **먼저** 확인된 뒤에 016 추가분의 `claude` 0건을 센다 — 013 이 살아 있음을 증명하지 않은 채 센 0건은 근거가 아니다(§ `agy` 의 `<h2>Gemini</h2>` 선행 단언과 같은 규율).
+- **[CHANGED]** [SPEC] 직전 라운드가 추가한 `control-server.test.js:2824` (`real server GET / HTML has zero "claude" occurrences`)는 위 두 줄의 단언으로 **대체**된다. 🔒 이 테스트는 `9966a8f` 이 만든 **016 자신의 산출물**이므로 대체가 "기존 테스트 432개 수정 허용 0건" 을 위반하지 않는다. 삭제하고 빈자리로 두지 않는다.
 - [SPEC] `GET /favicon.ico` 는 404 이고 본문이 JSON 으로 파싱되며 `ok === false` 다. 본문에 `<html` 이 없다 — 새 경로를 만들지 않았다.
 - [SPEC] `GET /api/health` 의 `contracts["supervised-v1"]` 가 `1.5.0` 그대로다.
 - [SPEC] 실제 포트 경계 테스트는 `lib/status-page.js` 가 HEAD `55f14ed` 상태일 때 **실패한다**(그 시점 HTML 에 `<link rel="icon">`·`<div class="brand">` 가 없다). 통과만 하는 테스트는 근거로 인정하지 않는다.
@@ -83,6 +88,6 @@
 - [SPEC] 기존 테스트 432개를 **한 줄도 수정하지 않는다.** `test/status-page.test.js` 와 `test/control-server.test.js` 에는 **추가만** 한다.
 - [SPEC] `/api/health` · `/api/status` 의 응답 형태와 바이트가 016 이전과 동일하다. 계약 버전은 `1.5.0` 그대로다.
 - [SPEC] 의존성 추가 0건이고, `status-page.js` 가 새로 갖는 `require` 는 상대경로 `./brand` 하나뿐이다 — 기존 "npm 패키지 `require` 0개" 단언이 유지된다.
-- [SPEC] `node p-quaestor/test/run-all.js` 가 실패 0 / exitCode 0 을 낸다. 432(기준선) + Phase 1 신규 + Phase 2 신규가 모두 통과한다.
+- **[CHANGED]** [SPEC] `node p-quaestor/test/run-all.js` 가 **실패 0 / exitCode 0** 을 낸다. 432(기준선) + Phase 1 신규 + Phase 2 신규가 모두 통과한다. 재설계 직전 실측은 **465 / 464 pass / 1 fail / exitCode 1** 이었고, 그 1건이 위에서 대체되는 `control-server.test.js:2824` 다. 1:1 대체 시 465/465/0 이 되며, 🔒 고정하는 것은 **실패 0 · exitCode 0 · 기존 432개 무수정**이지 총 개수가 아니다.
 - [DERIVED] `status-page.js` 는 `brand.js` 에서 `MARK_INLINE` 과 `FAVICON_HREF` **둘만** 가져온다. `ICON_SVG`·`MARK_BODY` 를 가져오지 않음으로써 `xmlns` 의 `http://` 를 HTML 에 실을 수 있는 재료를 렌더 경로가 아예 쥐지 못하게 한다.
 - [DERIVED] 새 테스트는 순수 렌더층(`test/status-page.test.js`)과 실제 포트층(`test/control-server.test.js`)으로 나눠 넣는다 — 문자열 조립 실패와 전달 실패는 서로 다른 실패이므로 서로 다른 층에서 잡는다.

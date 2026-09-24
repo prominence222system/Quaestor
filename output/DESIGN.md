@@ -3,6 +3,30 @@
 > 대상 NNN: `work/016-logo-favicon-and-header-mark.md`
 > 기준 커밋(HEAD): `55f14ed`
 > 실측 기준선: `node p-quaestor/test/run-all.js` → **432 tests / 432 pass / 0 fail / exitCode 0** (2026-09-24 재확인)
+> **[CHANGED] 현재 상태(2026-09-24 재실행)**: **465 tests / 464 pass / 1 fail / exitCode 1**
+
+---
+
+## 0. 부분 재설계 (2026-09-24) — 무엇을 왜 고쳤나 **[CHANGED]**
+
+직전 eval 의 판정은 **REDESIGN** 이고, 지목된 결함은 **구현이 아니라 기준 문장 한 줄**이다:
+`output/ACCEPTANCE.md` Phase 2 의 "렌더된 HTML 에 `claude` 가 대소문자 무시 0개다" 가
+**013 의 동결 동작(`엔진 범위: claude` 를 HTML 에 반드시 싣는다)과 논리적으로 양립 불가능**하다.
+그래서 어떤 구현으로도 통과시킬 수 없고, 실제로 `control-server.test.js:2824` 한 개가 실패한다.
+
+| 절 | 상태 | 내용 |
+|---|---|---|
+| §4 D3 표 | **[CHANGED]** | "단언이 보는 것(축)" 열 추가 — 소스 축과 HTML 축을 한 표에 섞어 둔 것이 결함의 발원지였다 |
+| §4 **D3-1** | **신규 [CHANGED]** | `claude` 는 **소스 축**이지 HTML 축이 아니다. 충돌의 정확한 좌표와 폐기/대체 기준 |
+| §8-7 | **[CHANGED]** | 실제 포트 단언 목록에서 `claude` 를 빼고, 6번(013 무회귀 + 016 추가분 결백)으로 대체 |
+| §8-9 | **[CHANGED]** | 기준선 숫자를 실측으로 교정(456/456/0 → 465/464/1)하고 목표 상태를 명시 |
+| §8-10 | **[CHANGED]** | 결함이 어느 커밋에서 들어와 어느 커밋에서 터졌는지 기록 |
+| §9 | **[CHANGED]** | `claude` 0건 불변식에 **축**을 명시. 013 무회귀 불변식 추가 |
+| 그 외 전부 | **불변** | §2 구조 · §3 디렉터리 · §4 D1·D2·D4~D7 · §5 데이터 흐름 · §6 Phase 분할 · §7 Phase 1 상세 — 실측 통과가 확인된 부분은 손대지 않는다 |
+
+🔒 **이 재설계는 기존 단언을 하나도 완화하지 않는다.** `http://`·`https://`·`agy`·`st-*` 의
+HTML 0건은 그대로고, 기존 테스트 432개 수정 허용도 **여전히 0건**이다. 폐기되는 단언 하나는
+016 이 이번 라운드에 스스로 추가한 테스트이며, 빈자리로 두지 않고 더 강한 단언으로 대체한다.
 
 ---
 
@@ -133,20 +157,74 @@ base64 로 실으면 **문자열 단언과 원래 뜻이 둘 다** 지켜진다.
 세션이 실제 바이트로 미리 검증한 결과 — base64 페이로드
 (`PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdC…`, 768자)에는 다음이 **전부 0개**다:
 
-| 확인 항목 | 걸리는 기존 단언 | 결과 |
-|---|---|---|
-| `http://` · `https://` | `status-page.test.js:151-152`, `control-server.test.js:1613-1614` | clear |
-| `EXTERNAL_URL` = `/(src\|href)\s*=\s*["']https?:\/\/…/i` | `status-page.test.js:150`, `control-server.test.js:1612` | clear (`href="data:…"` 는 `https?://` 가 아니다) |
-| `agy` | `status-page.test.js:390` (015 의 HTML `agy` 0개) | clear |
-| `claude` (대소문자 무시) | `status-page.test.js:231`, `control-server.test.js:2664` | clear |
-| `st-` / `st-allowed` / `\bst-[a-z0-9_-]+\b` | `status-page.test.js:97-106`, `450-465` | clear |
-| `<link[^>]+rel=["']stylesheet["']` | `status-page.test.js:170` | clear (`rel="icon"`) |
-| `<script[^>]+src=` | `status-page.test.js:171` | clear |
+**[CHANGED]** 표의 **축(axis) 열을 추가했다.** 이전 판은 "렌더된 HTML 을 보는 단언" 과
+"소스 파일을 보는 단언" 을 한 표에 섞어 놓았고, 그것이 §4 D3-1 이 설명하는 결함의 발원지다.
+
+| 확인 항목 | 단언이 보는 것(축) | 걸리는 기존 단언 | 결과 |
+|---|---|---|---|
+| `http://` · `https://` | **렌더된 HTML** | `status-page.test.js:151-152`, `control-server.test.js:1613-1614` | clear |
+| `EXTERNAL_URL` = `/(src\|href)\s*=\s*["']https?:\/\/…/i` | **렌더된 HTML** | `status-page.test.js:150`, `control-server.test.js:1612` | clear (`href="data:…"` 는 `https?://` 가 아니다) |
+| `agy` | **렌더된 HTML** | `status-page.test.js:390` (015 의 HTML `agy` 0개) | clear |
+| `claude` (대소문자 무시) | 🔒 **`status-page.js` 소스 파일** — HTML 이 **아니다** | `status-page.test.js:231`, `control-server.test.js:2664` | clear |
+| `st-` / `st-allowed` / `\bst-[a-z0-9_-]+\b` | **렌더된 HTML** | `status-page.test.js:97-106`, `450-465` | clear |
+| `<link[^>]+rel=["']stylesheet["']` | **렌더된 HTML** | `status-page.test.js:170` | clear (`rel="icon"`) |
+| `<script[^>]+src=` | **렌더된 HTML** | `status-page.test.js:171` | clear |
+
+어느 행이든 016 이 새로 싣는 문자열(base64 페이로드 · `<link>` 껍데기 · `MARK_INLINE` ·
+CSS 선택자 3개)은 clear 다. **그러나 `claude` 행만은 그 clear 가 "HTML 전체에 `claude` 가 0개"
+를 뜻하지 않는다** — 016 의 추가분에 없다는 뜻일 뿐이다. 다음 절이 그 차이를 못 박는다.
 
 또한 `lib/` 전체를 훑는 `scrape-classify.test.js:371` 은 `https://claude.ai` 를 찾으므로
 `brand.js` 의 `http://www.w3.org/…` 에 걸리지 않는다. `watch-loop.test.js:63` 은 `p-quaestor/`
 **최상위** `.js` 만 훑으므로 `lib/brand.js` 는 대상이 아니다. `env.test.js:227` 의 `.js` 순회는
 `process.env.BELLOWS_` 만 찾는다.
+
+### D3-1. 🔒 `claude` 는 **소스 축**이다 — 렌더된 HTML 축이 아니다 **[CHANGED]**
+
+직전 라운드가 여기서 막혔다. `output/ACCEPTANCE.md` Phase 2 의 "외부 리소스 0건" 절에
+**"렌더된 HTML 에 `claude` 가 대소문자 무시 0개다"** 가 들어갔고, 그 기준을 곧이곧대로 옮긴
+테스트(`control-server.test.js:2824`, 이번 라운드 `9966a8f` 이 **새로 추가**한 것)가 실패했다.
+구현 결함이 아니다 — **그 기준은 어떤 구현으로도 만족될 수 없다.**
+
+두 요구가 정면으로 충돌한다. 실측으로 확인한 정확한 좌표다:
+
+| | 요구 | 근거 |
+|---|---|---|
+| 013(동결·출시완료) | `GET /` HTML 에 `엔진 범위: claude` 가 **반드시 있다** | `lib/source.js:4` `ENGINE='claude'` → `lib/observation.js:303/311` 이 `usage.covers`/`allowance.covers` 를 **무조건** `[ENGINE]` 로 채움 → `lib/status-page.js:208` 이 `<div class="field">엔진 범위: …</div>` 로 렌더 |
+| 013 의 동결 테스트 | `assert.ok(html.includes('<div class="field">엔진 범위: claude</div>'))` | `control-server.test.js:1529`(및 `1495`/`1509`/`1549`/`1572`) — **기존 432개에 속한다. 수정 허용 0건** |
+| 016 의 결함 기준 | `assert.strictEqual((html.match(/claude/gi)\|\|[]).length, 0)` | `control-server.test.js:2829` — **016 이 이번 라운드에 만든 새 테스트** |
+
+`html.includes('…claude…') === true` 와 `html.match(/claude/gi).length === 0` 은 동시에 참일 수
+없다. 016 의 범위(파비콘·머리글 마크·CSS)를 어떻게 고쳐도 마찬가지다 — 두 문장 중 어느 쪽도
+로고와 무관하기 때문이다.
+
+**어느 쪽이 틀렸는가.** 016 쪽이다. MASTER Constraints 가 말하는 `claude` 0건은
+**소스 코드**(`.js` 파일)에 대한 규율이고(`lib/source.js` 만 예외), 그 규율이 막는 것은
+**CLI 호출**이지 화면에 찍히는 글자가 아니다. 013 은 그 반대편을 의도적으로 설계했다 —
+"우리가 무엇을 재는지 응답에 적는다"가 013 의 본문이므로, 엔진 이름이 사람에게 **보이는 것이 기능**이다.
+016 은 로고를 얹는 ADDITIVE 라운드이고 013 의 표시 문구를 재판정할 권한이 없다.
+
+**결론 — 축을 분리한다.**
+
+- ✅ **소스 축**(유지): `lib/brand.js`·`lib/status-page.js` 등 모든 `.js` 소스에 `claude` 0개.
+  기존 `status-page.test.js:231`·`control-server.test.js:2664` 가 이미 지키고 있다. 016 도 이를 지킨다
+- ✅ **HTML 축 — 016 자신의 추가분**(유지, 범위를 좁힘): 016 이 새로 싣는 문자열
+  (`FAVICON_HREF` base64 페이로드 · `<link rel="icon" …>` · `MARK_INLINE` · 새 CSS 선택자 3개)에
+  `claude` 가 0개다. 이것이 §4 D3 표의 `claude` 행이 실제로 보증하는 명제이고, 016 의 결백을
+  기계적으로 증명하는 올바른 단언이다
+- ❌ **HTML 축 — 페이지 전체**(폐기): "렌더된 HTML 전체에 `claude` 0개" 는 **요구하지 않는다.**
+  013 이 `엔진 범위: claude` 를 싣는 것은 **정상**이며, 016 의 HTML 에 `claude` 가 **정확히 1회**
+  나타나는 것이 기대값이다
+
+🔒 **`http://`·`https://`·`agy`·`st-` 의 HTML 0건 단언은 그대로다.** 이 절은 그 넷을 완화하지
+않는다 — `claude` **한 항목만** 애초에 다른 축에 속했다는 사실을 바로잡는다. 넷은 기존 테스트가
+이미 HTML 축에서 단언하고 있었고(위 표), `claude` 만 그렇지 않았다.
+
+🔒 **폐기되는 테스트는 016 자신의 것이다.** `control-server.test.js:2824` 는 `9966a8f` 이 추가한
+새 테스트이므로, 이를 고치는 것은 "기존 테스트 432개 수정 허용 0건" 위반이 **아니다**(`git diff
+9966a8f~1 9966a8f` 로 확인). 그 자리는 위 두 ✅ 중 016 추가분 단언으로 **대체**한다 — 삭제하고
+비워 두지 않는다. 반증력을 잃지 않게, 대체 테스트는 `엔진 범위: claude` 가 HTML 에 **있음**을
+먼저 단언한 뒤(013 이 살아 있음을 증명) 016 추가분에 `claude` 가 0개임을 센다.
 
 ### D4. `assets/icon.svg` 는 **사본이지 참조가 아니다**
 
@@ -441,6 +519,12 @@ buildStatusPayload(ctx) ──▶ renderStatusPage(payload)
 3. HTML 에 `http://` · `https://` · `agy` 가 0개
 4. `GET /favicon.ico` → 404 이고 본문이 JSON 으로 파싱된다(새 경로 없음)
 5. `GET /api/health` 의 `contracts["supervised-v1"]` 가 `1.5.0` 그대로
+6. **[CHANGED]** HTML 에 `엔진 범위: claude` 가 **있고**(013 무회귀), 016 이 새로 실은 문자열
+   (`FAVICON_HREF` · `<link rel="icon" …>` · `MARK_INLINE` · 새 CSS 선택자 3개)에는 `claude` 가 0개다
+
+🔒 **[CHANGED] 3번 목록에 `claude` 를 넣지 않는다.** `claude` 는 소스 축이고 HTML 축이 아니다 —
+013 이 `엔진 범위: claude` 를 **반드시** 싣기 때문이다(§4 D3-1). 6번이 그 자리를 대신하며,
+"016 의 추가분은 결백하다" 를 013 무회귀와 **한 테스트 안에서** 함께 증명한다.
 
 🔒 **3번은 015 의 `ctx.agy` 스냅샷 픽스처를 채운 상태에서 확인한다.** 파비콘·마크 추가분과
 Gemini 구역이 **함께 렌더된 HTML** 을 봐야 하기 때문이다. 그리고 0개를 단언하기 **전에**
@@ -453,6 +537,14 @@ Gemini 구역이 **함께 렌더된 HTML** 을 봐야 하기 때문이다. 그�
 `<link rel="icon">` 도 `<div class="brand">` 도 없으므로 단언 1·2 가 즉시 깨진다.
 `lib/status-page.js` 만 그 상태로 되돌려 실패를 **눈으로 확인**한 뒤 복원하는 절차를 밟는다.
 
+**[CHANGED] 새 6번 단언도 같은 검사를 통과해야 한다.** 6번은 "013 무회귀" 와 "016 추가분 결백"
+두 조각으로 되어 있는데, 013 조각만으로는 `55f14ed` 에서도 통과하므로 **반증력이 없다.**
+016 조각이 그것을 준다 — `55f14ed` 의 HTML 에는 잘라낼 `<link rel="icon" …>`·`MARK_INLINE` 이
+**존재하지 않으므로** "그 조각들을 HTML 에서 잘라낸다" 는 단계에서 실패한다.
+🔒 그래서 6번은 **조각을 먼저 HTML 에서 찾아 잘라낸 뒤** 거기서 `claude` 를 세야 한다.
+상수(`brand.js` 의 `FAVICON_HREF`·`MARK_INLINE`)를 직접 세는 방식으로 대신하면 `55f14ed` 에서도
+통과해 버린다 — 그것은 Phase 1 의 단위 테스트가 할 일이지 경계 테스트가 할 일이 아니다.
+
 ### 8-9. Phase 2 가 기존 432개를 깨지 않는 이유
 
 기존 테스트 파일 2개에 **추가만** 하고 한 줄도 수정하지 않는다. 새로 렌더되는 문자열이
@@ -461,8 +553,21 @@ Phase 2 는 그 확인된 상수를 **그대로** 실을 뿐 새 문자열을 �
 유일한 신규 문자열은 `<link rel="icon" …>` 껍데기와 `<div class="brand">` 껍데기,
 그리고 CSS 선택자 3개인데 셋 다 `http`·`agy`·`claude`·`st-` 를 담지 않는다.
 
-**실측(2026-09-24 재확인)**: `node p-quaestor/test/run-all.js` →
-432(기준선) + 14(Phase 1) + 10(Phase 2) = **456 tests / 456 pass / 0 fail / exitCode 0**.
+**[CHANGED] 실측(2026-09-24, 이 재설계 시점 재실행)**: `node p-quaestor/test/run-all.js` →
+**465 tests / 464 pass / 1 fail / exitCode 1**.
+
+위의 "456/456/0" 은 직전 라운드의 **테스트 추가 커밋(`9966a8f`) 이전** 숫자였다. 그 커밋이
+`status-page.test.js` 와 `control-server.test.js` 에 9개를 더해 465가 됐고, 그중 1개
+(`control-server.test.js:2824`)가 §4 D3-1 의 명세 결함 때문에 실패한다. **유일한 실패다.**
+
+🔒 **실패의 성격**: 회귀가 아니다. `lib/status-page.js` 의 구현은 이미 랜딩해 있고
+(`<link rel="icon" …>` 는 `status-page.js:198`, `<div class="brand">` 는 `:203`) 나머지 464개가
+전부 통과한다. 기존 432개도 한 개도 깨지지 않았다. 고쳐야 할 것은 **기준 문장 한 줄**이다.
+
+**목표 상태**: `control-server.test.js:2824` 를 §8-7 6번의 단언으로 대체하면
+**465 tests / 465 pass / 0 fail / exitCode 0**(1:1 대체이므로 총수 불변). 테스트를
+쪼개 넣으면 총수는 늘 수 있다 — 고정하는 것은 **실패 0 / exitCode 0** 과
+**기존 432개 무수정**이지 총 개수가 아니다.
 
 ### 8-10. 현황 기록
 
@@ -476,6 +581,17 @@ Phase 2 의 구현·테스트·평가는 이미 랜딩했고(`94b70b8` implement
 Phase 2 기준 블록이 비어 있었다. 이 문서가 그것을 채운다. Phase Guard 가 지적한
 `PROGRESS.md` 의 `2:PENDING` 표시는 구현 결손이 아니라 **상태 표기 미갱신**이다.
 
+**[CHANGED] 그 채움이 결함을 하나 들여왔다.** `3212652`(design-next)가 쓴 `ACCEPTANCE.md`
+Phase 2 "외부 리소스 0건" 절에 **"렌더된 HTML 에 `claude` 가 0개"** 가 섞여 들어갔고
+(§4 D3 표가 소스 축과 HTML 축을 한 표에 섞어 둔 것이 발원지다), 다음 라운드 `9966a8f`(test)가
+그 기준을 충실히 테스트로 옮기자 013 의 동결 동작과 충돌해 실패했다. `a20d2d0`/`be6972c` 이
+"Issues found: 없음" 을 낸 것은 **그때는 이 기준이 테스트로 존재하지 않았기 때문**이다 —
+기준을 쓴 라운드와 그것을 실행한 라운드가 갈라져 있었다.
+
+이 재설계가 고치는 것은 **그 한 줄과 그 파급뿐**이다(§4 D3-1 · §8-7 6번 · 아래 §9).
+`brand.js`·`assets/icon.svg`·`status-page.js` 의 설계(§2·§4 D1·D2·D4~D7·§7)와 Phase 1 전체는
+실측으로 통과가 확인돼 있으므로 **한 글자도 바꾸지 않는다.** 재설계 범위를 여기서 넘기지 않는다.
+
 ---
 
 ## 9. 불변 · 금지
@@ -484,7 +600,12 @@ Phase 2 기준 블록이 비어 있었다. 이 문서가 그것을 채운다. Ph
 - **기존 테스트 432개 수정 허용 0건.** 깨지면 구현을 고친다
 - 새 경로 0개 — `/favicon.ico` 는 계속 JSON 404
 - 의존성 추가 금지(`dependencies` 는 `['puppeteer']` 그대로) · 외부 리소스 0건
-- `brand.js` 포함 모든 `.js` 에서 `claude` 0개
+- **[CHANGED]** `brand.js` 포함 모든 `.js` **소스 파일**에서 `claude` 0개(`lib/source.js` 만 예외).
+  🔒 이것은 **소스 축**이다. **렌더된 HTML 에는 적용되지 않는다** — 013 이 `엔진 범위: claude` 를
+  싣는 것이 정상이고, `GET /` HTML 의 `claude` 기대 개수는 0이 아니라 **1**이다(§4 D3-1).
+  HTML 축에서 0건을 요구하는 것은 `http://`·`https://`·`agy`·`st-*` **넷뿐**이며, 그 넷은 완화하지 않는다
+- **[CHANGED]** 013 무회귀: `GET /` HTML 은 `<div class="field">엔진 범위: claude</div>` 를 계속 낸다.
+  016 은 `usage.covers`/`allowance.covers` 와 그 렌더 줄(`status-page.js:208`)을 건드리지 않는다
 - 새 클래스에 `st-` 접두어 금지 · `<main>` 의 class·style·`data-sig` 불변 · `<h1>Quaestor</h1>` 부분문자열 유지
 - 영문 코드/주석(한글은 페이지 표시 문구에만 — `brand.js` 에는 한글이 없다)
 - `.profile` · `deploy.json` · Agora `icons/` · 다른 제품: 손대지 않는다
