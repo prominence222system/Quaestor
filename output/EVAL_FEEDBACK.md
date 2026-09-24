@@ -36,3 +36,7 @@ output/ACCEPTANCE.md 존재 확인, Phase 1·Phase 2 모든 [SPEC]/[DERIVED] 항
 - 폐기된 단언을 빈자리로 두지 않고 더 강한 단언(013 생존 + 016 추가분 결백을 한 테스트에서 동시 증명)으로 대체했고, 그 대체가 HEAD 55f14ed에서 반증 가능하도록 구조를 짰다(상수 직접 비교가 아니라 실제 HTTP 응답에서 slice).
 - `MARK_BODY → ICON_SVG/MARK_INLINE` 조립 방향(원본 하나·파생 둘)과 sha256 고정으로 로고 문자열이 두 표기 사이에서 갈라질 수 없는 구조를 만들었고, `assets/icon.svg`와의 동일성도 코드가 아닌 테스트로 잇는 설계 판단이 일관적이다.
 - `git diff --numstat` 기준 실제 변경분이 설계 문서가 예고한 범위(파일 6개, 그중 4개는 순수 추가)와 정확히 일치 — 문서와 구현의 드리프트가 없다.
+
+
+## Fix Loop Diagnosis
+[fix-diag] attempts=1 identical=1/1 escalated=no

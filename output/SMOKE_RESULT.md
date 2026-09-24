@@ -1,10 +1,9 @@
 # SMOKE_RESULT
 
-Generated: 2026-09-24 23:38:44
+Generated: 2026-09-24 23:49:52
 
 ## File Checks
-- FAIL: declared smoke failed: node p-quaestor/test/run-all.js (exit 1)
-- FAIL: declared smoke not verified: declared smoke: 1 declared / 0 executed-pass
+- All file checks passed
 
 ## Key Files
 - key-files: regenerated 0 excluded (build|.gradle|.kotlin|obj|bin), checked 3 -- all present
@@ -19,58 +18,34 @@ Generated: 2026-09-24 23:38:44
 - deploy-quaestor.ps1 (-DryRun): PASS (exit 0) -- exited 0
 
 ## Declared Smoke (MASTER.md ## Work Verify)
-- EXECUTED_FAIL: `node p-quaestor/test/run-all.js` (cwd: F:\Workspace\Automatic\projects\Quaestor, exit 1, 4.8s)
+- EXECUTED_PASS: `node p-quaestor/test/run-all.js` (cwd: F:\Workspace\Automatic\projects\Quaestor, exit 0, 4.8s)
 ```
-e="width:5%"></div></div><span>5% · 85%p 남음</span></div>
-  <div class="row"><span>주간</span><div class="gauge"><div class="gauge-fill" style="width:5%"></div></div><span>5% · 80%p 남음</span></div>
-  </section>
-  <section>
-  <h2>임계값</h2>
-  <div class="field">주간 정지 85% / 해제 70%</div>
-  <div class="field">세션 정지 90% / 해제 75%</div>
-  </section>
-  <section>
-  <h2>마지막 측정</h2>
-  <div class="field">2026-09-24T14:38:41.110Z (방금)</div>
-  </section>
-  <section>
-  <h2>STOP</h2>
-  <div class="field">없음</div>
-  </section>
-  <section>
-  <h2>마지막 실패</h2>
-  <div class="field">없음</div>
-  </section>
-  <section>
-  <h2>감시 상태</h2>
-  <div class="field">ok · 감시 중 · 주간 5%</div>
-  </section>
-  <section>
-  <h2>Gemini</h2>
-  <div class="row"><span>주간 잔량</span><span>모름</span></div>
-  <div class="row"><span>5시간 잔량</span><span>모름</span></div>
-  <div class="field">마지막 측정: 모름</div>
-  <div class="field">상태: 측정 전</div>
-  </section>
-  </main>
-  <script>(function(){var el=document.querySelector(".wrap");if(!el)return;var sig=el.getAttribute("data-sig");function sigOf(d){var a=(d&&d.allowance)||{};var u=(d&&d.usage)||{};return [String(a.allowed),String(a.reason),String(u.session_pct),String(u.weekly_pct),String(u.stale),String(u.measured_at),String(d&&d.state)].join("|");}setInterval(function(){fetch("/api/status",{cache:"no-store"}).then(function(r){return r.ok?r.json():null;}).then(function(d){if(d&&sigOf(d)!==sig){location.reload();}}).catch(function(){});},30000);})();</script>
-  </body>
-  </html>
-  
-  
-  1 !== 0
-  
-      at TestContext.<anonymous> (F:\Workspace\Automatic\projects\Quaestor\p-quaestor\test\control-server.test.js:2829:12)
-      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
-      at async Test.run (node:internal/test_runner/test:1125:7)
-      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7) {
-    generatedMessage: false,
-    code: 'ERR_ASSERTION',
-    actual: 1,
-    expected: 0,
-    operator: 'strictEqual',
-    diff: 'simple'
-  }
+s (0.103ms)
+✔ live observation source (C3, structural): getSnapshot is a function (controlSnapshot) whose body references the observation module variable (0.259ms)
+✔ C3 (structural): controlSnapshot() body has no fs.* calls, no scrapeUsage, and no STOP_PATH reference (0.1565ms)
+✔ watch-loop.js does not re-judge thresholds when wiring control-server (no new 85/90/70/75 literals or state branches around the wiring) (0.1675ms)
+✔ Phase 2 [SPEC]: 26-day silence fixture restored on boot yields state === crit (4.7011ms)
+✔ Phase 2 [SPEC]: boundary verification -- real log file tail reading and chopped line handling (2.6351ms)
+✔ Phase 2 [SPEC]: non-existent file, 0-byte file, and corrupted binary bytes yield empty observation without throwing (3.0297ms)
+✔ Phase 2 [SPEC]: large file (>64KB) reads at most 64KB (65536 bytes) (47.4154ms)
+✔ Phase 2 [SPEC]: restored observation stringified contains no secrets (.profile, cookie, @) (2.1457ms)
+✔ Phase 2 [SPEC]: mainLoop structurally integrates restoreObservation at startup before polling loop (0.2555ms)
+✔ W1: startControlServer(...) is called with both configPath and onConfigChange (0.2376ms)
+✔ W2: refreshConfig() exists and updates lastCfg/lastConfigSource from readConfig(CONFIG_PATH) (0.2415ms)
+✔ W3: pollOnce() calls refreshConfig() and does not duplicate config-reading logic (0.2323ms)
+✔ W4 [SPEC]: existing [config] log strings are byte-for-byte unchanged, and watch-loop.js contains no "[thresholds]" string (0.1123ms)
+✔ 014 §2: createAgyMonitor( is called exactly once, at module scope (not inside pollOnce()) (0.1843ms)
+✔ 014 §2: pollOnce() calls agyMonitor.poll() right after refreshConfig(), unawaited, ahead of every early return (0.2559ms)
+✔ 014 §2: watch-loop.js requires createAgyMonitor from ./lib/agy-usage (0.1462ms)
+✔ 015 Phase 2 [SPEC]: controlSnapshot() returns ctx with agy key populated by agyMonitor.snapshot() (0.1508ms)
+ℹ tests 465
+ℹ suites 0
+ℹ pass 465
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4689.653
 
 ```
 
@@ -81,8 +56,8 @@ e="width:5%"></div></div><span>5% · 85%p 남음</span></div>
 - WARN: PROGRESS.md UNEXPECTED_BOM (generated artifact must not carry a BOM)
 
 ## Targets
-- Execution-class targets: 1
+- Execution-class targets: 2
 - Static-class targets: 4
 
 ## Verdict
-SMOKE_FAIL
+SMOKE_PASS
