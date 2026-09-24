@@ -1299,3 +1299,121 @@ ent values render as "<n>%" and headroom as "<n>%p ??" only when numeric (0.0649
 
 ```
 
+## 2026-09-24T14:49:58Z  round=Round 14  completed=016-logo-favicon-and-header-mark.md  verdict=VERIFIED
+- project: Quaestor
+- project_dir: F:\Workspace\Automatic\projects\Quaestor
+- head: 2439b9c77675212e63f82fab378c3c3535c84456
+- worktree: UNCHANGED
+- duration: 5s
+- checks: 1 declared / 1 ran / 1 passed
+- gate: this report is READ AS A GATE by the run loop -- it is not just a log.
+- gate: verdict=VERIFIED lets the run continue; BROKEN or UNVERIFIED sets failKind and stops the run (Result: WORK_VERIFY_FAIL).
+- gate: when it stops the run, the reason is also written to output/iterations.json partial_notes.
+- gate: set workverify_gate_strict=false in config to turn the gate off; the report is still written either way.
+
+### [1/1] SMOKE 1/1 -- PASS (exit 0)
+- command: node p-quaestor/test/run-all.js
+- workdir: F:\Workspace\Automatic\projects\Quaestor
+- failure point: none (passed)
+- reproduce:
+      cd "F:\Workspace\Automatic\projects\Quaestor"
+      node p-quaestor/test/run-all.js
+- log tail:
+```
+agy.last_error translated into Korean phrases (0.3464ms)
+? [SPEC] 015 Phase 3: Gemini section reuses zero st-* class tokens and leaves root <main> intact (0.1621ms)
+? [SPEC] 016: <head> carries a base64 SVG favicon link right after <title>, decoding back to ICON_SVG (0.1306ms)
+? [SPEC] 016: <main> contains <div class="brand"><svg class="mark" ... and the "<h1>Quaestor</h1>" substring is unchanged (0.0824ms)
+? [SPEC] 016: rendered HTML with the favicon/mark additions still has zero http://, https://, agy substrings (0.1252ms)
+? [SPEC] 016: GET /favicon.ico is not a route added by this renderer (status-page.js has no favicon.ico route logic) (0.0658ms)
+? [DERIVED] 016: new .brand/.mark CSS selectors are added without touching any existing selector value (0.1481ms)
+? [SPEC] 016: MARK_INLINE is carried in full (not just its opening tag) inside <div class="brand"> (0.0966ms)
+? [SPEC] 016: <main class=? data-sig=?> opening tag is byte-identical to its pre-016 computation (class/style/data-sig untouched) (0.1083ms)
+? [SPEC] 016: the favicon <link> uses rel="icon", never rel="stylesheet" (0.0822ms)
+? [DERIVED] 016: .brand/.brand h1/.mark declarations match the design exactly, and the header bottom-margin total (16px) is preserved from the pre-016 h1 rule (0.0818ms)
+? [SPEC] 016: favicon link and header brand mark render identically (and never throw) for malformed/missing payloads (0.2224ms)
+? [SPEC] 016: rendered HTML has zero "claude" occurrences when usage/allowance carry no covers field (the 016 additions themselves introduce none) (0.0898ms)
+? [DERIVED] 015 Phase 3: signature() is unaffected by agy property changes (0.1025ms)
+? [SPEC] S1 USER_GATE-A: tighten round trip then GET /api/status reflects new thresholds immediately (no poll wait) (5.5815ms)
+? [SPEC] S2 USER_GATE-B: loosen without expires_at is rejected with 400 and leaves zero side effects (3.6494ms)
+? [SPEC] S3 two-call bypass: loosen+expiry succeeds, then a follow-up expires_at:null-only request is rejected and the stored expiry survives (4.2532ms)
+? [SPEC] S4 an expiry that actually elapses causes readConfig() and GET /api/status to fall back to HARD_DEFAULTS (1518.5182ms)
+? [SPEC] S5 reproduces the May incident state (99/99, no expiry) and records exactly one recovery log line (9.5648ms)
+? [DERIVED] S6 concurrent PUTs: both responses are valid JSON, the file stays valid, and no .tmp survives (9.636ms)
+? [SPEC] S7 never-brick: config-unreadable, write-failed, 403, and 401 in sequence leave the dashboard alive (20.3928ms)
+? [SPEC] never-brick: no uncaughtException/unhandledRejection observed across the S7 failure sequence (8.5469ms)
+? [SPEC] hermetic discipline: this file never references a real product config path, only os.tmpdir() (0.5871ms)
+? module purity: exports required names (0.1744ms)
+? module purity: does not require http/net, does not call Date.now() (0.2244ms)
+? module purity: no literal "claude" in source (0.071ms)
+? tighten: 99,99 -> 85,90 succeeds (0.0877ms)
+? tighten: identical request is tighten (0.0754ms)
+? tighten: only *_release changed is tighten (0.0725ms)
+? loosen without expires_at is rejected (400 loosen-requires-expiry) (0.0659ms)
+? loosen with future expires_at succeeds (0.0729ms)
+? loosen with past expires_at is rejected (400 expiry-in-past) (0.171ms)
+? invalid expires_at string is rejected (400 invalid-expiry) (0.1103ms)
+? loosen with omitted expires_at but future currentExpiresAt succeeds (0.0655ms)
+? loosen with omitted expires_at and null currentExpiresAt is rejected (0.0593ms)
+? loosen with omitted expires_at and past currentExpiresAt is rejected (0.058ms)
+? explicit expires_at:null allowed when both *_stop within HARD_DEFAULTS (0.064ms)
+? explicit expires_at:null rejected when *_stop above HARD_DEFAULTS (0.0575ms)
+? loosen-requires-expiry error message mentions hard defaults / temporary file (0.104ms)
+? hysteresis: weekly_stop <= weekly_release rejected (0.0642ms)
+? hysteresis: session_stop <= session_release rejected (0.0681ms)
+? hysteresis: equal stop/release rejected (0.0878ms)
+? invalid value: non-integer rejected (0.078ms)
+? invalid value: non-numeric string rejected (0.0618ms)
+? invalid value: null rejected (0.1031ms)
+? invalid value: boolean rejected (0.0636ms)
+? invalid value: out of range rejected (0.0798ms)
+? unknown key rejected (0.062ms)
+? unknown key: enabled/control rejected (0.0609ms)
+? invalid body: null/array/non-object rejected (0.0567ms)
+? invalid body: empty object rejected (0.0535ms)
+? partial request: other 3 values unchanged in next (0.0784ms)
+? returns previous and next with all 4 values (0.0807ms)
+? mergeIntoConfig preserves other keys (0.1077ms)
+? mergeIntoConfig does not mutate input (0.0871ms)
+? mergeIntoConfig handles missing/non-object thresholds (0.0684ms)
+? formatThresholdLog format and no forbidden tokens (0.0877ms)
+? formatThresholdLog with no expiry says none, unchanged keys omitted (0.0629ms)
+? generated log line does not confuse 005 parseLogTail (returns null) (0.0767ms)
+? require("../watch-loop.js") loads without starting the watch loop (0.1031ms)
+? watch-loop.js source guards its immediate-invocation loop with require.main === module (0.1575ms)
+? watch-loop.js wires lib/observation.js into pollOnce success/failure branches (0.158ms)
+? scrape-failure log line surfaces kind and hint (?5 diagnostic logging requirement) (0.1836ms)
+? watch-loop.js does not re-implement frozen helpers (deriveDesired/isValidUsage/writeStopJsonAtomic/readConfig/resolveStopDir stay) (0.1131ms)
+? p-quaestor/.js files do not reference the Claude CLI (0.5827ms)
+? C1: requiring watch-loop.js does not call startControlServer at module-load time (1.4004ms)
+? C1 (structural): startControlServer( call site is inside mainLoop(), not at module top level (0.2596ms)
+? C2 (structural): the startControlServer call is wrapped in try/catch, and the polling loop follows unconditionally (0.1421ms)
+? never-brick: startup failure is not swallowed silently -- "[control] listen failed" logging path exists (0.1033ms)
+? live observation source (C3, structural): getSnapshot is a function (controlSnapshot) whose body references the observation module variable (0.2256ms)
+? C3 (structural): controlSnapshot() body has no fs.* calls, no scrapeUsage, and no STOP_PATH reference (0.146ms)
+? watch-loop.js does not re-judge thresholds when wiring control-server (no new 85/90/70/75 literals or state branches around the wiring) (0.1458ms)
+? Phase 2 [SPEC]: 26-day silence fixture restored on boot yields state === crit (5.6359ms)
+? Phase 2 [SPEC]: boundary verification -- real log file tail reading and chopped line handling (2.2481ms)
+? Phase 2 [SPEC]: non-existent file, 0-byte file, and corrupted binary bytes yield empty observation without throwing (2.376ms)
+? Phase 2 [SPEC]: large file (>64KB) reads at most 64KB (65536 bytes) (43.2652ms)
+? Phase 2 [SPEC]: restored observation stringified contains no secrets (.profile, cookie, @) (1.4408ms)
+? Phase 2 [SPEC]: mainLoop structurally integrates restoreObservation at startup before polling loop (0.1466ms)
+? W1: startControlServer(...) is called with both configPath and onConfigChange (0.1698ms)
+? W2: refreshConfig() exists and updates lastCfg/lastConfigSource from readConfig(CONFIG_PATH) (0.1456ms)
+? W3: pollOnce() calls refreshConfig() and does not duplicate config-reading logic (0.1552ms)
+? W4 [SPEC]: existing [config] log strings are byte-for-byte unchanged, and watch-loop.js contains no "[thresholds]" string (0.0698ms)
+? 014 ?2: createAgyMonitor( is called exactly once, at module scope (not inside pollOnce()) (0.1055ms)
+? 014 ?2: pollOnce() calls agyMonitor.poll() right after refreshConfig(), unawaited, ahead of every early return (0.1434ms)
+? 014 ?2: watch-loop.js requires createAgyMonitor from ./lib/agy-usage (0.1052ms)
+? 015 Phase 2 [SPEC]: controlSnapshot() returns ctx with agy key populated by agyMonitor.snapshot() (0.0948ms)
+? tests 465
+? suites 0
+? pass 465
+? fail 0
+? cancelled 0
+? skipped 0
+? todo 0
+? duration_ms 4813.3205
+
+```
+
