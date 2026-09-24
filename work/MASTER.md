@@ -37,6 +37,7 @@ claude.ai/settings/usage --scrape--> session_pct / weekly_pct
 - Round 11: 013 (engine: agy)
 - Round 12: 014 (engine: claude)
 - Round 13: 015 (engine: agy)
+- Round 14: 016 (engine: claude)
 
 ## Work Verify
 - Smoke: `node p-quaestor/test/run-all.js`
@@ -188,6 +189,16 @@ Quaestor 는 `claude.ai` 만 긁으므로 agy 잔량을 **모른다.** 모르는
 🔒 **차단기는 안 건드린다.** 측정과 표시만이다. agy 가 바닥나면 무엇을 멈출지는 별도 결정이다.
 🔒 **로그 형식이 함정이다**: `logparse.js` 의 `weekRe = /weekly=(\d+...)%/` 가 agy 줄의 `weekly=` 를 claude 로 복원한다.
 agy 줄은 `weekly_left=` 를 쓴다.
+
+## Round 14 가 하는 일
+
+- **016** — **로고**. 사용자가 시안 C(두 계기와 정지선)를 골랐다. 상태 페이지에 탭 파비콘과 머리글 마크를 달고,
+  Armory 카탈로그가 가리킬 `p-quaestor/assets/icon.svg` 를 만든다. 로고 문자열의 출처는 `lib/brand.js` 하나다.
+
+🔒 **파비콘은 base64 data URI 다.** 단독 SVG 는 `xmlns` 의 `http://` 가 필수인데 기존 테스트가 HTML 의 `http://`
+문자열 0개를 단언한다 — base64 가 두 조건을 같이 지킨다. **기존 단언을 완화하지 말 것.**
+🔒 **계약 불변(1.5.0)**, 새 경로 없음(`/favicon.ico` 는 계속 JSON 404), 기존 테스트 수정 허용 **0건**.
+🔒 `deploy.json` 은 저장소에 없다 — `icon` 한 줄은 랜딩 후 세션이 넣는다.
 
 ## Constraints
 
