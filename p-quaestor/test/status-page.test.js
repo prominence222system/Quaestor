@@ -517,6 +517,54 @@ test('[DERIVED] 016: new .brand/.mark CSS selectors are added without touching a
   assert.ok(html.includes('.badge{display:inline-block;padding:8px 20px;border-radius:999px;font-weight:700;font-size:1.2rem;background:#6e7781;color:#fff}'));
 });
 
+test('[SPEC] 016: MARK_INLINE is carried in full (not just its opening tag) inside <div class="brand">', () => {
+  const { MARK_INLINE } = require('../lib/brand');
+  const html = renderStatusPage(basePayload());
+  const brandIdx = html.indexOf('<div class="brand">');
+  assert.ok(brandIdx !== -1);
+  assert.ok(html.indexOf(MARK_INLINE, brandIdx) === brandIdx + '<div class="brand">'.length, 'the full MARK_INLINE string, not a truncated prefix, must immediately follow the brand div');
+});
+
+test('[SPEC] 016: <main class=… data-sig=…> opening tag is byte-identical to its pre-016 computation (class/style/data-sig untouched)', () => {
+  const p = basePayload();
+  const html = renderStatusPage(p);
+  const expectedSig = signature(p);
+  const mainTagMatch = html.match(/<main[^>]*>/);
+  assert.ok(mainTagMatch);
+  assert.strictEqual(mainTagMatch[0], '<main class="wrap st-allowed" data-sig="' + expectedSig + '">');
+});
+
+test('[SPEC] 016: the favicon <link> uses rel="icon", never rel="stylesheet"', () => {
+  const html = renderStatusPage(basePayload());
+  const linkMatch = html.match(/<link rel="([^"]+)" type="image\/svg\+xml"/);
+  assert.ok(linkMatch);
+  assert.strictEqual(linkMatch[1], 'icon');
+});
+
+test('[DERIVED] 016: .brand/.brand h1/.mark declarations match the design exactly, and the header bottom-margin total (16px) is preserved from the pre-016 h1 rule', () => {
+  const html = renderStatusPage(basePayload());
+  assert.ok(html.includes('h1{font-size:1.1rem;margin:0 0 16px;color:#57606a}'), 'original h1 rule must be untouched');
+  assert.ok(html.includes('.brand{display:flex;align-items:center;gap:8px;margin:0 0 16px}'));
+  assert.ok(html.includes('.brand h1{margin:0}'));
+  assert.ok(html.includes('.mark{flex-shrink:0}'));
+});
+
+test('[SPEC] 016: favicon link and header brand mark render identically (and never throw) for malformed/missing payloads', () => {
+  const { MARK_INLINE, FAVICON_HREF } = require('../lib/brand');
+  const inputs = [null, undefined, 'not-an-object', 42, {}, { allowance: {} }, { usage: {} }, { allowance: null, usage: null }, { agy: 'not-an-object' }, { state: 123 }];
+  for (const input of inputs) {
+    let html;
+    assert.doesNotThrow(() => { html = renderStatusPage(input); });
+    assert.ok(html.includes('<link rel="icon" type="image/svg+xml" href="' + FAVICON_HREF + '">'), 'favicon link missing for ' + JSON.stringify(input));
+    assert.ok(html.includes('<div class="brand">' + MARK_INLINE + '<h1>Quaestor</h1></div>'), 'brand mark missing for ' + JSON.stringify(input));
+  }
+});
+
+test('[SPEC] 016: rendered HTML has zero "claude" occurrences when usage/allowance carry no covers field (the 016 additions themselves introduce none)', () => {
+  const html = renderStatusPage(basePayload());
+  assert.strictEqual((html.match(/claude/gi) || []).length, 0);
+});
+
 test('[DERIVED] 015 Phase 3: signature() is unaffected by agy property changes', () => {
   const p1 = agyPayload();
   const sig1 = signature(p1);

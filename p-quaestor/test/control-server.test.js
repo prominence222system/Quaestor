@@ -2781,4 +2781,55 @@ test('016 Phase 2 [SPEC]: real server GET /api/health contracts["supervised-v1"]
   }
 });
 
+test('016 Phase 2 [SPEC]: real server GET / carries the full MARK_INLINE string (not a truncated prefix) inside <div class="brand">', async () => {
+  const { MARK_INLINE } = require('../lib/brand');
+  const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });
+  try {
+    const res = await fetch('http://127.0.0.1:' + r.port + '/');
+    const html = await res.text();
+    const brandIdx = html.indexOf('<div class="brand">');
+    assert.ok(brandIdx !== -1);
+    assert.strictEqual(html.indexOf(MARK_INLINE, brandIdx), brandIdx + '<div class="brand">'.length);
+  } finally {
+    await r.close();
+  }
+});
+
+test('016 Phase 2 [SPEC]: real server GET / favicon <link> uses rel="icon", never rel="stylesheet"', async () => {
+  const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });
+  try {
+    const res = await fetch('http://127.0.0.1:' + r.port + '/');
+    const html = await res.text();
+    assert.ok(!/<link[^>]+rel=["']stylesheet["']/.test(html));
+    const linkMatch = html.match(/<link rel="([^"]+)" type="image\/svg\+xml"/);
+    assert.ok(linkMatch);
+    assert.strictEqual(linkMatch[1], 'icon');
+  } finally {
+    await r.close();
+  }
+});
+
+// [SPEC] ACCEPTANCE.md Phase 2 "외부 리소스 0건" section literally requires zero
+// case-insensitive "claude" occurrences in the real GET / response body. This is
+// tested here, unweakened, against the standard okSnapshot() fixture used by every
+// sibling 0-count test in this section (per the "above assertions hold over the real
+// HTTP round-trip" requirement). It is expected to FAIL: lib/observation.js
+// unconditionally sets usage.covers = [ENGINE] = ['claude'] (frozen invariant from
+// round 013, independently tested at control-server.test.js:1529/1572), which
+// status-page.js renders as the literal text "엔진 범위: claude" on every real page.
+// This is a genuine conflict between this Phase 2 acceptance line and a
+// previously-frozen, already-shipped 013 behavior -- see output/TEST_RESULT.md for
+// the full defect writeup. Left unmodified/unskipped per QA protocol: a [SPEC]
+// criterion that cannot be satisfied must be reported, never relaxed.
+test('016 Phase 2 [SPEC]: real server GET / HTML has zero "claude" occurrences (case-insensitive)', async () => {
+  const r = await startControlServer({ port: 0, getSnapshot: okSnapshot });
+  try {
+    const res = await fetch('http://127.0.0.1:' + r.port + '/');
+    const html = await res.text();
+    assert.strictEqual((html.match(/claude/gi) || []).length, 0, html);
+  } finally {
+    await r.close();
+  }
+});
+
 
